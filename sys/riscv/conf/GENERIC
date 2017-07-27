@@ -75,11 +75,14 @@ options 	RACCT_DEFAULT_TO_DISABLED # Set kern.racct.enable=0 by default
 options 	RCTL			# Resource limits
 options 	SMP
 
+# RISC-V SBI console
+device		rcons
+
 # Uncomment for memory disk
-# options 	MD_ROOT
-# options 	MD_ROOT_SIZE=32768	# 32MB ram disk
-# makeoptions	MFS_IMAGE=/path/to/img
-# options 	ROOTDEVNAME=\"ufs:/dev/md0\"
+options 	MD_ROOT
+options 	MD_ROOT_SIZE=32768	# 32MB ram disk
+makeoptions	MFS_IMAGE=/home/br/dev/freebsd-riscv/riscv.img
+options 	ROOTDEVNAME=\"ufs:/dev/md0\"
 
 # Debugging support.  Always need this:
 options 	KDB			# Enable kernel debugger support.

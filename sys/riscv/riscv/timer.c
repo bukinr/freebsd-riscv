@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2015-2016 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2015-2017 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Portions of this software were developed by SRI International and the
@@ -66,35 +66,20 @@ __FBSDID("$FreeBSD$");
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
 
-#define	DEFAULT_FREQ	1000000
+#define	DEFAULT_FREQ	10000000
 
 #define	TIMER_COUNTS		0x00
 #define	TIMER_MTIMECMP(cpu)	(cpu * 8)
 
-#define	READ8(_sc, _reg)        \
-	bus_space_read_8(_sc->bst, _sc->bsh, _reg)
-#define	WRITE8(_sc, _reg, _val) \
-	bus_space_write_8(_sc->bst, _sc->bsh, _reg, _val)
-
 struct riscv_tmr_softc {
-	struct resource		*res[3];
-	bus_space_tag_t		bst;
-	bus_space_handle_t	bsh;
-	bus_space_tag_t		bst_timecmp;
-	bus_space_handle_t	bsh_timecmp;
 	void			*ih;
 	uint32_t		clkfreq;
 	struct eventtimer	et;
+	int			intr_rid;
+	struct resource		*intr_res;
 };
 
 static struct riscv_tmr_softc *riscv_tmr_sc = NULL;
-
-static struct resource_spec timer_spec[] = {
-	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
-	{ SYS_RES_MEMORY,	1,	RF_ACTIVE },
-	{ SYS_RES_IRQ,		0,	RF_ACTIVE },
-	{ -1, 0 }
-};
 
 static timecounter_get_t riscv_tmr_get_timecount;
 
@@ -107,12 +92,25 @@ static struct timecounter riscv_tmr_timecount = {
 	.tc_quality        = 1000,
 };
 
+typedef unsigned long cycles_t;
+
+static inline cycles_t
+get_cycles(void)
+{
+	cycles_t n;
+
+	__asm __volatile(
+		"rdtime %0"
+		: "=r" (n));
+	return (n);
+}
+
 static long
 get_counts(struct riscv_tmr_softc *sc)
 {
 	uint64_t counts;
 
-	counts = READ8(sc, TIMER_COUNTS);
+	counts = get_cycles();
 
 	return (counts);
 }
@@ -132,18 +130,13 @@ riscv_tmr_start(struct eventtimer *et, sbintime_t first, sbintime_t period)
 {
 	struct riscv_tmr_softc *sc;
 	uint64_t counts;
-	int cpu;
 
 	sc = (struct riscv_tmr_softc *)et->et_priv;
 
 	if (first != 0) {
 		counts = ((uint32_t)et->et_frequency * first) >> 32;
-		counts += READ8(sc, TIMER_COUNTS);
-		cpu = PCPU_GET(cpuid);
-		bus_space_write_8(sc->bst_timecmp, sc->bsh_timecmp,
-		    TIMER_MTIMECMP(cpu), counts);
+		sbi_set_timer(get_cycles() + counts);
 		csr_set(sie, SIE_STIE);
-		sbi_set_timer(counts);
 
 		return (0);
 	}
@@ -183,6 +176,7 @@ static int
 riscv_tmr_fdt_probe(device_t dev)
 {
 
+#if 0
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
@@ -192,20 +186,29 @@ riscv_tmr_fdt_probe(device_t dev)
 	}
 
 	return (ENXIO);
+#endif
+
+	device_set_desc(dev, "RISC-V Timer");
+	return (BUS_PROBE_DEFAULT);
+
 }
 
 static int
 riscv_tmr_attach(device_t dev)
 {
 	struct riscv_tmr_softc *sc;
-	phandle_t node;
-	pcell_t clock;
+	//phandle_t node;
+	//pcell_t clock;
 	int error;
 
 	sc = device_get_softc(dev);
 	if (riscv_tmr_sc)
 		return (ENXIO);
 
+	if (device_get_unit(dev) != 0)
+		return ENXIO;
+
+#if 0
 	/* Get the base clock frequency */
 	node = ofw_bus_get_node(dev);
 	if (node > 0) {
@@ -217,6 +220,7 @@ riscv_tmr_attach(device_t dev)
 	}
 
 	if (sc->clkfreq == 0)
+#endif
 		sc->clkfreq = DEFAULT_FREQ;
 
 	if (sc->clkfreq == 0) {
@@ -224,21 +228,18 @@ riscv_tmr_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	if (bus_alloc_resources(dev, timer_spec, sc->res)) {
-		device_printf(dev, "could not allocate resources\n");
+	riscv_tmr_sc = sc;
+
+	sc->intr_rid = 0;
+	sc->intr_res = bus_alloc_resource(dev,
+	    SYS_RES_IRQ, &sc->intr_rid, 5, 5, 1, RF_ACTIVE);
+	if (sc->intr_res == NULL) {
+		device_printf(dev, "failed to allocate irq\n");
 		return (ENXIO);
 	}
 
-	/* Memory interface */
-	sc->bst = rman_get_bustag(sc->res[0]);
-	sc->bsh = rman_get_bushandle(sc->res[0]);
-	sc->bst_timecmp = rman_get_bustag(sc->res[1]);
-	sc->bsh_timecmp = rman_get_bushandle(sc->res[1]);
-
-	riscv_tmr_sc = sc;
-
 	/* Setup IRQs handler */
-	error = bus_setup_intr(dev, sc->res[2], INTR_TYPE_CLK,
+	error = bus_setup_intr(dev, sc->intr_res, INTR_TYPE_CLK,
 	    riscv_tmr_intr, NULL, sc, &sc->ih);
 	if (error) {
 		device_printf(dev, "Unable to alloc int resource.\n");
@@ -278,10 +279,15 @@ static driver_t riscv_tmr_fdt_driver = {
 
 static devclass_t riscv_tmr_fdt_devclass;
 
+EARLY_DRIVER_MODULE(timer, nexus, riscv_tmr_fdt_driver, riscv_tmr_fdt_devclass,
+    0, 0, BUS_PASS_TIMER + BUS_PASS_ORDER_MIDDLE);
+
+#if 0
 EARLY_DRIVER_MODULE(timer, simplebus, riscv_tmr_fdt_driver, riscv_tmr_fdt_devclass,
     0, 0, BUS_PASS_TIMER + BUS_PASS_ORDER_MIDDLE);
 EARLY_DRIVER_MODULE(timer, ofwbus, riscv_tmr_fdt_driver, riscv_tmr_fdt_devclass,
     0, 0, BUS_PASS_TIMER + BUS_PASS_ORDER_MIDDLE);
+#endif
 
 void
 DELAY(int usec)

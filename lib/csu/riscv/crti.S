@@ -36,8 +36,8 @@
 __FBSDID("$FreeBSD$");
 
 # this puts _gp into .dynsym, so symlook_obj can now find that (see reloc.c)
-	.weak	_gp
-_gp:
+	.weak	__global_pointer$
+__global_pointer$:
 
 	.section .init,"ax",@progbits
 	.align	2
@@ -46,6 +46,8 @@ _gp:
 _init:
 	addi	sp, sp, -16
 	sd	ra, 0(sp)
+	# compressed extension requires this nop
+	nop
 
 	.section .fini,"ax",@progbits
 	.align	2
@@ -54,5 +56,7 @@ _init:
 _fini:
 	addi	sp, sp, -16
 	sd	ra, 0(sp)
+	# compressed extension requires this nop
+	nop
 
 	.section .note.GNU-stack,"",%progbits

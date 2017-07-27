@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2014 Andrew Turner
- * Copyright (c) 2015-2016 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2015-2017 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Portions of this software were developed by SRI International and the
@@ -117,7 +117,6 @@ int64_t idcache_line_size;	/* The minimum cache line size */
 
 extern int *end;
 extern int *initstack_end;
-extern memory_block_info memory_info;
 
 struct pcpu *pcpup;
 
@@ -714,16 +713,13 @@ add_physmap_entry(uint64_t base, uint64_t length, vm_paddr_t *physmap,
 
 #ifdef FDT
 static void
-try_load_dtb(caddr_t kmdp)
+try_load_dtb(caddr_t kmdp, vm_offset_t dtbp)
 {
-	vm_offset_t dtbp;
 
 #if defined(FDT_DTB_STATIC)
-	dtbp = (vm_offset_t)&fdt_static_dtb;
-#else
-	/* TODO */
-	dtbp = (vm_offset_t)NULL;
+	//dtbp = (vm_offset_t)&fdt_static_dtb;
 #endif
+
 	if (dtbp == (vm_offset_t)NULL) {
 		printf("ERROR loading DTB\n");
 		return;
@@ -803,9 +799,12 @@ fake_preload_metadata(struct riscv_bootparams *rvbp __unused)
 void
 initriscv(struct riscv_bootparams *rvbp)
 {
+	struct mem_region mem_regions[FDT_MEM_REGIONS];
+	int mem_regions_sz;
 	vm_offset_t lastaddr;
 	vm_size_t kernlen;
 	caddr_t kmdp;
+	int i;
 
 	/* Set the module data location */
 	lastaddr = fake_preload_metadata(rvbp);
@@ -821,26 +820,43 @@ initriscv(struct riscv_bootparams *rvbp)
 	kern_envp = NULL;
 
 #ifdef FDT
-	try_load_dtb(kmdp);
+	try_load_dtb(kmdp, rvbp->dtbp);
 #endif
 
 	/* Load the physical memory ranges */
 	physmap_idx = 0;
 
-#if 0
-	struct mem_region mem_regions[FDT_MEM_REGIONS];
-	int mem_regions_sz;
-	int i;
+#ifdef FDT
 	/* Grab physical memory regions information from device tree. */
 	if (fdt_get_mem_regions(mem_regions, &mem_regions_sz, NULL) != 0)
 		panic("Cannot get physical memory regions");
+#if 0
 	for (i = 0; i < mem_regions_sz; i++)
 		add_physmap_entry(mem_regions[i].mr_start,
 		    mem_regions[i].mr_size, physmap, &physmap_idx);
-#endif
+#else
+	vm_offset_t start;
+	vm_offset_t rend;
+	vm_offset_t s;
+	vm_offset_t e;
+	s = 0x82800000;
+	e = 0x82800000+1024*1024;
+	s = 0x82000000;
+	e = 0x83000000;
 
-	add_physmap_entry(memory_info.base, memory_info.size,
-	    physmap, &physmap_idx);
+	for (i = 0; i < mem_regions_sz; i++) {
+		start = mem_regions[i].mr_start;
+		rend = (mem_regions[i].mr_start + mem_regions[i].mr_size);
+
+		if ((start < s) && (rend > e)) {
+			add_physmap_entry(start, (s-start), physmap, &physmap_idx);
+			add_physmap_entry(e, (rend-e), physmap, &physmap_idx);
+		}
+	}
+#endif
+#else
+	panic("Non-FDT not supported");
+#endif
 
 	/* Set the pcpu data, this is needed by pmap_bootstrap */
 	pcpup = &__pcpu[0];
@@ -858,7 +874,7 @@ initriscv(struct riscv_bootparams *rvbp)
 
 	/* Bootstrap enough of pmap to enter the kernel proper */
 	kernlen = (lastaddr - KERNBASE);
-	pmap_bootstrap(rvbp->kern_l1pt, memory_info.base, kernlen);
+	pmap_bootstrap(rvbp->kern_l1pt, mem_regions[0].mr_start, kernlen);
 
 	cninit();
 
@@ -866,7 +882,7 @@ initriscv(struct riscv_bootparams *rvbp)
 
 	/* set page table base register for thread0 */
 	thread0.td_pcb->pcb_l1addr = \
-	    (rvbp->kern_l1pt - KERNBASE + memory_info.base);
+	    (rvbp->kern_l1pt - KERNBASE + mem_regions[0].mr_start);
 
 	msgbufinit(msgbufp, msgbufsize);
 	mutex_init();

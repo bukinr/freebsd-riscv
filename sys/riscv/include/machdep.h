@@ -40,6 +40,7 @@
 struct riscv_bootparams {
 	vm_offset_t	kern_l1pt;	/* Kernel L1 base */
 	vm_offset_t	kern_stack;
+	vm_offset_t	dtbp;		/* Device tree blob pointer */
 };
 
 extern vm_paddr_t physmap[];

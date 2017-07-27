@@ -1,86 +1,83 @@
-FreeBSD Source:
----------------
-This is the top level of the FreeBSD source directory.  This file
-was last revised on:
-$FreeBSD$
+# FreeBSD/RISC-V
+This is a port of [FreeBSD Operating System](http://www.freebsd.org) to RISC-V instruction set architecture.
 
-For copyright information, please see the file COPYRIGHT in this
-directory (additional copyright information also exists for some
-sources in this tree - please see the specific source directories for
-more information).
+[![Build Status](https://ci.freebsd.org/buildStatus/icon?job=FreeBSD-head-riscv64-build)](https://ci.freebsd.org/job/FreeBSD-head-riscv64-build/)
 
-The Makefile in this directory supports a number of targets for
-building components (or all) of the FreeBSD source tree.  See build(7)
-and http://www.freebsd.org/doc/en_US.ISO8859-1/books/handbook/makeworld.html
-for more information, including setting make(1) variables.
-
-The `buildkernel` and `installkernel` targets build and install
-the kernel and the modules (see below).  Please see the top of
-the Makefile in this directory for more information on the
-standard build targets and compile-time flags.
-
-Building a kernel is a somewhat more involved process.  See build(7), config(8),
-and http://www.freebsd.org/doc/en_US.ISO8859-1/books/handbook/kernelconfig.html
-for more information.
-
-Note: If you want to build and install the kernel with the
-`buildkernel` and `installkernel` targets, you might need to build
-world before.  More information is available in the handbook.
-
-The kernel configuration files reside in the `sys/<arch>/conf`
-sub-directory.  GENERIC is the default configuration used in release builds.
-NOTES contains entries and documentation for all possible
-devices, not just those commonly used.
-
-
-Source Roadmap:
----------------
+### Prepare your environment
+On FreeBSD 11.0 machine install the required packages:
 ```
-bin				System/user commands.
-
-cddl			Various commands and libraries under the Common Development  
-				and Distribution License.
-
-contrib			Packages contributed by 3rd parties.
-
-crypto			Cryptography stuff (see crypto/README).
-
-etc				Template files for /etc.
-
-gnu				Various commands and libraries under the GNU Public License.  
-				Please see gnu/COPYING* for more information.
-
-include			System include files.
-
-kerberos5		Kerberos5 (Heimdal) package.
-
-lib				System libraries.
-
-libexec			System daemons.
-
-release			Release building Makefile & associated tools.
-
-rescue			Build system for statically linked /rescue utilities.
-
-sbin			System commands.
-
-secure			Cryptographic libraries and commands.
-
-share			Shared resources.
-
-sys				Kernel sources.
-
-tests			Regression tests which can be run by Kyua.  See tests/README
-				for additional information.
-
-tools			Utilities for regression testing and miscellaneous tasks.
-
-usr.bin			User commands.
-
-usr.sbin		System administration commands.
+$ sudo pkg install riscv64-xtoolchain-gcc qemu-riscv riscv-isa-sim
 ```
 
-For information on synchronizing your source tree with one or more of
-the FreeBSD Project's development branches, please see:
+## Quick way
 
-   http://www.freebsd.org/doc/en_US.ISO8859-1/books/handbook/synching.html
+### You can use pre-built images, otherwise proceed to next step.
+```
+fetch https://artifact.ci.freebsd.org/snapshot/head/latest/riscv/riscv64/bbl-spike.xz
+unxz bbl-spike.xz
+```
+
+## Complete build from scratch
+Set the following environment variables:
+```
+$ setenv MAKEOBJDIRPREFIX /home/${USER}/obj/
+$ setenv WITHOUT_FORMAT_EXTENSIONS yes
+$ setenv DESTDIR /home/${USER}/riscv-world
+```
+
+### Build FreeBSD world
+```
+$ svnlite co http://svn.freebsd.org/base/head freebsd-riscv
+$ cd freebsd-riscv
+$ make -j4 CROSS_TOOLCHAIN=riscv64-gcc TARGET_ARCH=riscv64 buildworld
+```
+
+### Build 32mb rootfs image
+```
+$ cd freebsd-riscv
+$ make TARGET_ARCH=riscv64 -DNO_ROOT -DWITHOUT_TESTS DESTDIR=$DESTDIR installworld
+$ make TARGET_ARCH=riscv64 -DNO_ROOT -DWITHOUT_TESTS DESTDIR=$DESTDIR distribution
+$ fetch https://raw.githubusercontent.com/bukinr/riscv-tools/master/image/basic.files
+$ tools/tools/makeroot/makeroot.sh -s 32m -f basic.files riscv.img $DESTDIR
+```
+
+### Prepare your kernel config
+Modify sys/riscv/conf/GENERIC. Uncomment the following lines and specify the path to your riscv.img:
+```
+options 	MD_ROOT
+options 	MD_ROOT_SIZE=32768	# 32MB ram disk
+makeoptions	MFS_IMAGE=/path/to/riscv.img
+options 	ROOTDEVNAME=\"ufs:/dev/md0\"
+```
+
+### Build FreeBSD kernel
+```
+$ cd freebsd-riscv
+for Spike:
+$ make -j4 CROSS_TOOLCHAIN=riscv64-gcc TARGET_ARCH=riscv64 KERNCONF=SPIKE buildkernel
+for QEMU:
+$ make -j4 CROSS_TOOLCHAIN=riscv64-gcc TARGET_ARCH=riscv64 KERNCONF=QEMU buildkernel
+```
+
+### Build BBL
+```
+$ git clone https://github.com/freebsd-riscv/riscv-pk
+$ cd riscv-pk
+$ mkdir build && cd build
+$ setenv CFLAGS "-nostdlib"
+$ ../configure --host=riscv64-unknown-freebsd11.0 --with-payload=path_to_freebsd_kernel
+$ gmake LIBS=''
+$ unsetenv CFLAGS
+```
+
+### Run Spike simulator
+```
+$ spike -m1024 -p2 /path/to/bbl
+```
+
+### Run QEMU emulator
+```
+$ qemu-system-riscv64 -m 2048M -kernel /path/to/bbl -nographic
+```
+
+Additional information is available on [FreeBSD Wiki](http://wiki.freebsd.org/riscv).

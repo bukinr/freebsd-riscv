@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2015-2016 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2015-2017 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Portions of this software were developed by SRI International and the
@@ -67,11 +67,6 @@ __FBSDID("$FreeBSD$");
 #include <machine/trap.h>
 #include <machine/vmparam.h>
 #include <machine/sbi.h>
-
-static struct resource_spec rcons_spec[] = {
-	{ SYS_RES_IRQ,		0,	RF_ACTIVE | RF_SHAREABLE},
-	{ -1, 0 }
-};
 
 /* bus softc */
 struct rcons_softc {
@@ -254,6 +249,15 @@ riscv_cngetc(struct consdev *cp)
 	}
 #endif
 
+	ch = sbi_console_getchar();
+	if (ch > 0 && ch < 0xff) {
+#if defined(KDB)
+		kdb_alt_break(ch, &alt_break_state);
+#endif
+		return (ch);
+	}
+	return (-1);
+
 	if (entry_served->used == 1) {
 		data = entry_served->data;
 		entry_served->used = 0;
@@ -279,6 +283,7 @@ riscv_cnputc(struct consdev *cp, int c)
 
 /* Bus interface */
 
+#if 0
 static int
 rcons_intr(void *arg)
 {
@@ -295,16 +300,19 @@ rcons_intr(void *arg)
 
 	return (FILTER_HANDLED);
 }
+#endif
 
 static int
 rcons_probe(device_t dev)
 {
 
+#if 0
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
 	if (!ofw_bus_is_compatible(dev, "riscv,console"))
 		return (ENXIO);
+#endif
 
 	device_set_desc(dev, "RISC-V console");
 	return (BUS_PROBE_DEFAULT);
@@ -314,11 +322,15 @@ static int
 rcons_attach(device_t dev)
 {
 	struct rcons_softc *sc;
-	int error;
+	//int error;
+
+	if (device_get_unit(dev) != 0)
+		return (ENXIO);
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
 
+#if 0
 	if (bus_alloc_resources(dev, rcons_spec, sc->res)) {
 		device_printf(dev, "could not allocate resources\n");
 		return (ENXIO);
@@ -331,12 +343,13 @@ rcons_attach(device_t dev)
 		device_printf(dev, "Unable to alloc int resource.\n");
 		return (ENXIO);
 	}
+#endif
 
 	csr_set(sie, SIE_SSIE);
 
 	bus_generic_attach(sc->dev);
 
-	sbi_console_getchar();
+	//sbi_console_getchar();
 
 	return (0);
 }
@@ -356,4 +369,6 @@ static driver_t rcons_driver = {
 
 static devclass_t rcons_devclass;
 
-DRIVER_MODULE(rcons, simplebus, rcons_driver, rcons_devclass, 0, 0);
+DRIVER_MODULE(rcons, nexus, rcons_driver, rcons_devclass, 0, 0);
+//DRIVER_MODULE(rcons, simplebus, rcons_driver, rcons_devclass, 0, 0);
+//DRIVER_MODULE(rcons, ofwbus, rcons_driver, rcons_devclass, 0, 0);
