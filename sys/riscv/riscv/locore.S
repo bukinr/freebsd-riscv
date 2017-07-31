@@ -43,6 +43,8 @@
 #include <machine/riscvreg.h>
 #include <machine/pte.h>
 
+#define	PHYS_START	0x80000000
+
 	.globl	kernbase
 	.set	kernbase, KERNBASE
 
@@ -58,7 +60,6 @@ _start:
 
 	mv	s10, a0		# hart id
 	mv	s11, a1		# dtbp
-	ld	t0, 0(a1)
 
 	/* Direct secondary cores to mpentry */
 	bnez	s10, mpentry
@@ -87,7 +88,7 @@ _start:
 
 	/* Level 2 superpages (512 x 2MiB) */
 	la	s1, pagetable_l2
-	li	s6, 0x80000000
+	li	s6, PHYS_START
 	srli	t4, s6, 21		/* Div physmem base by 2 MiB */
 	li	t2, 512			/* Build 512 entries */
 	add	t3, t4, t2
@@ -140,7 +141,7 @@ _start:
 
 	/* Setup supervisor trap vector */
 	la	t0, va
-	li	t1, 0x80000000
+	li	t1, PHYS_START
 	sub	t0, t0, t1
 	li	t1, KERNBASE
 	add	t0, t0, t1
@@ -185,14 +186,7 @@ va:
 	la	t0, initstack_end
 	sd	t0, 8(sp) /* kern_stack */
 
-	li	t0, (VM_MAX_KERNEL_ADDRESS - L2_SIZE - L2_SIZE)
-#if 0
-	mv	t0, s11
-	li	t1, 0x80000000
-	sub	t0, t0, t1
-	li	t1, KERNBASE
-	add	t0, t0, t1
-#endif
+	li	t0, (VM_MAX_KERNEL_ADDRESS - 2 * L2_SIZE)
 	sd	t0, 16(sp) /* dtbp_virt */
 	sd	s11, 24(sp) /* dtbp_phys */
 
@@ -265,14 +259,14 @@ ENTRY(mpentry)
 	li	t1, (PAGE_SIZE * KSTACK_PAGES)
 	mulw	t1, t1, s10
 	add	t0, t0, t1
-	li	t1, 0x80000000
+	li	t1, PHYS_START
 	sub	t0, t0, t1
 	li	t1, KERNBASE
 	add	sp, t0, t1
 
 	/* Setup supervisor trap vector */
 	la	t0, mpva
-	li	t1, 0x80000000
+	li	t1, PHYS_START
 	sub	t0, t0, t1
 	li	t1, KERNBASE
 	add	t0, t0, t1
