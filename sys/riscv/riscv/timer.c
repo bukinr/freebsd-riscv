@@ -61,17 +61,12 @@ __FBSDID("$FreeBSD$");
 #include <machine/trap.h>
 #include <machine/sbi.h>
 
-#include <dev/fdt/fdt_common.h>
-#include <dev/ofw/openfirm.h>
-#include <dev/ofw/ofw_bus.h>
-#include <dev/ofw/ofw_bus_subr.h>
-
 #define	DEFAULT_FREQ	10000000
 
 #define	TIMER_COUNTS		0x00
 #define	TIMER_MTIMECMP(cpu)	(cpu * 8)
 
-struct riscv_tmr_softc {
+struct riscv_timer_softc {
 	void			*ih;
 	uint32_t		clkfreq;
 	struct eventtimer	et;
@@ -79,13 +74,13 @@ struct riscv_tmr_softc {
 	struct resource		*intr_res;
 };
 
-static struct riscv_tmr_softc *riscv_tmr_sc = NULL;
+static struct riscv_timer_softc *riscv_timer_sc = NULL;
 
-static timecounter_get_t riscv_tmr_get_timecount;
+static timecounter_get_t riscv_timer_get_timecount;
 
-static struct timecounter riscv_tmr_timecount = {
+static struct timecounter riscv_timer_timecount = {
 	.tc_name           = "RISC-V Timecounter",
-	.tc_get_timecount  = riscv_tmr_get_timecount,
+	.tc_get_timecount  = riscv_timer_get_timecount,
 	.tc_poll_pps       = NULL,
 	.tc_counter_mask   = ~0u,
 	.tc_frequency      = 0,
@@ -106,7 +101,7 @@ get_cycles(void)
 }
 
 static long
-get_counts(struct riscv_tmr_softc *sc)
+get_counts(struct riscv_timer_softc *sc)
 {
 	uint64_t counts;
 
@@ -116,9 +111,9 @@ get_counts(struct riscv_tmr_softc *sc)
 }
 
 static unsigned
-riscv_tmr_get_timecount(struct timecounter *tc)
+riscv_timer_get_timecount(struct timecounter *tc)
 {
-	struct riscv_tmr_softc *sc;
+	struct riscv_timer_softc *sc;
 
 	sc = tc->tc_priv;
 
@@ -126,12 +121,9 @@ riscv_tmr_get_timecount(struct timecounter *tc)
 }
 
 static int
-riscv_tmr_start(struct eventtimer *et, sbintime_t first, sbintime_t period)
+riscv_timer_start(struct eventtimer *et, sbintime_t first, sbintime_t period)
 {
-	struct riscv_tmr_softc *sc;
 	uint64_t counts;
-
-	sc = (struct riscv_tmr_softc *)et->et_priv;
 
 	if (first != 0) {
 		counts = ((uint32_t)et->et_frequency * first) >> 32;
@@ -146,11 +138,8 @@ riscv_tmr_start(struct eventtimer *et, sbintime_t first, sbintime_t period)
 }
 
 static int
-riscv_tmr_stop(struct eventtimer *et)
+riscv_timer_stop(struct eventtimer *et)
 {
-	struct riscv_tmr_softc *sc;
-
-	sc = (struct riscv_tmr_softc *)et->et_priv;
 
 	/* TODO */
 
@@ -158,11 +147,11 @@ riscv_tmr_stop(struct eventtimer *et)
 }
 
 static int
-riscv_tmr_intr(void *arg)
+riscv_timer_intr(void *arg)
 {
-	struct riscv_tmr_softc *sc;
+	struct riscv_timer_softc *sc;
 
-	sc = (struct riscv_tmr_softc *)arg;
+	sc = (struct riscv_timer_softc *)arg;
 
 	csr_clear(sip, SIP_STIP);
 
@@ -173,62 +162,34 @@ riscv_tmr_intr(void *arg)
 }
 
 static int
-riscv_tmr_fdt_probe(device_t dev)
+riscv_timer_probe(device_t dev)
 {
 
-#if 0
-	if (!ofw_bus_status_okay(dev))
-		return (ENXIO);
-
-	if (ofw_bus_is_compatible(dev, "riscv,timer")) {
-		device_set_desc(dev, "RISC-V Timer");
-		return (BUS_PROBE_DEFAULT);
-	}
-
-	return (ENXIO);
-#endif
-
 	device_set_desc(dev, "RISC-V Timer");
-	return (BUS_PROBE_DEFAULT);
 
+	return (BUS_PROBE_DEFAULT);
 }
 
 static int
-riscv_tmr_attach(device_t dev)
+riscv_timer_attach(device_t dev)
 {
-	struct riscv_tmr_softc *sc;
-	//phandle_t node;
-	//pcell_t clock;
+	struct riscv_timer_softc *sc;
 	int error;
 
 	sc = device_get_softc(dev);
-	if (riscv_tmr_sc)
+	if (riscv_timer_sc)
 		return (ENXIO);
 
 	if (device_get_unit(dev) != 0)
 		return ENXIO;
 
-#if 0
-	/* Get the base clock frequency */
-	node = ofw_bus_get_node(dev);
-	if (node > 0) {
-		error = OF_getprop(node, "clock-frequency", &clock,
-		    sizeof(clock));
-		if (error > 0) {
-			sc->clkfreq = fdt32_to_cpu(clock);
-		}
-	}
-
-	if (sc->clkfreq == 0)
-#endif
-		sc->clkfreq = DEFAULT_FREQ;
-
+	sc->clkfreq = DEFAULT_FREQ;
 	if (sc->clkfreq == 0) {
 		device_printf(dev, "No clock frequency specified\n");
 		return (ENXIO);
 	}
 
-	riscv_tmr_sc = sc;
+	riscv_timer_sc = sc;
 
 	sc->intr_rid = 0;
 	sc->intr_res = bus_alloc_resource(dev,
@@ -240,15 +201,15 @@ riscv_tmr_attach(device_t dev)
 
 	/* Setup IRQs handler */
 	error = bus_setup_intr(dev, sc->intr_res, INTR_TYPE_CLK,
-	    riscv_tmr_intr, NULL, sc, &sc->ih);
+	    riscv_timer_intr, NULL, sc, &sc->ih);
 	if (error) {
 		device_printf(dev, "Unable to alloc int resource.\n");
 		return (ENXIO);
 	}
 
-	riscv_tmr_timecount.tc_frequency = sc->clkfreq;
-	riscv_tmr_timecount.tc_priv = sc;
-	tc_init(&riscv_tmr_timecount);
+	riscv_timer_timecount.tc_frequency = sc->clkfreq;
+	riscv_timer_timecount.tc_priv = sc;
+	tc_init(&riscv_timer_timecount);
 
 	sc->et.et_name = "RISC-V Eventtimer";
 	sc->et.et_flags = ET_FLAGS_ONESHOT | ET_FLAGS_PERCPU;
@@ -257,37 +218,30 @@ riscv_tmr_attach(device_t dev)
 	sc->et.et_frequency = sc->clkfreq;
 	sc->et.et_min_period = (0x00000002LLU << 32) / sc->et.et_frequency;
 	sc->et.et_max_period = (0xfffffffeLLU << 32) / sc->et.et_frequency;
-	sc->et.et_start = riscv_tmr_start;
-	sc->et.et_stop = riscv_tmr_stop;
+	sc->et.et_start = riscv_timer_start;
+	sc->et.et_stop = riscv_timer_stop;
 	sc->et.et_priv = sc;
 	et_register(&sc->et);
 
 	return (0);
 }
 
-static device_method_t riscv_tmr_fdt_methods[] = {
-	DEVMETHOD(device_probe,		riscv_tmr_fdt_probe),
-	DEVMETHOD(device_attach,	riscv_tmr_attach),
+static device_method_t riscv_timer_methods[] = {
+	DEVMETHOD(device_probe,		riscv_timer_probe),
+	DEVMETHOD(device_attach,	riscv_timer_attach),
 	{ 0, 0 }
 };
 
-static driver_t riscv_tmr_fdt_driver = {
+static driver_t riscv_timer_driver = {
 	"timer",
-	riscv_tmr_fdt_methods,
-	sizeof(struct riscv_tmr_softc),
+	riscv_timer_methods,
+	sizeof(struct riscv_timer_softc),
 };
 
-static devclass_t riscv_tmr_fdt_devclass;
+static devclass_t riscv_timer_devclass;
 
-EARLY_DRIVER_MODULE(timer, nexus, riscv_tmr_fdt_driver, riscv_tmr_fdt_devclass,
+EARLY_DRIVER_MODULE(timer, nexus, riscv_timer_driver, riscv_timer_devclass,
     0, 0, BUS_PASS_TIMER + BUS_PASS_ORDER_MIDDLE);
-
-#if 0
-EARLY_DRIVER_MODULE(timer, simplebus, riscv_tmr_fdt_driver, riscv_tmr_fdt_devclass,
-    0, 0, BUS_PASS_TIMER + BUS_PASS_ORDER_MIDDLE);
-EARLY_DRIVER_MODULE(timer, ofwbus, riscv_tmr_fdt_driver, riscv_tmr_fdt_devclass,
-    0, 0, BUS_PASS_TIMER + BUS_PASS_ORDER_MIDDLE);
-#endif
 
 void
 DELAY(int usec)
@@ -299,7 +253,7 @@ DELAY(int usec)
 	 * Check the timers are setup, if not just
 	 * use a for loop for the meantime
 	 */
-	if (riscv_tmr_sc == NULL) {
+	if (riscv_timer_sc == NULL) {
 		for (; usec > 0; usec--)
 			for (counts = 200; counts > 0; counts--)
 				/*
@@ -311,7 +265,7 @@ DELAY(int usec)
 	}
 
 	/* Get the number of times to count */
-	counts_per_usec = ((riscv_tmr_timecount.tc_frequency / 1000000) + 1);
+	counts_per_usec = ((riscv_timer_timecount.tc_frequency / 1000000) + 1);
 
 	/*
 	 * Clamp the timeout at a maximum value (about 32 seconds with
@@ -324,10 +278,10 @@ DELAY(int usec)
 	else
 		counts = usec * counts_per_usec;
 
-	first = get_counts(riscv_tmr_sc);
+	first = get_counts(riscv_timer_sc);
 
 	while (counts > 0) {
-		last = get_counts(riscv_tmr_sc);
+		last = get_counts(riscv_timer_sc);
 		counts -= (int64_t)(last - first);
 		first = last;
 	}
