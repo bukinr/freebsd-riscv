@@ -105,17 +105,6 @@ static cn_ungrab_t	riscv_cnungrab;
 CONSOLE_DRIVER(riscv);
 
 #define	MAX_BURST_LEN		1
-#define	QUEUE_SIZE		256
-
-struct queue_entry {
-	uint64_t data;
-	uint64_t used;
-	struct queue_entry *next;
-};
-
-struct queue_entry cnqueue[QUEUE_SIZE];
-struct queue_entry *entry_last;
-struct queue_entry *entry_served;
 
 static void
 riscv_putc(int c)
@@ -190,21 +179,8 @@ riscv_cnprobe(struct consdev *cp)
 static void
 riscv_cninit(struct consdev *cp)
 {
-	int i;
 
 	strcpy(cp->cn_name, "rcons");
-
-	for (i = 0; i < QUEUE_SIZE; i++) {
-		if (i == (QUEUE_SIZE - 1))
-			cnqueue[i].next = &cnqueue[0];
-		else
-			cnqueue[i].next = &cnqueue[i+1];
-		cnqueue[i].data = 0;
-		cnqueue[i].used = 0;
-	}
-
-	entry_last = &cnqueue[0];
-	entry_served = &cnqueue[0];
 }
 
 static void
@@ -228,7 +204,6 @@ riscv_cnungrab(struct consdev *cp)
 static int
 riscv_cngetc(struct consdev *cp)
 {
-	uint8_t data;
 	int ch;
 
 #if defined(KDB)
@@ -240,10 +215,6 @@ riscv_cngetc(struct consdev *cp)
 	if (kdb_active) {
 		ch = sbi_console_getchar();
 		while (ch) {
-			entry_last->data = ch;
-			entry_last->used = 1;
-			entry_last = entry_last->next;
-
 			ch = sbi_console_getchar();
 		}
 	}
@@ -255,20 +226,6 @@ riscv_cngetc(struct consdev *cp)
 		kdb_alt_break(ch, &alt_break_state);
 #endif
 		return (ch);
-	}
-	return (-1);
-
-	if (entry_served->used == 1) {
-		data = entry_served->data;
-		entry_served->used = 0;
-		entry_served = entry_served->next;
-		ch = (data & 0xff);
-		if (ch > 0 && ch < 0xff) {
-#if defined(KDB)
-			kdb_alt_break(ch, &alt_break_state);
-#endif
-			return (ch);
-		}
 	}
 
 	return (-1);
@@ -283,38 +240,12 @@ riscv_cnputc(struct consdev *cp, int c)
 
 /* Bus interface */
 
-#if 0
-static int
-rcons_intr(void *arg)
-{
-	int c;
-
-	c = sbi_console_getchar();
-	if (c > 0 && c < 0xff) {
-		entry_last->data = c;
-		entry_last->used = 1;
-		entry_last = entry_last->next;
-	}
-
-	csr_clear(sip, SIP_SSIP);
-
-	return (FILTER_HANDLED);
-}
-#endif
-
 static int
 rcons_probe(device_t dev)
 {
 
-#if 0
-	if (!ofw_bus_status_okay(dev))
-		return (ENXIO);
-
-	if (!ofw_bus_is_compatible(dev, "riscv,console"))
-		return (ENXIO);
-#endif
-
 	device_set_desc(dev, "RISC-V console");
+
 	return (BUS_PROBE_DEFAULT);
 }
 
@@ -322,7 +253,6 @@ static int
 rcons_attach(device_t dev)
 {
 	struct rcons_softc *sc;
-	//int error;
 
 	if (device_get_unit(dev) != 0)
 		return (ENXIO);
@@ -330,26 +260,9 @@ rcons_attach(device_t dev)
 	sc = device_get_softc(dev);
 	sc->dev = dev;
 
-#if 0
-	if (bus_alloc_resources(dev, rcons_spec, sc->res)) {
-		device_printf(dev, "could not allocate resources\n");
-		return (ENXIO);
-	}
-
-	/* Setup IRQs handler */
-	error = bus_setup_intr(dev, sc->res[0], INTR_TYPE_CLK,
-	    rcons_intr, NULL, sc, &sc->ihl[0]);
-	if (error) {
-		device_printf(dev, "Unable to alloc int resource.\n");
-		return (ENXIO);
-	}
-#endif
-
 	csr_set(sie, SIE_SSIE);
 
 	bus_generic_attach(sc->dev);
-
-	//sbi_console_getchar();
 
 	return (0);
 }
@@ -370,5 +283,3 @@ static driver_t rcons_driver = {
 static devclass_t rcons_devclass;
 
 DRIVER_MODULE(rcons, nexus, rcons_driver, rcons_devclass, 0, 0);
-//DRIVER_MODULE(rcons, simplebus, rcons_driver, rcons_devclass, 0, 0);
-//DRIVER_MODULE(rcons, ofwbus, rcons_driver, rcons_devclass, 0, 0);
