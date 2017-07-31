@@ -150,7 +150,7 @@ _start:
 	/* Set page tables base register */
 	la	s2, pagetable_l1
 	srli	s2, s2, PAGE_SHIFT
-	li	t0, (8 << 60)
+	li	t0, SATP_MODE_SV39
 	or	s2, s2, t0
 	sfence.vma
 	csrw	sptbr, s2
@@ -275,7 +275,7 @@ ENTRY(mpentry)
 	/* Set page tables base register */
 	la	s2, pagetable_l1
 	srli	s2, s2, PAGE_SHIFT
-	li	t0, (8 << 60)
+	li	t0, SATP_MODE_SV39
 	or	s2, s2, t0
 	sfence.vma
 	csrw	sptbr, s2

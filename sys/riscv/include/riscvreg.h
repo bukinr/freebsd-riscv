@@ -144,6 +144,15 @@
 #define	SIP_SSIP	(1 << 1)
 #define	SIP_STIP	(1 << 5)
 
+#define	SATP_PPN_S	0
+#define	SATP_PPN_M	(0xfffffffffff << SATP_PPN_S)
+#define	SATP_ASID_S	44
+#define	SATP_ASID_M	(0xffff << SATP_ASID_S)
+#define	SATP_MODE_S	60
+#define	SATP_MODE_M	(0xf << SATP_MODE_S)
+#define	SATP_MODE_SV39	(8ULL << SATP_MODE_S)
+#define	SATP_MODE_SV48	(9ULL << SATP_MODE_S)
+
 #if 0
 /* lowRISC TODO */
 #define	NCSRS		4096
