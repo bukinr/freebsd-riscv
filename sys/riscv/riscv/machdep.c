@@ -105,6 +105,8 @@ int cold = 1;
 long realmem = 0;
 long Maxmem = 0;
 
+#define	DTB_SIZE_MAX	(1024 * 1024)
+
 #define	PHYSMAP_SIZE	(2 * (VM_PHYSSEG_MAX - 1))
 vm_paddr_t physmap[PHYSMAP_SIZE];
 u_int physmap_idx;
@@ -800,6 +802,8 @@ void
 initriscv(struct riscv_bootparams *rvbp)
 {
 	struct mem_region mem_regions[FDT_MEM_REGIONS];
+	vm_offset_t rstart, rend;
+	vm_offset_t s, e;
 	int mem_regions_sz;
 	vm_offset_t lastaddr;
 	vm_size_t kernlen;
@@ -820,7 +824,7 @@ initriscv(struct riscv_bootparams *rvbp)
 	kern_envp = NULL;
 
 #ifdef FDT
-	try_load_dtb(kmdp, rvbp->dtbp);
+	try_load_dtb(kmdp, rvbp->dtbp_virt);
 #endif
 
 	/* Load the physical memory ranges */
@@ -830,30 +834,23 @@ initriscv(struct riscv_bootparams *rvbp)
 	/* Grab physical memory regions information from device tree. */
 	if (fdt_get_mem_regions(mem_regions, &mem_regions_sz, NULL) != 0)
 		panic("Cannot get physical memory regions");
-#if 0
-	for (i = 0; i < mem_regions_sz; i++)
-		add_physmap_entry(mem_regions[i].mr_start,
-		    mem_regions[i].mr_size, physmap, &physmap_idx);
-#else
-	vm_offset_t start;
-	vm_offset_t rend;
-	vm_offset_t s;
-	vm_offset_t e;
-	s = 0x82800000;
-	e = 0x82800000+1024*1024;
-	s = 0x82000000;
-	e = 0x83000000;
+
+	s = rvbp->dtbp_phys;
+	e = s + DTB_SIZE_MAX;
 
 	for (i = 0; i < mem_regions_sz; i++) {
-		start = mem_regions[i].mr_start;
+		rstart = mem_regions[i].mr_start;
 		rend = (mem_regions[i].mr_start + mem_regions[i].mr_size);
 
-		if ((start < s) && (rend > e)) {
-			add_physmap_entry(start, (s-start), physmap, &physmap_idx);
-			add_physmap_entry(e, (rend-e), physmap, &physmap_idx);
+		if ((rstart < s) && (rend > e)) {
+			/* Exclude DTB region. */
+			add_physmap_entry(rstart, (s - rstart), physmap, &physmap_idx);
+			add_physmap_entry(e, (rend - e), physmap, &physmap_idx);
+		} else {
+			add_physmap_entry(mem_regions[i].mr_start,
+			    mem_regions[i].mr_size, physmap, &physmap_idx);
 		}
 	}
-#endif
 #else
 	panic("Non-FDT not supported");
 #endif

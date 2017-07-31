@@ -193,7 +193,8 @@ va:
 	li	t1, KERNBASE
 	add	t0, t0, t1
 #endif
-	sd	t0, 16(sp) /* dtbp */
+	sd	t0, 16(sp) /* dtbp_virt */
+	sd	s11, 24(sp) /* dtbp_phys */
 
 	mv	a0, sp
 	call	_C_LABEL(initriscv)	/* Off we go */
