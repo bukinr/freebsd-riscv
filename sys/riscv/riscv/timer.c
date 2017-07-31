@@ -87,17 +87,14 @@ static struct timecounter riscv_timer_timecount = {
 	.tc_quality        = 1000,
 };
 
-typedef unsigned long cycles_t;
-
-static inline cycles_t
+static inline uint64_t
 get_cycles(void)
 {
-	cycles_t n;
+	uint64_t cycles;
 
-	__asm __volatile(
-		"rdtime %0"
-		: "=r" (n));
-	return (n);
+	__asm __volatile("rdtime %0" : "=r" (cycles));
+
+	return (cycles);
 }
 
 static long
@@ -193,7 +190,8 @@ riscv_timer_attach(device_t dev)
 
 	sc->intr_rid = 0;
 	sc->intr_res = bus_alloc_resource(dev,
-	    SYS_RES_IRQ, &sc->intr_rid, 5, 5, 1, RF_ACTIVE);
+	    SYS_RES_IRQ, &sc->intr_rid, IRQ_TIMER_SUPERVISOR,
+	    IRQ_TIMER_SUPERVISOR, 1, RF_ACTIVE);
 	if (sc->intr_res == NULL) {
 		device_printf(dev, "failed to allocate irq\n");
 		return (ENXIO);
