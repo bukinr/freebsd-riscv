@@ -316,6 +316,9 @@ CTASSERT(sizeof(((struct trapframe *)0)->tf_s) ==
 CTASSERT(sizeof(((struct trapframe *)0)->tf_t) ==
     sizeof((struct reg *)0)->t);
 
+/* Support for FDT configurations only. */
+CTASSERT(FDT);
+
 int
 get_mcontext(struct thread *td, mcontext_t *mcp, int clear_ret)
 {
@@ -851,8 +854,6 @@ initriscv(struct riscv_bootparams *rvbp)
 			    mem_regions[i].mr_size, physmap, &physmap_idx);
 		}
 	}
-#else
-	panic("Non-FDT not supported");
 #endif
 
 	/* Set the pcpu data, this is needed by pmap_bootstrap */
