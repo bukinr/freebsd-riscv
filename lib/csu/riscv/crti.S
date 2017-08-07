@@ -35,7 +35,8 @@
 #include <machine/asm.h>
 __FBSDID("$FreeBSD$");
 
-# this puts _gp into .dynsym, so symlook_obj can now find that (see reloc.c)
+# this puts __global_pointer$ into .dynsym, so symlook_obj can now find that
+# (see reloc.c)
 	.weak	__global_pointer$
 __global_pointer$:
 
