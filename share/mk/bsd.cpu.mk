@@ -366,6 +366,9 @@ CFLAGS += -mcpu=8540 -Wa,-me500 -mspe=yes -mabi=spe -mfloat-gprs=double
 .if ${TARGET_ARCH:Mriscv*sf}
 CFLAGS += -march=rv64imac -mabi=lp64
 ACFLAGS += -march=rv64imac -mabi=lp64
+.else
+CFLAGS += -march=rv64imafdc -mabi=lp64
+ACFLAGS += -march=rv64imafdc -mabi=lp64
 .endif
 .endif
 
