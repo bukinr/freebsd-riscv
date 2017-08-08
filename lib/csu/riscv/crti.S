@@ -41,23 +41,19 @@ __FBSDID("$FreeBSD$");
 __global_pointer$:
 
 	.section .init,"ax",@progbits
-	.align	2
+	.align	0
 	.globl	_init
 	.type	_init,@function
 _init:
 	addi	sp, sp, -16
 	sd	ra, 0(sp)
-	# compressed extension requires this nop
-	nop
 
 	.section .fini,"ax",@progbits
-	.align	2
+	.align	0
 	.globl	_fini
 	.type	_fini,@function
 _fini:
 	addi	sp, sp, -16
 	sd	ra, 0(sp)
-	# compressed extension requires this nop
-	nop
 
 	.section .note.GNU-stack,"",%progbits
