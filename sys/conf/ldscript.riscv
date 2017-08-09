@@ -6,7 +6,7 @@ SEARCH_DIR(/usr/lib);
 SECTIONS
 {
   /* Read-only sections, merged into text segment: */
-  . = kernbase + 0x200000;
+  . = kernbase;
   .text      : AT(ADDR(.text) - kernbase)
   {
     *(.text)

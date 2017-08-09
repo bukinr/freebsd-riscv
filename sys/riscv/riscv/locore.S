@@ -43,8 +43,6 @@
 #include <machine/riscvreg.h>
 #include <machine/pte.h>
 
-#define	PHYS_START	0x80000000
-
 	.globl	kernbase
 	.set	kernbase, KERNBASE
 
@@ -55,11 +53,17 @@
 	.text
 	.globl _start
 _start:
-	li	t0, SSTATUS_SUM
-	csrs	sstatus, t0
-
+	la	t0, virt_map
+	ld	t1, 0(t0)
+	sub	t1, t1, t0
+	li	t2, KERNBASE
+	sub	t2, t2, t1
+	mv	s9, t2		# phys start
 	mv	s10, a0		# hart id
 	mv	s11, a1		# dtbp
+
+	li	t0, SSTATUS_SUM
+	csrs	sstatus, t0
 
 	/* Direct secondary cores to mpentry */
 	bnez	s10, mpentry
@@ -88,7 +92,7 @@ _start:
 
 	/* Level 2 superpages (512 x 2MiB) */
 	la	s1, pagetable_l2
-	li	s6, PHYS_START
+	mv	s6, s9
 	srli	t4, s6, 21		/* Div physmem base by 2 MiB */
 	li	t2, 512			/* Build 512 entries */
 	add	t3, t4, t2
@@ -141,7 +145,7 @@ _start:
 
 	/* Setup supervisor trap vector */
 	la	t0, va
-	li	t1, PHYS_START
+	mv	t1, s9
 	sub	t0, t0, t1
 	li	t1, KERNBASE
 	add	t0, t0, t1
@@ -178,7 +182,7 @@ va:
 	bltu	a0, s1, 1b
 
 	/* Fill riscv_bootparams */
-	addi	sp, sp, -24
+	addi	sp, sp, -40
 
 	la	t0, pagetable_l1
 	sd	t0, 0(sp) /* kern_l1pt */
@@ -189,6 +193,7 @@ va:
 	li	t0, (VM_MAX_KERNEL_ADDRESS - 2 * L2_SIZE)
 	sd	t0, 16(sp) /* dtbp_virt */
 	sd	s11, 24(sp) /* dtbp_phys */
+	sd	s9, 32(sp) /* kern_phys */
 
 	mv	a0, sp
 	call	_C_LABEL(initriscv)	/* Off we go */
@@ -231,6 +236,10 @@ pagetable_l2:
 pagetable_l2_devmap:
 	.space	PAGE_SIZE
 
+        .align 3
+virt_map:
+        .quad   virt_map
+
 	/* Not in use, but required for linking. */
 	.align 3
 	.globl __global_pointer$
@@ -259,14 +268,14 @@ ENTRY(mpentry)
 	li	t1, (PAGE_SIZE * KSTACK_PAGES)
 	mulw	t1, t1, s10
 	add	t0, t0, t1
-	li	t1, PHYS_START
+	mv	t1, s9
 	sub	t0, t0, t1
 	li	t1, KERNBASE
 	add	sp, t0, t1
 
 	/* Setup supervisor trap vector */
 	la	t0, mpva
-	li	t1, PHYS_START
+	mv	t1, s9
 	sub	t0, t0, t1
 	li	t1, KERNBASE
 	add	t0, t0, t1
