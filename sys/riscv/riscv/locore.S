@@ -53,14 +53,14 @@
 	.text
 	.globl _start
 _start:
+	/* Get the physical address kernel loaded to */
 	la	t0, virt_map
 	ld	t1, 0(t0)
 	sub	t1, t1, t0
 	li	t2, KERNBASE
-	sub	t2, t2, t1
-	mv	s9, t2		# phys start
-	mv	s10, a0		# hart id
-	mv	s11, a1		# dtbp
+	sub	s9, t2, t1	/* s9 = physmem base */
+	mv	s10, a0		/* s10 = hart id */
+	mv	s11, a1		/* s11 = dtbp */
 
 	li	t0, SSTATUS_SUM
 	csrs	sstatus, t0
@@ -92,8 +92,7 @@ _start:
 
 	/* Level 2 superpages (512 x 2MiB) */
 	la	s1, pagetable_l2
-	mv	s6, s9
-	srli	t4, s6, 21		/* Div physmem base by 2 MiB */
+	srli	t4, s9, 21		/* Div physmem base by 2 MiB */
 	li	t2, 512			/* Build 512 entries */
 	add	t3, t4, t2
 	li	t5, 0
@@ -145,8 +144,7 @@ _start:
 
 	/* Setup supervisor trap vector */
 	la	t0, va
-	mv	t1, s9
-	sub	t0, t0, t1
+	sub	t0, t0, s9
 	li	t1, KERNBASE
 	add	t0, t0, t1
 	csrw	stvec, t0
@@ -268,15 +266,13 @@ ENTRY(mpentry)
 	li	t1, (PAGE_SIZE * KSTACK_PAGES)
 	mulw	t1, t1, s10
 	add	t0, t0, t1
-	mv	t1, s9
-	sub	t0, t0, t1
+	sub	t0, t0, s9
 	li	t1, KERNBASE
 	add	sp, t0, t1
 
 	/* Setup supervisor trap vector */
 	la	t0, mpva
-	mv	t1, s9
-	sub	t0, t0, t1
+	sub	t0, t0, s9
 	li	t1, KERNBASE
 	add	t0, t0, t1
 	csrw	stvec, t0
