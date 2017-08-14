@@ -8,7 +8,7 @@ unix		?=	We run FreeBSD, not UNIX.
 #
 # MACHINE_CPUARCH defines a collection of MACHINE_ARCH.  Machines with
 # the same MACHINE_ARCH can run each other's binaries, so it necessarily
-# has word size and endian swizzled in.  However, support files for
+# has word size and endian swizzled in.  However, the source files for
 # these machines often are shared amongst all combinations of size
 # and/or endian.  This is called MACHINE_CPU in NetBSD, but that's used
 # for something different in FreeBSD.
