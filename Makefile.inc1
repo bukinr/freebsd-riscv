@@ -365,11 +365,11 @@ OSRELDATE=	0
 
 # Set VERSION for CTFMERGE to use via the default CTFFLAGS=-L VERSION.
 .if !defined(_REVISION)
-_REVISION!=	MK_AUTO_OBJ=no ${MAKE} -C ${SRCDIR}/release -V REVISION
+_REVISION!=	${MAKE} -C ${SRCDIR}/release MK_AUTO_OBJ=no -V REVISION
 .export _REVISION
 .endif
 .if !defined(_BRANCH)
-_BRANCH!=	MK_AUTO_OBJ=no ${MAKE} -C ${SRCDIR}/release -V BRANCH
+_BRANCH!=	${MAKE} -C ${SRCDIR}/release MK_AUTO_OBJ=no -V BRANCH
 .export _BRANCH
 .endif
 .if !defined(SRCRELDATE)
@@ -398,6 +398,7 @@ KNOWN_ARCHES?=	aarch64/arm64 \
 		arm \
 		armeb/arm \
 		armv6/arm \
+		armv7/arm \
 		i386 \
 		mips \
 		mipsel/mips \
@@ -438,8 +439,8 @@ _TARGET_CPUTYPE=${TARGET_CPUTYPE}
 .else
 _TARGET_CPUTYPE=dummy
 .endif
-_CPUTYPE!=	MK_AUTO_OBJ=no MAKEFLAGS= CPUTYPE=${_TARGET_CPUTYPE} ${MAKE} \
-		-f /dev/null -m ${.CURDIR}/share/mk -V CPUTYPE
+_CPUTYPE!=	MAKEFLAGS= CPUTYPE=${_TARGET_CPUTYPE} ${MAKE} -f /dev/null \
+		-m ${.CURDIR}/share/mk MK_AUTO_OBJ=no -V CPUTYPE
 .if ${_CPUTYPE} != ${_TARGET_CPUTYPE}
 .error CPUTYPE global should be set with ?=.
 .endif
@@ -557,7 +558,7 @@ TMAKE=		MAKEOBJDIRPREFIX=${OBJTREE} \
 # cross-tools stage
 XMAKE=		TOOLS_PREFIX=${WORLDTMP} ${BMAKE} \
 		TARGET=${TARGET} TARGET_ARCH=${TARGET_ARCH} \
-		MK_GDB=no MK_TESTS=no
+		MK_GDB=no MK_LLD_IS_LD=${MK_LLD_BOOTSTRAP} MK_TESTS=no
 
 # kernel-tools stage
 KTMAKEENV=	INSTALL="sh ${.CURDIR}/tools/install.sh" \
@@ -614,7 +615,7 @@ BFLAGS+=	-B${CROSS_BINUTILS_PREFIX}
 BFLAGS+=	-B${WORLDTMP}/usr/bin
 .endif
 .if ${TARGET} == "arm"
-.if ${TARGET_ARCH:Marmv6*} != "" && ${TARGET_CPUTYPE:M*soft*} == ""
+.if ${TARGET_ARCH:Marmv[67]*} != "" && ${TARGET_CPUTYPE:M*soft*} == ""
 TARGET_ABI=	gnueabihf
 .else
 TARGET_ABI=	gnueabi
@@ -636,6 +637,8 @@ XCXXFLAGS+=	-isystem ${WORLDTMP}/usr/include/c++/v1 -std=c++11 \
 .endif
 .elif ${WANT_COMPILER_TYPE} == clang || \
     (defined(X_COMPILER_TYPE) && ${X_COMPILER_TYPE} == clang)
+MACHINE_ABI?=	unknown
+MACHINE_TRIPLE?=${MACHINE_ARCH:C/amd64/x86_64/}-${MACHINE_ABI}-freebsd12.0
 TARGET_ABI?=	unknown
 TARGET_TRIPLE?=	${TARGET_ARCH:C/amd64/x86_64/}-${TARGET_ABI}-freebsd12.0
 XCFLAGS+=	-target ${TARGET_TRIPLE}
@@ -650,7 +653,7 @@ XCFLAGS+=	${BFLAGS}
     ${TARGET_ARCH} == "powerpc64" || ${TARGET_ARCH:Mmips64*} != "")
 LIBCOMPAT= 32
 .include "Makefile.libcompat"
-.elif ${MK_LIBSOFT} != "no" && ${TARGET_ARCH} == "armv6"
+.elif ${MK_LIBSOFT} != "no" && ${TARGET_ARCH:Marmv[67]*} != ""
 LIBCOMPAT= SOFT
 .include "Makefile.libcompat"
 .endif
@@ -670,7 +673,7 @@ META_MODE_BAD_ABI_VERS+=	1200031
 OBJDIR_HOST_OSRELDATE!=	\
     awk '/^\#define[[:space:]]*__FreeBSD_version/ { print $$3 }' \
     ${OBJTREE}${.CURDIR}/host-osreldate.h
-.else
+.elif exists(${WORLDTMP}/usr/include/osreldate.h)
 OBJDIR_HOST_OSRELDATE=	0
 .endif
 .export OBJDIR_HOST_OSRELDATE
@@ -679,6 +682,7 @@ OBJDIR_HOST_OSRELDATE=	0
 # Note that this logic is the opposite of normal BOOTSTRAP handling.  We want
 # to compare the WORLDTMP's OSRELDATE to the host's OSRELDATE.  If the WORLDTMP
 # is older than the ABI-breakage OSRELDATE of the HOST then we rebuild.
+.if defined(OBJDIR_HOST_OSRELDATE)
 .for _ver in ${META_MODE_BAD_ABI_VERS}
 .if ${OSRELDATE} >= ${_ver} && ${OBJDIR_HOST_OSRELDATE} < ${_ver}
 _meta_mode_need_rebuild=	${_ver}
@@ -688,8 +692,9 @@ _meta_mode_need_rebuild=	${_ver}
 .info META_MODE: Rebuilding host tools due to ABI breakage in __FreeBSD_version ${_meta_mode_need_rebuild}.
 NO_META_IGNORE_HOST_HEADERS=	1
 .export NO_META_IGNORE_HOST_HEADERS
-.endif
-.endif
+.endif	# defined(_meta_mode_need_rebuild)
+.endif	# defined(OBJDIR_HOST_OSRELDATE)
+.endif	# ${MK_META_MODE} == "yes" && defined(NO_CLEAN) ...
 # This is only used for META_MODE+filemon to track what the oldest
 # __FreeBSD_version is in WORLDTMP.  This purposely does NOT have
 # a make dependency on /usr/include/osreldate.h as the file should
@@ -747,49 +752,26 @@ KMAKE=		${KMAKEENV} ${MAKE} ${.MAKEFLAGS} ${KERNEL_FLAGS} KERNEL=${INSTKERNNAME}
 # Attempt to rebuild the entire system, with reasonable chance of
 # success, regardless of how old your existing system is.
 #
-_worldtmp: .PHONY
+_sanity_check: .PHONY .MAKE
 .if ${.CURDIR:C/[^,]//g} != ""
 #	The m4 build of sendmail files doesn't like it if ',' is used
 #	anywhere in the path of it's files.
 	@echo
 	@echo "*** Error: path to source tree contains a comma ','"
 	@echo
-	false
-.endif
+	@false
+.elif ${.CURDIR:M*\:*} != ""
+#	Using ':' leaks into PATH and breaks finding cross-tools.
 	@echo
-	@echo "--------------------------------------------------------------"
-	@echo ">>> Rebuilding the temporary build tree"
-	@echo "--------------------------------------------------------------"
-.if !defined(NO_CLEAN)
-	rm -rf ${WORLDTMP}
-.if defined(LIBCOMPAT)
-	rm -rf ${LIBCOMPATTMP}
+	@echo "*** Error: path to source tree contains a colon ':'"
+	@echo
+	@false
 .endif
-.else
-.if exists(${WORLDTMP})
-	@echo ">>> Deleting stale files in build tree..."
-	${_+_}cd ${.CURDIR}; ${WMAKE} -DBATCH_DELETE_OLD_FILES \
-	    delete-old delete-old-libs >/dev/null
-.endif
-.if defined(LIBCOMPAT) && exists(${LIBCOMPATTMP})
-	${_+_}cd ${.CURDIR}; ${WMAKE} -DBATCH_DELETE_OLD_FILES \
-	    DESTDIR=${LIBCOMPATTMP} \
-	    delete-old delete-old-libs >/dev/null
-.endif
-	rm -rf ${WORLDTMP}/legacy/usr/include
-.if ${USING_SYSTEM_COMPILER} == "yes"
-.for cc in cc c++
-	if [ -x ${WORLDTMP}/usr/bin/${cc} ]; then \
-		inum=$$(stat -f %i ${WORLDTMP}/usr/bin/${cc}); \
-		find ${WORLDTMP}/usr/bin -inum $${inum} -delete; \
-	fi
-.endfor
-.endif	# ${USING_SYSTEM_COMPILER} == "yes"
 
 # Our current approach to dependency tracking cannot cope with certain source
 # tree changes, particularly with respect to removing source files and
 # replacing generated files.  Handle these cases here in an ad-hoc fashion.
-#
+_cleanobj_fast_depend_hack: .PHONY
 # Syscall stubs rewritten in C
 # Date      SVN Rev  Syscalls
 # 20160829  r305012  ptrace
@@ -800,7 +782,7 @@ _worldtmp: .PHONY
 	    ${OBJTREE}${.CURDIR}/lib/libc/.depend.${f}.o; then \
 		echo Removing stale dependencies for ${f} syscall wrappers; \
 		rm -f ${OBJTREE}${.CURDIR}/lib/libc/.depend.${f}.* \
-		   ${OBJTREE}${.CURDIR}/world32/${.CURDIR}/lib/libc/.depend.${f}.*; \
+		   ${LIBCOMPAT:D${LIBCOMPAT_OBJTREE}${.CURDIR}/lib/libc/.depend.${f}.*}; \
 	fi
 .endif
 .endfor
@@ -811,7 +793,7 @@ _worldtmp: .PHONY
 	    ${OBJTREE}${.CURDIR}/lib/libc/.depend.${f}.o; then \
 		echo Removing stale dependencies for ${f} syscall wrappers; \
 		rm -f ${OBJTREE}${.CURDIR}/lib/libc/.depend.${f}.* \
-		   ${OBJTREE}${.CURDIR}/world32/${.CURDIR}/lib/libc/.depend.${f}.*; \
+		   ${LIBCOMPAT:D${LIBCOMPAT_OBJTREE}${.CURDIR}/lib/libc/.depend.${f}.*}; \
 	fi
 .endif
 .endfor
@@ -823,11 +805,33 @@ _worldtmp: .PHONY
 	@echo Removing stale generated ${f} syscall files
 	@rm -f ${OBJTREE}${.CURDIR}/lib/libc/${f}.* \
 	    ${OBJTREE}${.CURDIR}/lib/libc/.depend.${f}.* \
-	    ${OBJTREE}${.CURDIR}/world32/${.CURDIR}/lib/libc/${f}.* \
-	    ${OBJTREE}${.CURDIR}/world32/${.CURDIR}/lib/libc/.depend.${f}.*
+	    ${LIBCOMPAT:D${LIBCOMPAT_OBJTREE}${.CURDIR}/lib/libc/${f}.*} \
+	    ${LIBCOMPAT:D${LIBCOMPAT_OBJTREE}${.CURDIR}/lib/libc/.depend.${f}.*}
 .endif
 .endfor
 
+_worldtmp: .PHONY
+	@echo
+	@echo "--------------------------------------------------------------"
+	@echo ">>> Rebuilding the temporary build tree"
+	@echo "--------------------------------------------------------------"
+.if !defined(NO_CLEAN)
+	rm -rf ${WORLDTMP}
+.else
+.if exists(${WORLDTMP})
+	@echo ">>> Deleting stale files in build tree..."
+	${_+_}cd ${.CURDIR}; ${WMAKE} -DBATCH_DELETE_OLD_FILES \
+	    delete-old delete-old-libs >/dev/null
+.endif
+	rm -rf ${WORLDTMP}/legacy/usr/include
+.if ${USING_SYSTEM_COMPILER} == "yes"
+.for cc in cc c++
+	if [ -x ${WORLDTMP}/usr/bin/${cc} ]; then \
+		inum=$$(stat -f %i ${WORLDTMP}/usr/bin/${cc}); \
+		find ${WORLDTMP}/usr/bin -inum $${inum} -delete; \
+	fi
+.endfor
+.endif	# ${USING_SYSTEM_COMPILER} == "yes"
 .endif	# !defined(NO_CLEAN)
 
 .for _dir in \
@@ -844,31 +848,10 @@ _worldtmp: .PHONY
 	    -p ${WORLDTMP}/usr/include >/dev/null
 	ln -sf ${.CURDIR}/sys ${WORLDTMP}
 .if ${MK_DEBUG_FILES} != "no"
-	# We could instead disable debug files for these build stages
 	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.debug.dist \
 	    -p ${WORLDTMP}/legacy/usr/lib >/dev/null
 	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.debug.dist \
 	    -p ${WORLDTMP}/usr/lib >/dev/null
-.endif
-.if defined(LIBCOMPAT)
-	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.lib${libcompat}.dist \
-	    -p ${WORLDTMP}/usr >/dev/null
-.if ${MK_DEBUG_FILES} != "no"
-	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.lib${libcompat}.dist \
-	    -p ${WORLDTMP}/legacy/usr/lib/debug/usr >/dev/null
-	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.lib${libcompat}.dist \
-	    -p ${WORLDTMP}/usr/lib/debug/usr >/dev/null
-.endif
-.endif
-.if ${MK_TESTS} != "no"
-	mkdir -p ${WORLDTMP}${TESTSBASE}
-	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.tests.dist \
-	    -p ${WORLDTMP}${TESTSBASE} >/dev/null
-.if ${MK_DEBUG_FILES} != "no"
-	mkdir -p ${WORLDTMP}/usr/lib/debug/${TESTSBASE}
-	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.tests.dist \
-	    -p ${WORLDTMP}/usr/lib/debug/${TESTSBASE} >/dev/null
-.endif
 .endif
 .for _mtree in ${LOCAL_MTREE}
 	mtree -deU -f ${.CURDIR}/${_mtree} -p ${WORLDTMP} > /dev/null
@@ -895,7 +878,9 @@ _cleanobj:
 .if defined(LIBCOMPAT)
 	${_+_}cd ${.CURDIR}; ${LIBCOMPATWMAKE} -f Makefile.inc1 ${CLEANDIR}
 .endif
-.endif
+.else
+	${_+_}cd ${.CURDIR}; ${WMAKE} _cleanobj_fast_depend_hack
+.endif	# !defined(NO_CLEAN)
 _obj:
 	@echo
 	@echo "--------------------------------------------------------------"
@@ -952,7 +937,7 @@ everything: .PHONY
 
 WMAKE_TGTS=
 .if !defined(WORLDFAST)
-WMAKE_TGTS+=	_worldtmp _legacy
+WMAKE_TGTS+=	_sanity_check _worldtmp _legacy
 .if empty(SUBDIR_OVERRIDE)
 WMAKE_TGTS+=	_bootstrap-tools
 .endif
@@ -1358,6 +1343,10 @@ BUILDKERNELS+= dummy
 BUILDKERNELS+=	${_kernel}
 .if empty(INSTALLKERNEL) && !defined(NO_INSTALLKERNEL)
 INSTALLKERNEL= ${_kernel}
+.endif
+.else
+.if make(buildkernel)
+.error Missing KERNCONF ${KERNCONFDIR}/${_kernel}
 .endif
 .endif
 .endfor
@@ -1786,7 +1775,8 @@ update: .PHONY
 
 # ELF Tool Chain libraries are needed for ELF tools and dtrace tools.
 # r296685 fix cross-endian objcopy
-.if ${BOOTSTRAPPING} < 1100102
+# r310724 fixed PR 215350, a crash in libdwarf with objects built by GCC 6.2.
+.if ${BOOTSTRAPPING} < 1200020
 _elftoolchain_libs= lib/libelf lib/libdwarf
 .endif
 
@@ -1839,7 +1829,6 @@ _vtfontcvt=	usr.bin/vtfontcvt
 .endif
 
 .if ${BOOTSTRAPPING} < 1000033
-_libopenbsd=	lib/libopenbsd
 _m4=		usr.bin/m4
 _lex=		usr.bin/lex
 
@@ -1925,9 +1914,6 @@ _kerberos5_bootstrap_tools= \
 .ORDER: ${_kerberos5_bootstrap_tools:C/^/${_bt}-/g}
 .endif
 
-# r283777 makewhatis(1) replaced with mandoc version which builds a database.
-_libopenbsd?=	lib/libopenbsd
-_makewhatis=	usr.bin/mandoc
 ${_bt}-usr.bin/mandoc: ${_bt}-lib/libopenbsd
 
 bootstrap-tools: .PHONY
@@ -1944,8 +1930,8 @@ bootstrap-tools: .PHONY
     ${_cat} \
     ${_kbdcontrol} \
     usr.bin/lorder \
-    ${_libopenbsd} \
-    ${_makewhatis} \
+    lib/libopenbsd \
+    usr.bin/mandoc \
     usr.bin/rpcgen \
     ${_yacc} \
     ${_m4} \
@@ -1984,8 +1970,12 @@ _gcc_tools= gnu/usr.bin/cc/cc_tools
 _rescue=rescue/rescue
 .endif
 
+.if ${MK_TCSH} != "no"
+_tcsh=bin/csh
+.endif
+
 .for _tool in \
-    bin/csh \
+    ${_tcsh} \
     bin/sh \
     ${LOCAL_TOOL_DIRS} \
     lib/ncurses/ncurses \
@@ -2099,51 +2089,28 @@ cross-tools: .MAKE .PHONY
 		${MAKE} DIRPRFX=${_tool}/ DESTDIR=${MAKEOBJDIRPREFIX} install
 .endfor
 
-NXBDESTDIR=	${OBJTREE}/nxb-bin
-NXBENV=		MAKEOBJDIRPREFIX=${OBJTREE}/nxb \
-		TOOLS_PREFIX= \
-		INSTALL="sh ${.CURDIR}/tools/install.sh" \
-		PATH=${PATH}:${OBJTREE}/gperf_for_gcc/usr/bin
-NXBMAKE=	${NXBENV} ${MAKE} \
-		LLVM_TBLGEN=${NXBDESTDIR}/usr/bin/llvm-tblgen \
-		CLANG_TBLGEN=${NXBDESTDIR}/usr/bin/clang-tblgen \
-		MACHINE=${TARGET} MACHINE_ARCH=${TARGET_ARCH} \
-		MK_GDB=no MK_TESTS=no \
-		SSP_CFLAGS= \
-		MK_HTML=no NO_LINT=yes MK_MAN=no MK_MAN_UTILS=yes \
-		-DNO_PIC MK_PROFILE=no -DNO_SHARED \
-		-DNO_CPU_CFLAGS MK_WARNS=no MK_CTF=no \
-		MK_CLANG_EXTRAS=no MK_CLANG_FULL=no \
-		MK_LLDB=no MK_DEBUG_FILES=no
-
+#
 # native-xtools is the current target for qemu-user cross builds of ports
 # via poudriere and the imgact_binmisc kernel module.
-# For non-clang enabled targets that are still using the in tree gcc
-# we must build a gperf binary for one instance of its Makefiles.  On
-# clang-enabled systems, the gperf binary is obsolete.
-native-xtools: .PHONY
-.if ${MK_GCC_BOOTSTRAP} != "no"
-	mkdir -p ${OBJTREE}/gperf_for_gcc/usr/bin
-	${_+_}@${ECHODIR} "===> ${_gperf} (obj,all,install)"; \
-	cd ${.CURDIR}/${_gperf}; \
-	if [ -z "${NO_OBJ}" ]; then ${NXBMAKE} DIRPRFX=${_gperf}/ obj; fi; \
-	${NXBMAKE} DIRPRFX=${_gperf}/ all; \
-	${NXBMAKE} DIRPRFX=${_gperf}/ DESTDIR=${OBJTREE}/gperf_for_gcc install
+# This target merely builds a toolchan/sysroot, then builds the tools it wants
+# with the options it wants in a special MAKEOBJDIRPREFIX, using the toolchain
+# already built.  It then installs the static tools to NXBDESTDIR for Poudriere
+# to pickup.
+#
+NXBOBJDIR=	${MAKEOBJDIRPREFIX}/nxb/${TARGET}.${TARGET_ARCH}
+NXTP?=		/nxb-bin
+.if ${NXTP:N/*}
+.error NXTP variable should be an absolute path
 .endif
-	mkdir -p ${NXBDESTDIR}/bin ${NXBDESTDIR}/sbin ${NXBDESTDIR}/usr
-	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.usr.dist \
-	    -p ${NXBDESTDIR}/usr >/dev/null
-	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.include.dist \
-	    -p ${NXBDESTDIR}/usr/include >/dev/null
-.if ${MK_DEBUG_FILES} != "no"
-	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.debug.dist \
-	    -p ${NXBDESTDIR}/usr/lib >/dev/null
-.endif
-.for _tool in \
+NXBDESTDIR?=	${DESTDIR}${NXTP}
+
+# This is the list of tools to be built/installed as static and where
+# appropriate to build for the given TARGET.TARGET_ARCH.
+NXBDIRS+= \
     bin/cat \
     bin/chmod \
     bin/cp \
-    bin/csh \
+    ${_tcsh} \
     bin/echo \
     bin/expr \
     bin/hostname \
@@ -2157,24 +2124,18 @@ native-xtools: .PHONY
     bin/rmdir \
     bin/sh \
     bin/sleep \
-    ${_clang_tblgen} \
-    usr.bin/ar \
-    ${_binutils} \
-    ${_elftctools} \
-    ${_gcc} \
-    ${_gcc_tools} \
-    ${_clang_libs} \
-    ${_clang} \
-    ${_lld} \
     sbin/md5 \
     sbin/sysctl \
-    usr.bin/diff \
+    usr.bin/addr2line \
+    usr.bin/ar \
     usr.bin/awk \
     usr.bin/basename \
     usr.bin/bmake \
     usr.bin/bzip2 \
     usr.bin/cmp \
+    usr.bin/diff \
     usr.bin/dirname \
+    usr.bin/elfcopy \
     usr.bin/env \
     usr.bin/fetch \
     usr.bin/find \
@@ -2184,14 +2145,16 @@ native-xtools: .PHONY
     usr.bin/lex \
     usr.bin/limits \
     usr.bin/lorder \
-    ${_libopenbsd} \
-    ${_makewhatis} \
+    usr.bin/mandoc \
     usr.bin/mktemp \
     usr.bin/mt \
+    usr.bin/nm \
     usr.bin/patch \
     usr.bin/readelf \
     usr.bin/sed \
+    usr.bin/size \
     usr.bin/sort \
+    usr.bin/strings \
     usr.bin/tar \
     usr.bin/touch \
     usr.bin/tr \
@@ -2203,12 +2166,84 @@ native-xtools: .PHONY
     usr.bin/xz \
     usr.bin/yacc \
     usr.sbin/chown
-	${_+_}@${ECHODIR} "===> ${_tool} (obj,all,install)"; \
-		cd ${.CURDIR}/${_tool}; \
-		if [ -z "${NO_OBJ}" ]; then ${NXBMAKE} DIRPRFX=${_tool}/ obj; fi; \
-		${NXBMAKE} DIRPRFX=${_tool}/ all; \
-		${NXBMAKE} DIRPRFX=${_tool}/ DESTDIR=${NXBDESTDIR} install
-.endfor
+
+.if ${MK_CLANG} != "no"
+NXBDIRS+=	lib/clang
+SUBDIR_DEPEND_usr.bin/clang=	lib/clang
+NXBDIRS+=	usr.bin/clang
+.elif ${MK_GCC} != "no"
+NXBDIRS+=	gnu/usr.bin/cc
+.endif
+.if ${MK_BINUTILS} != "no"
+NXBDIRS+=	gnu/usr.bin/binutils
+.endif
+
+NXBMAKEENV+= \
+	MAKEOBJDIRPREFIX=${NXBOBJDIR:Q}
+
+NXBMAKEARGS+= \
+	OBJTREE=${NXBOBJDIR:Q} \
+	-DNO_SHARED \
+	-DNO_CPU_CFLAGS \
+	-DNO_PIC \
+	SSP_CFLAGS= \
+	MK_CLANG_EXTRAS=no \
+	MK_CLANG_FULL=no \
+	MK_CTF=no \
+	MK_DEBUG_FILES=no \
+	MK_GDB=no \
+	MK_HTML=no \
+	MK_LLDB=no \
+	MK_MAN=no \
+	MK_MAN_UTILS=yes \
+	MK_OFED=no \
+	MK_OPENSSH=no \
+	MK_PROFILE=no \
+	MK_SENDMAIL=no \
+	MK_SVNLITE=no \
+	MK_TESTS=no \
+	MK_WARNS=no \
+	MK_ZFS=no
+
+
+# For 'toolchain' we want to produce native binaries that themselves generate
+# native binaries.
+NXBTMAKE=	${NXBMAKEENV} ${MAKE} ${NXBMAKEARGS:N-DNO_PIC:N-DNO_SHARED} \
+		TARGET=${MACHINE} TARGET_ARCH=${MACHINE_ARCH}
+# For 'everything' we want to produce native binaries (hence -target to
+# be MACHINE) that themselves generate TARGET.TARGET_ARCH binaries.
+# TARGET/TARGET_ARCH are still passed along from user.
+NXBMAKE=	${NXBMAKEENV} ${MAKE} ${NXBMAKEARGS} \
+		TARGET_TRIPLE=${MACHINE_TRIPLE:Q}
+native-xtools: .PHONY
+	# Build the bootstrap/host/cross tools that produce native binaries
+	${_+_}cd ${.CURDIR}; ${NXBTMAKE} kernel-toolchain
+	# Populate includes/libraries sysroot that produce native binaries.
+	# This is split out from 'toolchain' above mostly so that target LLVM
+	# libraries have a proper LLVM_DEFAULT_TARGET_TRIPLE without
+	# polluting the cross-compiler build.  The LLVM/GCC libs are skipped
+	# here to avoid the problem but are kept in 'toolchain' so that
+	# needed build tools are built.
+	${_+_}cd ${.CURDIR}; ${NXBTMAKE} _includes MK_CLANG=no MK_GCC=no
+	${_+_}cd ${.CURDIR}; ${NXBTMAKE} _libraries MK_CLANG=no MK_GCC=no
+.if !defined(NO_OBJ)
+	${_+_}cd ${.CURDIR}; ${NXBMAKE} SUBDIR_OVERRIDE="${NXBDIRS:M*}" _obj
+.endif
+	${_+_}cd ${.CURDIR}; ${NXBMAKE} SUBDIR_OVERRIDE="${NXBDIRS:M*}" \
+	    everything
+	@echo ">> native-xtools done.  Use 'make native-xtools-install' to install to a given DESTDIR"
+
+native-xtools-install: .PHONY
+	mkdir -p ${NXBDESTDIR}/bin ${NXBDESTDIR}/sbin ${NXBDESTDIR}/usr
+	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.usr.dist \
+	    -p ${NXBDESTDIR}/usr >/dev/null
+	mtree -deU -f ${.CURDIR}/etc/mtree/BSD.include.dist \
+	    -p ${NXBDESTDIR}/usr/include >/dev/null
+	${_+_}cd ${.CURDIR}; ${NXBMAKE} -f Makefile.inc1 \
+	    DESTDIR=${NXBDESTDIR} \
+	    SUBDIR_OVERRIDE="${NXBDIRS:M*}" \
+	    -DNO_ROOT \
+	    install
 
 #
 # hierarchy - ensure that all the needed directories are present
@@ -2554,7 +2589,7 @@ delete-old-files: .PHONY
 	done
 # Remove catpages without corresponding manpages.
 	@exec 3<&0; \
-	find ${DESTDIR}/usr/share/man/cat* ! -type d | \
+	find ${DESTDIR}/usr/share/man/cat* ! -type d 2>/dev/null | \
 	sed -ep -e's:${DESTDIR}/usr/share/man/cat:${DESTDIR}/usr/share/man/man:' | \
 	while read catpage; do \
 		read manpage; \
@@ -2580,7 +2615,7 @@ check-old-files: .PHONY
 		done; \
 	done
 # Check for catpages without corresponding manpages.
-	@find ${DESTDIR}/usr/share/man/cat* ! -type d | \
+	@find ${DESTDIR}/usr/share/man/cat* ! -type d 2>/dev/null | \
 	sed -ep -e's:${DESTDIR}/usr/share/man/cat:${DESTDIR}/usr/share/man/man:' | \
 	while read catpage; do \
 		read manpage; \
@@ -2732,8 +2767,6 @@ cleanworld: .PHONY
 	${_+_}@cd ${.CURDIR}; ${MAKE} cleandir
 .endif
 
-.if defined(TARGET) && defined(TARGET_ARCH)
-
 .if ${TARGET} == ${MACHINE} && ${TARGET_ARCH} == ${MACHINE_ARCH}
 XDEV_CPUTYPE?=${CPUTYPE}
 .else
@@ -2784,7 +2817,7 @@ CD2MAKE=${CD2ENV} PATH=${CDTMP}/usr/bin:${XDDESTDIR}/usr/bin:${PATH} ${MAKE} ${N
 # Don't rebuild build-tools targets during normal build.
 CD2MAKE+=	BUILD_TOOLS_META=.NOMETA
 .endif
-XDDESTDIR=${DESTDIR}/${XDTP}
+XDDESTDIR=${DESTDIR}${XDTP}
 
 .ORDER: xdev-build xdev-install xdev-links
 xdev: xdev-build xdev-install .PHONY
@@ -2813,14 +2846,17 @@ _xb-build-tools: .PHONY
 	${_+_}@cd ${.CURDIR}; \
 	${CDBENV} ${MAKE} -f Makefile.inc1 ${NOFUN} build-tools
 
-_xb-cross-tools: .PHONY
-.for _tool in \
+XDEVDIRS= \
+    ${_lld} \
     ${_binutils} \
     ${_elftctools} \
     usr.bin/ar \
     ${_clang_libs} \
     ${_clang} \
     ${_gcc}
+
+_xb-cross-tools: .PHONY
+.for _tool in ${XDEVDIRS}
 	${_+_}@${ECHODIR} "===> xdev ${_tool} (obj,all)"; \
 	cd ${.CURDIR}/${_tool}; \
 	if [ -z "${NO_OBJ}" ]; then ${CDMAKE} DIRPRFX=${_tool}/ obj; fi; \
@@ -2851,19 +2887,17 @@ xdev-install: xdev-build _xi-mtree _xi-cross-tools _xi-includes _xi-libraries .P
 
 _xi-cross-tools: .PHONY
 	@echo "_xi-cross-tools"
-.for _tool in \
-    ${_binutils} \
-    ${_elftctools} \
-    usr.bin/ar \
-    ${_clang_libs} \
-    ${_clang} \
-    ${_gcc}
+.for _tool in ${XDEVDIRS}
 	${_+_}@${ECHODIR} "===> xdev ${_tool} (install)"; \
 	cd ${.CURDIR}/${_tool}; \
 	${CDMAKE} DIRPRFX=${_tool}/ install DESTDIR=${XDDESTDIR}
 .endfor
 
 _xi-includes: .PHONY
+.if !defined(NO_OBJ)
+	${_+_}cd ${.CURDIR}; ${CD2MAKE} -f Makefile.inc1 _obj \
+		DESTDIR=${XDDESTDIR}
+.endif
 	${_+_}cd ${.CURDIR}; ${CD2MAKE} -f Makefile.inc1 includes \
 		DESTDIR=${XDDESTDIR}
 
@@ -2880,7 +2914,3 @@ xdev-links: .PHONY
 			ln -sf ../../${XDTP}/usr/bin/$$i \
 			    ../../../../usr/bin/${XDDIR}${_REVISION}-$$i; \
 		done
-.else
-xdev xdev-build xdev-install xdev-links: .PHONY
-	@echo "*** Error: Both TARGET and TARGET_ARCH must be defined for \"${.TARGET}\" target"
-.endif

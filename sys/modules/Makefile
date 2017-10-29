@@ -35,6 +35,7 @@ SUBDIR=	\
 	alq \
 	${_amd_ecc_inject} \
 	${_amdsbwd} \
+	${_amdsmn} \
 	${_amdtemp} \
 	amr \
 	${_an} \
@@ -217,7 +218,6 @@ SUBDIR=	\
 	lge \
 	libalias \
 	libiconv \
-	libmbpool \
 	libmchain \
 	${_linprocfs} \
 	${_linsysfs} \
@@ -225,6 +225,7 @@ SUBDIR=	\
 	${_linux_common} \
 	${_linux64} \
 	linuxkpi \
+	${_lio} \
 	lmc \
 	lpt \
 	mac_biba \
@@ -250,6 +251,7 @@ SUBDIR=	\
 	${_mlx4en} \
 	${_mlx5} \
 	${_mlx5en} \
+	${_mlx5ib} \
 	${_mly} \
 	mmc \
 	mmcsd \
@@ -423,7 +425,7 @@ _autofs=	autofs
 .endif
 
 .if ${MK_CDDL} != "no" || defined(ALL_MODULES)
-.if (${MACHINE_CPUARCH} != "arm" || ${MACHINE_ARCH:Marmv6*} != "") && \
+.if (${MACHINE_CPUARCH} != "arm" || ${MACHINE_ARCH:Marmv[67]*} != "") && \
 	${MACHINE_CPUARCH} != "mips" && \
 	${MACHINE_CPUARCH} != "sparc64"
 SUBDIR+=	dtrace
@@ -559,6 +561,7 @@ _cxgb=		cxgb
 
 .if ${MACHINE_CPUARCH} == "aarch64"
 _armv8crypto=	armv8crypto
+_efirt=		efirt
 _em=		em
 .endif
 
@@ -600,6 +603,9 @@ _ixv=		ixv
 _linprocfs=	linprocfs
 _linsysfs=	linsysfs
 _linux=		linux
+.if ${MK_SOURCELESS_UCODE} != "no"
+_lio=		lio
+.endif
 _nctgpio=	nctgpio
 _ndis=		ndis
 _pccard=	pccard
@@ -625,6 +631,7 @@ _aesni=		aesni
 .endif
 _amd_ecc_inject=amd_ecc_inject
 _amdsbwd=	amdsbwd
+_amdsmn=	amdsmn
 _amdtemp=	amdtemp
 _arcmsr=	arcmsr
 _asmc=		asmc
@@ -670,6 +677,7 @@ _mlx5en=	mlx5en
 .endif
 .if ${MK_OFED} != "no" || defined(ALL_MODULES)
 _mlx4ib=	mlx4ib
+_mlx5ib=	mlx5ib
 .endif
 _mly=		mly
 .if ${MK_OFED} != "no" || defined(ALL_MODULES)
@@ -712,8 +720,8 @@ _qlxge=		qlxge
 _qlxgb=		qlxgb
 .if ${MK_SOURCELESS_UCODE} != "no"
 _qlxgbe=	qlxgbe
-.endif
 _qlnx=		qlnx
+.endif
 _sfxge=		sfxge
 _sgx=		sgx
 _sgx_linux=	sgx_linux
@@ -792,7 +800,7 @@ _em=		em
 _epic=		epic
 .endif
 
-.if (${MACHINE_CPUARCH} == "amd64" || ${MACHINE_ARCH} == "armv6" || \
+.if (${MACHINE_CPUARCH} == "amd64" || ${MACHINE_ARCH:Marmv[67]*} != "" || \
      ${MACHINE_CPUARCH} == "i386")
 _cloudabi32=	cloudabi32
 .endif
@@ -802,7 +810,7 @@ _cloudabi64=	cloudabi64
 
 .endif
 
-.if ${MACHINE_ARCH} == "armv6"
+.if ${MACHINE_ARCH:Marmv[67]*} != ""
 _ffec=		ffec
 .endif
 
