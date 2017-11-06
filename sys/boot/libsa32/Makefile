@@ -1,14 +1,12 @@
 # $FreeBSD$
 
-.include <src.opts.mk>
-
-.include "../Makefile.inc"
+.include <bsd.init.mk>
 
 LIB=sa32
 .if ${MACHINE_CPUARCH} == "amd64"
-LIBSTAND_CPUARCH=i386
+LIBSA_CPUARCH=i386
 .else
-LIBSTAND_CPUARCH=${MACHINE_CPUARCH}
+LIBSA_CPUARCH=${MACHINE_CPUARCH}
 .endif
 
 .if ${MACHINE_ARCH} == "amd64" || ${MACHINE_ARCH} == "powerpc64"
@@ -22,5 +20,5 @@ CFLAGS+=	-m32 -I.
 CLEANFILES+= machine
 beforedepend ${OBJS}: machine
 machine: .NOMETA
-	ln -fs ${.CURDIR}/../../i386/include machine
+	ln -fs ${SYSDIR}/i386/include machine
 .endif

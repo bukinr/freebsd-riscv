@@ -1,6 +1,6 @@
 # $FreeBSD$
 
-.include <src.opts.mk>
+.include <bsd.init.mk>
 MK_SSP=		no
 MAN=
 
@@ -30,22 +30,22 @@ CFLAGS+=	-DLOADER_DEBUG
 .endif
 .if ${LOADER_ZFS_SUPPORT} == "yes"
 CFLAGS+=	-DLOADER_ZFS_SUPPORT
-CFLAGS+=	-I${.CURDIR}/../../zfs
-CFLAGS+=	-I${.CURDIR}/../../../cddl/boot/zfs
-LIBZFSBOOT=	${.OBJDIR}/../../zfs/libzfsboot.a
+CFLAGS+=	-I${ZFSSRC}
+CFLAGS+=	-I${SYSDIR}/cddl/boot/zfs
+LIBZFSBOOT=	${BOOTOBJ}/zfs/libzfsboot.a
 .endif
 
 # Always add MI sources
-.include	"../../loader.mk"
+.include	"${BOOTSRC}/loader.mk"
 CFLAGS+=	-I.
 
 CLEANFILES+=	loader.help
 
-LDFLAGS=	-static
+LDFLAGS+=	-static
 
 # Open Firmware standalone support library
-LIBOFW=		${.OBJDIR}/../../ofw/libofw/libofw.a
-CFLAGS+=	-I${.CURDIR}/../../ofw/libofw/
+LIBOFW=		${BOOTOBJ}/ofw/libofw/libofw.a
+CFLAGS+=	-I${BOOTSRC}/ofw/libofw/
 
 # Need sys/ for crypto/intake.h
 CFLAGS+=	-I${SRCTOP}/sys
@@ -57,8 +57,8 @@ loader.help: help.common help.sparc64
 	cat ${.ALLSRC} | \
 	    awk -f ${LDRSRC}/merge_help.awk > ${.TARGET}
 
-.PATH: ${.CURDIR}/../../forth
-.include	"${.CURDIR}/../../forth/Makefile.inc"
+.PATH: ${BOOTSRC}/forth
+.include	"${BOOTSRC}/forth/Makefile.inc"
 
 FILES+= loader.rc menu.rc
 
