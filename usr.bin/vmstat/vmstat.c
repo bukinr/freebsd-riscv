@@ -1,4 +1,6 @@
-/*
+/*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 1980, 1986, 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -1059,7 +1061,7 @@ dosum(void)
 		sum.v_vnodepgsin);
 	xo_emit("{:vnode-page-outs/%9u} {N:vnode pager pageouts}\n",
 		sum.v_vnodeout);
-	xo_emit("{:vnode-page-outs/%9u} {N:vnode pager pages paged out}\n",
+	xo_emit("{:vnode-page-out-pages/%9u} {N:vnode pager pages paged out}\n",
 		sum.v_vnodepgsout);
 	xo_emit("{:page-daemon-wakeups/%9u} {N:page daemon wakeups}\n",
 		sum.v_pdwakeups);

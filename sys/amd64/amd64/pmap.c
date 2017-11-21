@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-4-Clause
+ *
  * Copyright (c) 1991 Regents of the University of California.
  * All rights reserved.
  * Copyright (c) 1994 John S. Dyson
@@ -2414,9 +2416,8 @@ pmap_pinit_type(pmap_t pmap, enum pmap_type pm_type, int flags)
 	/*
 	 * allocate the page directory page
 	 */
-	while ((pml4pg = vm_page_alloc(NULL, 0, VM_ALLOC_NORMAL |
-	    VM_ALLOC_NOOBJ | VM_ALLOC_WIRED | VM_ALLOC_ZERO)) == NULL)
-		VM_WAIT;
+	pml4pg = vm_page_alloc(NULL, 0, VM_ALLOC_NORMAL | VM_ALLOC_NOOBJ |
+	    VM_ALLOC_WIRED | VM_ALLOC_ZERO | VM_ALLOC_WAITOK);
 
 	pml4phys = VM_PAGE_TO_PHYS(pml4pg);
 	pmap->pm_pml4 = (pml4_entry_t *)PHYS_TO_DMAP(pml4phys);

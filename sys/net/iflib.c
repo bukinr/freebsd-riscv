@@ -59,6 +59,7 @@ __FBSDID("$FreeBSD$");
 #include <net/bpf.h>
 #include <net/ethernet.h>
 #include <net/mp_ring.h>
+#include <net/vnet.h>
 
 #include <netinet/in.h>
 #include <netinet/in_pcb.h>
@@ -68,6 +69,8 @@ __FBSDID("$FreeBSD$");
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
 #include <netinet/tcp.h>
+#include <netinet/ip_var.h>
+#include <netinet6/ip6_var.h>
 
 #include <machine/bus.h>
 #include <machine/in_cksum.h>
@@ -2022,7 +2025,7 @@ iflib_fl_setup(iflib_fl_t fl)
 	if_ctx_t ctx = rxq->ifr_ctx;
 	if_softc_ctx_t sctx = &ctx->ifc_softc_ctx;
 
-	bit_nclear(fl->ifl_rx_bitmap, 0, fl->ifl_size);
+	bit_nclear(fl->ifl_rx_bitmap, 0, fl->ifl_size - 1);
 	/*
 	** Free current RX buffer structs and their mbufs
 	*/
@@ -2463,6 +2466,51 @@ iflib_rxd_pkt_get(iflib_rxq_t rxq, if_rxd_info_t ri)
 	return (m);
 }
 
+#if defined(INET6) || defined(INET)
+/*
+ * Returns true if it's possible this packet could be LROed.
+ * if it returns false, it is guaranteed that tcp_lro_rx()
+ * would not return zero.
+ */
+static bool
+iflib_check_lro_possible(struct lro_ctrl *lc, struct mbuf *m)
+{
+	struct ether_header *eh;
+	uint16_t eh_type;
+
+	eh = mtod(m, struct ether_header *);
+	eh_type = ntohs(eh->ether_type);
+	switch (eh_type) {
+#if defined(INET6)
+		case ETHERTYPE_IPV6:
+		{
+			CURVNET_SET(lc->ifp->if_vnet);
+			if (VNET(ip6_forwarding) == 0) {
+				CURVNET_RESTORE();
+				return true;
+			}
+			CURVNET_RESTORE();
+			break;
+		}
+#endif
+#if defined (INET)
+		case ETHERTYPE_IP:
+		{
+			CURVNET_SET(lc->ifp->if_vnet);
+			if (VNET(ipforwarding) == 0) {
+				CURVNET_RESTORE();
+				return true;
+			}
+			CURVNET_RESTORE();
+			break;
+		}
+#endif
+	}
+
+	return false;
+}
+#endif
+
 static bool
 iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 {
@@ -2476,6 +2524,7 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 	iflib_fl_t fl;
 	struct ifnet *ifp;
 	int lro_enabled;
+	bool lro_possible = false;
 
 	/*
 	 * XXX early demux data packets so that if_input processing only handles
@@ -2555,8 +2604,6 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 	mt = mf = NULL;
 	while (mh != NULL) {
 		m = mh;
-		if (mf == NULL)
-			mf = m;
 		mh = mh->m_nextpkt;
 		m->m_nextpkt = NULL;
 #ifndef __NO_STRICT_ALIGNMENT
@@ -2566,12 +2613,27 @@ iflib_rxeof(iflib_rxq_t rxq, qidx_t budget)
 		rx_bytes += m->m_pkthdr.len;
 		rx_pkts++;
 #if defined(INET6) || defined(INET)
-		if (lro_enabled && tcp_lro_rx(&rxq->ifr_lc, m, 0) == 0) {
-			if (mf == m)
-				mf = NULL;
-			continue;
+		if (lro_enabled) {
+			if (!lro_possible) {
+				lro_possible = iflib_check_lro_possible(&rxq->ifr_lc, m);
+				if (lro_possible && mf != NULL) {
+					ifp->if_input(ifp, mf);
+					DBG_COUNTER_INC(rx_if_input);
+					mt = mf = NULL;
+				}
+			}
+			if (lro_possible && tcp_lro_rx(&rxq->ifr_lc, m, 0) == 0)
+				continue;
 		}
 #endif
+		if (lro_possible) {
+			ifp->if_input(ifp, m);
+			DBG_COUNTER_INC(rx_if_input);
+			continue;
+		}
+
+		if (mf == NULL)
+			mf = m;
 		if (mt != NULL)
 			mt->m_nextpkt = m;
 		mt = m;
@@ -5250,11 +5312,11 @@ iflib_msix_init(if_ctx_t ctx)
 	int iflib_num_tx_queues, iflib_num_rx_queues;
 	int err, admincnt, bar;
 
-	iflib_num_tx_queues = scctx->isc_ntxqsets;
-	iflib_num_rx_queues = scctx->isc_nrxqsets;
+	iflib_num_tx_queues = ctx->ifc_sysctl_ntxqs;
+	iflib_num_rx_queues = ctx->ifc_sysctl_nrxqs;
 
-	device_printf(dev, "msix_init qsets capped at %d\n", iflib_num_tx_queues);
-	
+	device_printf(dev, "msix_init qsets capped at %d\n", imax(scctx->isc_ntxqsets, scctx->isc_nrxqsets));
+
 	bar = ctx->ifc_softc_ctx.isc_msix_bar;
 	admincnt = sctx->isc_admin_intrcnt;
 	/* Override by global tuneable */
@@ -5352,6 +5414,10 @@ iflib_msix_init(if_ctx_t ctx)
 		rx_queues = iflib_num_rx_queues;
 	else
 		rx_queues = queues;
+
+	if (rx_queues > scctx->isc_nrxqsets)
+		rx_queues = scctx->isc_nrxqsets;
+
 	/*
 	 * We want this to be all logical CPUs by default
 	 */
@@ -5359,6 +5425,9 @@ iflib_msix_init(if_ctx_t ctx)
 		tx_queues = iflib_num_tx_queues;
 	else
 		tx_queues = mp_ncpus;
+
+	if (tx_queues > scctx->isc_ntxqsets)
+		tx_queues = scctx->isc_ntxqsets;
 
 	if (ctx->ifc_sysctl_qs_eq_override == 0) {
 #ifdef INVARIANTS
