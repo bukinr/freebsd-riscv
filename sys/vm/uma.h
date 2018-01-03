@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2002, 2003, 2004, 2005 Jeffrey Roberson <jeff@FreeBSD.org>
  * Copyright (c) 2004, 2005 Bosko Milekic <bmilekic@FreeBSD.org>
  * All rights reserved.
@@ -607,12 +609,11 @@ void uma_zone_set_freef(uma_zone_t zone, uma_free freef);
  * These flags are setable in the allocf and visible in the freef.
  */
 #define UMA_SLAB_BOOT	0x01		/* Slab alloced from boot pages */
-#define UMA_SLAB_KMEM	0x02		/* Slab alloced from kmem_map */
 #define UMA_SLAB_KERNEL	0x04		/* Slab alloced from kernel_map */
 #define UMA_SLAB_PRIV	0x08		/* Slab alloced from priv allocator */
 #define UMA_SLAB_OFFP	0x10		/* Slab is managed separately  */
 #define UMA_SLAB_MALLOC	0x20		/* Slab is a large malloc slab */
-/* 0x40 and 0x80 are available */
+/* 0x02, 0x40 and 0x80 are available */
 
 /*
  * Used to pre-fill a zone with some number of items
@@ -696,5 +697,13 @@ struct uma_percpu_stat {
 
 void uma_reclaim_wakeup(void);
 void uma_reclaim_worker(void *);
+
+unsigned long uma_limit(void);
+
+/* Return the amount of memory managed by UMA. */
+unsigned long uma_size(void);
+
+/* Return the amount of memory remaining.  May be negative. */
+long uma_avail(void);
 
 #endif	/* _VM_UMA_H_ */

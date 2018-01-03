@@ -68,6 +68,8 @@ __FBSDID("$FreeBSD$");
 
 #include <dev/bhnd/cores/pci/bhnd_pcireg.h>
 
+#include "bhnd_pwrctl_hostb_if.h"
+
 #include "bhndb_pcireg.h"
 #include "bhndb_pcivar.h"
 #include "bhndb_private.h"
@@ -301,8 +303,10 @@ bhndb_pci_alloc_msi(struct bhndb_pci_softc *sc, int *msi_count)
 		return (error);
 	}
 
-	if (count < BHNDB_PCI_MSI_COUNT)
+	if (count < BHNDB_PCI_MSI_COUNT) {
+		pci_release_msi(sc->parent);
 		return (ENXIO);
+	}
 
 	*msi_count = count;
 	return (0);
@@ -410,7 +414,7 @@ cleanup:
 		bhndb_free_intr_isrc(sc->isrc);
 
 	if (sc->msi_count > 0)
-		pci_release_msi(dev);
+		pci_release_msi(sc->parent);
 
 	if (cores != NULL)
 		free(cores, M_BHND);
@@ -447,7 +451,7 @@ bhndb_pci_detach(device_t dev)
 
 	/* Release MSI interrupts */
 	if (sc->msi_count > 0)
-		pci_release_msi(dev);
+		pci_release_msi(sc->parent);
 
 	/* Disable PCI bus mastering */
 	pci_disable_busmaster(sc->parent);
@@ -705,26 +709,28 @@ bhndb_pci_sprom_size(struct bhndb_pci_softc *sc)
  * Return the host resource providing a static mapping of the PCI core's
  * registers.
  * 
- * @param	sc	bhndb PCI driver state.
- * @param[out]	res	On success, the host resource containing our PCI
- *			core's register window.
- * @param[out]	offset	On success, the offset of the PCI core registers within
- * 			@p res.
+ * @param	sc		bhndb PCI driver state.
+ * @param	offset		The required readable offset within the PCI core
+ *				register block.
+ * @param	size		The required readable size at @p offset.
+ * @param[out]	res		On success, the host resource containing our PCI
+ *				core's register window.
+ * @param[out]	res_offset	On success, the @p offset relative to @p res.
  *
  * @retval 0		success
  * @retval ENXIO	if a valid static register window mapping the PCI core
  *			registers is not available.
  */
 static int
-bhndb_pci_get_core_regs(struct bhndb_pci_softc *sc, struct resource **res,
-    bus_size_t *offset)
+bhndb_pci_get_core_regs(struct bhndb_pci_softc *sc, bus_size_t offset,
+    bus_size_t size, struct resource **res, bus_size_t *res_offset)
 {
 	const struct bhndb_regwin	*win;
 	struct resource			*r;
 
-	/* Locate the static register window mapping the PCI core */
+	/* Locate the static register window mapping the requested offset */
 	win = bhndb_regwin_find_core(sc->bhndb.bus_res->cfg->register_windows,
-	    sc->pci_devclass, 0, BHND_PORT_DEVICE, 0, 0);
+	    sc->pci_devclass, 0, BHND_PORT_DEVICE, 0, 0, offset, size);
 	if (win == NULL) {
 		device_printf(sc->dev, "missing PCI core register window\n");
 		return (ENXIO);
@@ -737,8 +743,11 @@ bhndb_pci_get_core_regs(struct bhndb_pci_softc *sc, struct resource **res,
 		return (ENXIO);
 	}
 
+	KASSERT(offset >= win->d.core.offset, ("offset %#jx outside of "
+	    "register window", (uintmax_t)offset));
+
 	*res = r;
-	*offset = win->win_offset;
+	*res_offset = win->win_offset + (offset - win->d.core.offset);
 
 	return (0);
 }
@@ -759,18 +768,21 @@ bhndb_pci_write_core(struct bhndb_pci_softc *sc, bus_size_t offset,
 	bus_size_t	 r_offset;
 	int		 error;
 
-	if ((error = bhndb_pci_get_core_regs(sc, &r, &r_offset)))
-		panic("no PCI core registers: %d", error);
+	error = bhndb_pci_get_core_regs(sc, offset, width, &r, &r_offset);
+	if (error) {
+		panic("no PCI register window mapping %#jx+%#x: %d",
+		    (uintmax_t)offset, width, error);
+	}
 
 	switch (width) {
 	case 1:
-		bus_write_1(r, r_offset + offset, value);
+		bus_write_1(r, r_offset, value);
 		break;
 	case 2:
-		bus_write_2(r, r_offset + offset, value);
+		bus_write_2(r, r_offset, value);
 		break;
 	case 4:
-		bus_write_4(r, r_offset + offset, value);
+		bus_write_4(r, r_offset, value);
 		break;
 	default:
 		panic("invalid width: %u", width);
@@ -792,16 +804,19 @@ bhndb_pci_read_core(struct bhndb_pci_softc *sc, bus_size_t offset, u_int width)
 	bus_size_t	 r_offset;
 	int		 error;
 
-	if ((error = bhndb_pci_get_core_regs(sc, &r, &r_offset)))
-		panic("no PCI core registers: %d", error);
+	error = bhndb_pci_get_core_regs(sc, offset, width, &r, &r_offset);
+	if (error) {
+		panic("no PCI register window mapping %#jx+%#x: %d",
+		    (uintmax_t)offset, width, error);
+	}
 
 	switch (width) {
 	case 1:
-		return (bus_read_1(r, r_offset + offset));
+		return (bus_read_1(r, r_offset));
 	case 2:
-		return (bus_read_2(r, r_offset + offset));
+		return (bus_read_2(r, r_offset));
 	case 4:
-		return (bus_read_4(r, r_offset + offset));
+		return (bus_read_4(r, r_offset));
 	default:
 		panic("invalid width: %u", width);
 	}
@@ -987,13 +1002,16 @@ bhndb_pci_populate_board_info(device_t dev, device_t child,
 		}
 	}
 
-	/* If NVRAM did not supply vendor/type info, provide the PCI
-	 * subvendor/subdevice values. */
+	/* If NVRAM did not supply vendor/type/devid info, provide the PCI
+	 * subvendor/subdevice/device values. */
 	if (info->board_vendor == 0)
 		info->board_vendor = pci_get_subvendor(sc->parent);
 
 	if (info->board_type == 0)
 		info->board_type = pci_get_subdevice(sc->parent);
+
+	if (info->board_devid == 0)
+		info->board_devid = pci_get_device(sc->parent);
 
 	return (0);
 }
@@ -1055,7 +1073,7 @@ bhndb_enable_pci_clocks(device_t dev)
 	pci_dev = device_get_parent(dev);
 
 	/* Only supported and required on PCI devices */
-	if (!bhndb_is_pcie_attached(dev))
+	if (bhndb_is_pcie_attached(dev))
 		return (0);
 
 	/* Read state of XTAL pin */
@@ -1136,11 +1154,11 @@ bhndb_pci_pwrctl_get_clksrc(device_t dev, device_t child,
 
 	/* Only supported on PCI devices */
 	if (bhndb_is_pcie_attached(sc->dev))
-		return (ENODEV);
+		return (BHND_CLKSRC_UNKNOWN);
 
 	/* Only ILP is supported */
 	if (clock != BHND_CLOCK_ILP)
-		return (ENXIO);
+		return (BHND_CLKSRC_UNKNOWN);
 
 	gpio_out = pci_read_config(sc->parent, BHNDB_PCI_GPIO_OUT, 4);
 	if (gpio_out & BHNDB_PCI_GPIO_SCS)
@@ -1279,7 +1297,7 @@ static int
 bhndb_pci_eio_init(struct bhndb_pci_eio *pio, device_t dev, device_t pci_dev,
     struct bhndb_host_resources *hr)
 {
-	memset(&pio->eio, sizeof(pio->eio), 0);
+	memset(&pio->eio, 0, sizeof(pio->eio));
 	pio->eio.map = bhndb_pci_eio_map;
 	pio->eio.read = bhndb_pci_eio_read;
 	pio->eio.fini = NULL;
@@ -1451,22 +1469,22 @@ bhndb_pci_eio_read(struct bhnd_erom_io *eio, bhnd_size_t offset, u_int width)
 
 static device_method_t bhndb_pci_methods[] = {
 	/* Device interface */
-	DEVMETHOD(device_probe,			bhndb_pci_probe),
-	DEVMETHOD(device_attach,		bhndb_pci_attach),
-	DEVMETHOD(device_resume,		bhndb_pci_resume),
-	DEVMETHOD(device_suspend,		bhndb_pci_suspend),
-	DEVMETHOD(device_detach,		bhndb_pci_detach),
-
-	/* BHND interface */
-	DEVMETHOD(bhnd_bus_pwrctl_get_clksrc,	bhndb_pci_pwrctl_get_clksrc),
-	DEVMETHOD(bhnd_bus_pwrctl_gate_clock,	bhndb_pci_pwrctl_gate_clock),
-	DEVMETHOD(bhnd_bus_pwrctl_ungate_clock,	bhndb_pci_pwrctl_ungate_clock),
+	DEVMETHOD(device_probe,				bhndb_pci_probe),
+	DEVMETHOD(device_attach,			bhndb_pci_attach),
+	DEVMETHOD(device_resume,			bhndb_pci_resume),
+	DEVMETHOD(device_suspend,			bhndb_pci_suspend),
+	DEVMETHOD(device_detach,			bhndb_pci_detach),
 
 	/* BHNDB interface */
-	DEVMETHOD(bhndb_set_window_addr,	bhndb_pci_set_window_addr),
-	DEVMETHOD(bhndb_populate_board_info,	bhndb_pci_populate_board_info),
-	DEVMETHOD(bhndb_map_intr_isrc,		bhndb_pci_map_intr_isrc),
-	DEVMETHOD(bhndb_route_interrupts,	bhndb_pci_route_interrupts),
+	DEVMETHOD(bhndb_set_window_addr,		bhndb_pci_set_window_addr),
+	DEVMETHOD(bhndb_populate_board_info,		bhndb_pci_populate_board_info),
+	DEVMETHOD(bhndb_map_intr_isrc,			bhndb_pci_map_intr_isrc),
+	DEVMETHOD(bhndb_route_interrupts,		bhndb_pci_route_interrupts),
+
+	/* BHND PWRCTL hostb interface */
+	DEVMETHOD(bhnd_pwrctl_hostb_get_clksrc,		bhndb_pci_pwrctl_get_clksrc),
+	DEVMETHOD(bhnd_pwrctl_hostb_gate_clock,		bhndb_pci_pwrctl_gate_clock),
+	DEVMETHOD(bhnd_pwrctl_hostb_ungate_clock,	bhndb_pci_pwrctl_ungate_clock),
 
 	DEVMETHOD_END
 };

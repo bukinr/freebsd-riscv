@@ -396,7 +396,7 @@ iser_conn_connect(struct icl_conn *ic, int domain, int socktype,
 
 	iser_conn->state = ISER_CONN_PENDING;
 
-	ib_conn->cma_id = rdma_create_id(iser_cma_handler, (void *)iser_conn,
+	ib_conn->cma_id = rdma_create_id(&init_net, iser_cma_handler, (void *)iser_conn,
 			RDMA_PS_TCP, IB_QPT_RC);
 	if (IS_ERR(ib_conn->cma_id)) {
 		err = -PTR_ERR(ib_conn->cma_id);
@@ -486,7 +486,11 @@ iser_conn_task_done(struct icl_conn *ic, void *prv)
 static int
 iser_limits(struct icl_drv_limits *idl)
 {
+
 	idl->idl_max_recv_data_segment_length = 128 * 1024;
+	idl->idl_max_send_data_segment_length = 128 * 1024;
+	idl->idl_max_burst_length = 262144;
+	idl->idl_first_burst_length = 65536;
 
 	return (0);
 }

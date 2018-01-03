@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
  * Copyright (c) 2015-2016 Landon Fuller <landon@landonf.org>
  * Copyright (c) 2017 The FreeBSD Foundation
  * All rights reserved.
@@ -175,17 +177,17 @@ struct bcma_corecfg {
  * BCMA per-device info
  */
 struct bcma_devinfo {
-	struct resource_list		 resources;	/**< Slave port memory regions. */
-	struct bcma_corecfg		*corecfg;	/**< IP core/block config */
+	struct resource_list	 resources;	/**< Slave port memory regions. */
+	struct bcma_corecfg	*corecfg;	/**< IP core/block config */
 
-	struct bhnd_resource		*res_agent;	/**< Agent (wrapper) resource, or NULL. Not
-							  *  all bcma(4) cores have or require an agent. */
-	int				 rid_agent;	/**< Agent resource ID, or -1 */
+	struct bhnd_resource	*res_agent;	/**< Agent (wrapper) resource, or NULL. Not
+						  *  all bcma(4) cores have or require an agent. */
+	int			 rid_agent;	/**< Agent resource ID, or -1 */
 
-	u_int				 num_intrs;	/**< number of interrupt descriptors. */
-	struct bcma_intr_list		 intrs;		/**< interrupt descriptors */
+	u_int			 num_intrs;	/**< number of interrupt descriptors. */
+	struct bcma_intr_list	 intrs;		/**< interrupt descriptors */
 
-	struct bhnd_core_pmu_info	*pmu_info;	/**< Bus-managed PMU state, or NULL */
+	void			*pmu_info;	/**< Bus-managed PMU state, or NULL */
 };
 
 

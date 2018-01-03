@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2001 Daniel Hartmeier
  * Copyright (c) 2002,2003 Henning Brauer
  * Copyright (c) 2012 Gleb Smirnoff <glebius@FreeBSD.org>
@@ -3830,12 +3832,6 @@ pf_modevent(module_t mod, int type, void *data)
 	switch(type) {
 	case MOD_LOAD:
 		error = pf_load();
-		break;
-	case MOD_QUIESCE:
-		/*
-		 * Module should not be unloaded due to race conditions.
-		 */
-		error = EBUSY;
 		break;
 	case MOD_UNLOAD:
 		/* Handled in SYSUNINIT(pf_unload) to ensure it's done after

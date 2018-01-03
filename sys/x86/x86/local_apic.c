@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  * Copyright (c) 2003 John Baldwin <jhb@FreeBSD.org>
  * Copyright (c) 1996, by Steve Passe
  * All rights reserved.
@@ -215,6 +217,7 @@ lapic_write32(enum LAPIC_REGISTERS reg, uint32_t val)
 
 	if (x2apic_mode) {
 		mfence();
+		lfence();
 		wrmsr(MSR_APIC_000 + reg, val);
 	} else {
 		*(volatile uint32_t *)(lapic_map + reg * LAPIC_MEM_MUL) = val;

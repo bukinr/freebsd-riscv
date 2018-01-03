@@ -39,6 +39,8 @@
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/limits.h>
+#include <sys/lock.h>
+#include <sys/mutex.h>
 
 #include <machine/bus.h>
 #include <sys/rman.h>
@@ -53,6 +55,7 @@ struct siba_addrspace;
 struct siba_cfg_block;
 struct siba_devinfo;
 struct siba_core_id;
+struct siba_softc;
 
 int			 siba_probe(device_t dev);
 int			 siba_attach(device_t dev);
@@ -114,11 +117,12 @@ u_int			 siba_admatch_offset(uint8_t addrspace);
 int			 siba_parse_admatch(uint32_t am, uint32_t *addr,
 			     uint32_t *size);
 
-int			 siba_write_target_state(device_t dev,
+void			 siba_write_target_state(device_t dev,
 			     struct siba_devinfo *dinfo, bus_size_t reg,
 			     uint32_t value, uint32_t mask);
-int			 siba_wait_target_busy(device_t child,
-			     struct siba_devinfo *dinfo, int usec);
+int			 siba_wait_target_state(device_t dev,
+			     struct siba_devinfo *dinfo, bus_size_t reg,
+			     uint32_t value, uint32_t mask, u_int usec);
 
 							     
 /* Sonics configuration register blocks */
@@ -184,26 +188,48 @@ struct siba_core_id {
 };
 
 /**
+ * siba(4) per-core PMU allocation state.
+ */
+typedef enum {
+	SIBA_PMU_NONE,		/**< If the core has not yet allocated PMU state */
+	SIBA_PMU_BHND,		/**< If standard bhnd(4) PMU support should be used */
+	SIBA_PMU_PWRCTL,	/**< If legacy PWRCTL PMU support should be used */
+	SIBA_PMU_FIXED,		/**< If legacy fixed (no-op) PMU support should be used */
+} siba_pmu_state;
+
+/**
  * siba(4) per-device info
  */
 struct siba_devinfo {
-	struct resource_list		 resources;			/**< per-core memory regions. */
-	struct siba_core_id		 core_id;			/**< core identification info */
-	struct siba_addrspace		 addrspace[SIBA_MAX_ADDRSPACE];	/**< memory map descriptors */
-	struct siba_cfg_block		 cfg[SIBA_MAX_CFG];		/**< config block descriptors */
-	struct siba_intr		 intr;				/**< interrupt flag descriptor, if any */
-	bool				 intr_en;			/**< if true, core has an assigned interrupt flag */
+	struct resource_list	 resources;			/**< per-core memory regions. */
+	struct siba_core_id	 core_id;			/**< core identification info */
+	struct siba_addrspace	 addrspace[SIBA_MAX_ADDRSPACE];	/**< memory map descriptors */
+	struct siba_cfg_block	 cfg[SIBA_MAX_CFG];		/**< config block descriptors */
+	struct siba_intr	 intr;				/**< interrupt flag descriptor, if any */
+	bool			 intr_en;			/**< if true, core has an assigned interrupt flag */
 
-	struct bhnd_resource		*cfg_res[SIBA_MAX_CFG];		/**< bus-mapped config block registers */
-	int				 cfg_rid[SIBA_MAX_CFG];		/**< bus-mapped config block resource IDs */
-	struct bhnd_core_pmu_info	*pmu_info;			/**< Bus-managed PMU state, or NULL */
+	struct bhnd_resource	*cfg_res[SIBA_MAX_CFG];		/**< bus-mapped config block registers */
+	int			 cfg_rid[SIBA_MAX_CFG];		/**< bus-mapped config block resource IDs */
+	siba_pmu_state		 pmu_state;			/**< per-core PMU state */
+	union {
+		void		*bhnd_info;	/**< if SIBA_PMU_BHND, bhnd(4)-managed per-core PMU info. */
+		device_t	 pwrctl;	/**< if SIBA_PMU_PWRCTL, legacy PWRCTL provider. */
+	} pmu;
 };
-
 
 /** siba(4) per-instance state */
 struct siba_softc {
-	struct bhnd_softc	bhnd_sc;	/**< bhnd state */
-	device_t		dev;		/**< siba device */
+	struct bhnd_softc		bhnd_sc;	/**< bhnd state */
+	device_t			dev;		/**< siba device */
+	struct mtx			mtx;		/**< state mutex */
 };
+
+
+#define	SIBA_LOCK_INIT(sc)	\
+    mtx_init(&(sc)->mtx, device_get_nameunit((sc)->dev), NULL, MTX_DEF)
+#define	SIBA_LOCK(sc)			mtx_lock(&(sc)->mtx)
+#define	SIBA_UNLOCK(sc)			mtx_unlock(&(sc)->mtx)
+#define	SIBA_LOCK_ASSERT(sc, what)	mtx_assert(&(sc)->mtx, what)
+#define	SIBA_LOCK_DESTROY(sc)		mtx_destroy(&(sc)->mtx)
 
 #endif /* _SIBA_SIBAVAR_H_ */
