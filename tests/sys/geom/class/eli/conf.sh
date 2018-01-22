@@ -3,7 +3,6 @@
 
 class="eli"
 base=$(atf_get ident)
-[ -z "$base" ] && base=`basename $0` # for TAP compatibility
 MAX_SECSIZE=8192
 TEST_MDS_FILE=md.devs
 
@@ -21,12 +20,22 @@ attach_md()
 # func <cipher> <aalgo> <secsize>
 for_each_geli_config() {
 	func=$1
+	backing_filename=$2
 
 	# Double the sector size to allow for the HMACs' storage space.
 	osecsize=$(( $MAX_SECSIZE * 2 ))
 	# geli needs 512B for the label.
 	bytes=`expr $osecsize \* $sectors + 512`b
-	md=$(attach_md -t malloc -s $bytes)
+
+	if [ -n "$backing_filename" ]; then
+		# Use a file-backed md(4) device, so we can deliberatly corrupt
+		# it without detaching the geli device first.
+		truncate -s $bytes backing_file
+		md=$(attach_md -t vnode -f backing_file)
+	else
+		md=$(attach_md -t malloc -s $bytes)
+	fi
+
 	for cipher in aes-xts:128 aes-xts:256 \
 	    aes-cbc:128 aes-cbc:192 aes-cbc:256 \
 	    3des-cbc:192 \
@@ -85,7 +94,5 @@ geli_test_cleanup()
 	fi
 	true
 }
-# TODO: remove the trap statement once all TAP tests are converted
-trap geli_test_cleanup ABRT EXIT INT TERM
 
 . `dirname $0`/../geom_subr.sh

@@ -354,6 +354,10 @@
         ..
         libproc
         ..
+        libregex
+            data
+            ..
+        ..
         librt
         ..
         libsbuf
@@ -535,6 +539,8 @@
     ..
     usr.bin
         apply
+        ..
+        awk
         ..
         basename
         ..
@@ -733,6 +739,8 @@
         uuencode
         ..
         uniq
+        ..
+        vmstat
         ..
         xargs
         ..
