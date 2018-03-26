@@ -57,6 +57,11 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_map.h>
 
 static struct efi_systbl *efi_systbl;
+/*
+ * The following pointers point to tables in the EFI runtime service data pages.
+ * Care should be taken to make sure that we've properly entered the EFI runtime
+ * environment (efi_enter()) before dereferencing them.
+ */
 static struct efi_cfgtbl *efi_cfgtbl;
 static struct efi_rt *efi_runtime;
 
@@ -450,5 +455,6 @@ static moduledata_t efirt_moddata = {
 	.evhand = efirt_modevents,
 	.priv = NULL,
 };
-DECLARE_MODULE(efirt, efirt_moddata, SI_SUB_VM_CONF, SI_ORDER_ANY);
+/* After fpuinitstate, before efidev */
+DECLARE_MODULE(efirt, efirt_moddata, SI_SUB_DRIVERS, SI_ORDER_SECOND);
 MODULE_VERSION(efirt, 1);
