@@ -1,7 +1,7 @@
 /*-
- * Copyright (c) 2018 VMware, Inc. All Rights Reserved.
+ * Copyright (c) 2018 VMware, Inc.
  *
- * SPDX-License-Identifier: (BSD-2-Clause AND GPL-2.0)
+ * SPDX-License-Identifier: (BSD-2-Clause OR GPL-2.0)
  */
 
 /* VMCI QueuePair API implementation. */
@@ -73,8 +73,6 @@ static int	vmci_queue_pair_alloc_guest_work(struct vmci_handle *handle,
 		    vmci_privilege_flags priv_flags);
 static int	vmci_queue_pair_detach_guest_work(struct vmci_handle handle);
 static int	vmci_queue_pair_detach_hypercall(struct vmci_handle handle);
-
-extern int	vmci_send_datagram(struct vmci_datagram *);
 
 /*
  *------------------------------------------------------------------------------

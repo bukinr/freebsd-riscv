@@ -86,7 +86,6 @@ __FBSDID("$FreeBSD$");
 #include <vm/vm_extern.h>
 #include <vm/vm_map.h>
 #include <vm/swap_pager.h>
-#include "opt_compat.h"
 #include "opt_swap.h"
 
 static MALLOC_DEFINE(M_BIOBUF, "biobuf", "BIO buffer");
@@ -821,7 +820,8 @@ bufspace_daemon(void *arg)
 		 *	which will inefficiently trade bufs with bqrelse
 		 *	until we return to condition 2.
 		 */
-		do {
+		while (bd->bd_bufspace > bd->bd_lobufspace ||
+		    bd->bd_freebuffers < bd->bd_hifreebuffers) {
 			if (buf_recycle(bd, false) != 0) {
 				if (bd_flushall(bd))
 					continue;
@@ -842,9 +842,7 @@ bufspace_daemon(void *arg)
 					BD_UNLOCK(bd);
 			}
 			maybe_yield();
-		} while (bd->bd_bufspace > bd->bd_lobufspace ||
-		    bd->bd_freebuffers < bd->bd_hifreebuffers);
-
+		}
 		bufspace_daemon_wait(bd);
 	}
 }

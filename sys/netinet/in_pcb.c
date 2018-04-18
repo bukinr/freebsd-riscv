@@ -1288,6 +1288,13 @@ in_pcbfree(struct inpcb *inp)
 
 	KASSERT(inp->inp_socket == NULL, ("%s: inp_socket != NULL", __func__));
 
+	KASSERT((inp->inp_flags2 & INP_FREED) == 0,
+	    ("%s: called twice for pcb %p", __func__, inp));
+	if (inp->inp_flags2 & INP_FREED) {
+		INP_WUNLOCK(inp);
+		return;
+	}
+
 #ifdef INVARIANTS
 	if (pcbinfo == &V_tcbinfo) {
 		INP_INFO_LOCK_ASSERT(pcbinfo);
@@ -1820,9 +1827,9 @@ in_pcblookup_group(struct inpcbinfo *pcbinfo, struct inpcbgroup *pcbgroup,
 
 found:
 	if (lookupflags & INPLOOKUP_WLOCKPCB)
-		locked = TRY_INP_WLOCK(inp);
+		locked = INP_TRY_WLOCK(inp);
 	else if (lookupflags & INPLOOKUP_RLOCKPCB)
-		locked = TRY_INP_RLOCK(inp);
+		locked = INP_TRY_RLOCK(inp);
 	else
 		panic("%s: locking bug", __func__);
 	if (!locked)

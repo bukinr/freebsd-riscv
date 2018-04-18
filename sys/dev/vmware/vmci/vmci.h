@@ -1,7 +1,7 @@
 /*-
- * Copyright (c) 2018 VMware, Inc. All Rights Reserved.
+ * Copyright (c) 2018 VMware, Inc.
  *
- * SPDX-License-Identifier: (BSD-2-Clause AND GPL-2.0)
+ * SPDX-License-Identifier: (BSD-2-Clause OR GPL-2.0)
  *
  * $FreeBSD$
  */
@@ -73,7 +73,6 @@ struct vmci_softc {
 int	vmci_dma_malloc(bus_size_t size, bus_size_t align,
 	    struct vmci_dma_alloc *dma);
 void	vmci_dma_free(struct vmci_dma_alloc *);
-int	vmci_send_datagram(struct vmci_datagram *dg);
 int	vmci_schedule_delayed_work_fn(vmci_work_fn *work_fn, void *data);
 
 #endif /* !_VMCI_H_ */
