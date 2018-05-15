@@ -190,7 +190,7 @@
 	movl	$TF_SZ, %ecx
 	testl	$PSL_VM, TF_EFLAGS(%esp)
 	jz	1001f
-	addl	$(4*4), %ecx
+	addl	$VM86_STACK_SPACE, %ecx
 1001:	subl	%ecx, %edx
 	movl	%edx, %edi
 	movl	%esp, %esi
@@ -198,21 +198,31 @@
 	movl	%edx, %esp
 	.endm
 
-	.macro	MOVE_STACKS
+	.macro	LOAD_KCR3
 	call	1000f
 1000:	popl	%eax
 	movl	(tramp_idleptd - 1000b)(%eax), %eax
 	movl	%eax, %cr3
+	.endm
+
+	.macro	MOVE_STACKS
+	LOAD_KCR3
 	NMOVE_STACKS
 	.endm
 
 	.macro	KENTER
 	testl	$PSL_VM, TF_EFLAGS(%esp)
-	jnz	2f
-	testb	$SEL_RPL_MASK, TF_CS(%esp)
-	jz	2f
-1:	MOVE_STACKS
-2:
+	jz	1f
+	LOAD_KCR3
+	movl	PCPU(CURPCB), %eax
+	testl	$PCB_VM86CALL, PCB_FLAGS(%eax)
+	jnz	3f
+	NMOVE_STACKS
+	jmp	2f
+1:	testb	$SEL_RPL_MASK, TF_CS(%esp)
+	jz	3f
+2:	MOVE_STACKS
+3:
 	.endm
 
 #endif /* LOCORE */

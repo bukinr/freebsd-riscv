@@ -97,6 +97,7 @@
 #define	SPR_RTCL_R		0x005	/* .6. 601 RTC Lower - Read */
 #define	SPR_LR			0x008	/* 468 Link Register */
 #define	SPR_CTR			0x009	/* 468 Count Register */
+#define	SPR_DSCR		0x011   /* Data Stream Control Register */
 #define	SPR_DSISR		0x012	/* .68 DSI exception source */
 #define	  DSISR_DIRECT		  0x80000000 /* Direct-store error exception */
 #define	  DSISR_NOTFOUND	  0x40000000 /* Translation not found */
@@ -242,6 +243,7 @@
 #define	  LPCR_LPES		0x008	/* Bit 60 */
 #define	SPR_LPID		0x13f	/* Logical Partitioning Control */
 
+#define	SPR_PTCR		0x1d0	/* Partition Table Control Register */
 #define	SPR_IBAT0U		0x210	/* .68 Instruction BAT Reg 0 Upper */
 #define	SPR_IBAT0U		0x210	/* .6. Instruction BAT Reg 0 Upper */
 #define	SPR_IBAT0L		0x211	/* .6. Instruction BAT Reg 0 Lower */
