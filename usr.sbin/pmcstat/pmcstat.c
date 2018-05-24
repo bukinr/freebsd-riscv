@@ -365,6 +365,8 @@ pmcstat_show_usage(void)
 	    "\t -F file\t write a system-wide callgraph (Kcachegrind format)"
 		" to \"file\"\n"
 	    "\t -G file\t write a system-wide callgraph to \"file\"\n"
+	    "\t -I don't resolve leaf function but show address instead" 
+	    "\t -L \"tid\" filter on thread id in post-processing"
 	    "\t -M file\t print executable/gmon file map to \"file\"\n"
 	    "\t -N\t\t (toggle) capture callchains\n"
 	    "\t -O file\t send log output to \"file\"\n"
@@ -425,7 +427,7 @@ main(int argc, char **argv)
 	double interval;
 	double duration;
 	int option, npmc;
-	int c, check_driver_stats, current_sampling_count;
+	int c, check_driver_stats; 
 	int do_callchain, do_descendants, do_logproccsw, do_logprocexit;
 	int do_print, do_read;
 	size_t len;
@@ -433,6 +435,7 @@ main(int argc, char **argv)
 	int pipefd[2], rfd;
 	int use_cumulative_counts;
 	short cf, cb;
+	uint64_t current_sampling_count;
 	char *end, *tmp;
 	const char *errmsg, *graphfilename;
 	enum pmcstat_state runstate;
@@ -445,7 +448,7 @@ main(int argc, char **argv)
 	char buffer[PATH_MAX];
 
 	check_driver_stats      = 0;
-	current_sampling_count  = DEFAULT_SAMPLE_COUNT;
+	current_sampling_count  = 0;
 	do_callchain		= 1;
 	do_descendants          = 0;
 	do_logproccsw           = 0;
@@ -500,7 +503,7 @@ main(int argc, char **argv)
 	CPU_COPY(&rootmask, &cpumask);
 
 	while ((option = getopt(argc, argv,
-	    "CD:EF:G:M:NO:P:R:S:TWa:c:def:gk:l:m:n:o:p:qr:s:t:vw:z:")) != -1)
+	    "CD:EF:G:IL:M:NO:P:R:S:TWa:c:def:gk:l:m:n:o:p:qr:s:t:vw:z:")) != -1)
 		switch (option) {
 		case 'a':	/* Annotate + callgraph */
 			args.pa_flags |= FLAG_DO_ANNOTATE;
@@ -569,6 +572,9 @@ main(int argc, char **argv)
 			args.pa_plugin	= PMCSTAT_PL_GPROF;
 			break;
 
+		case 'I':
+			args.pa_flags |= FLAG_SKIP_TOP_FN_RES;
+			break;
 		case 'k':	/* pathname to the kernel */
 			free(args.pa_kernel);
 			args.pa_kernel = strdup(optarg);
@@ -578,6 +584,10 @@ main(int argc, char **argv)
 			args.pa_flags    |= FLAG_HAS_KERNELPATH;
 			break;
 
+		case 'L':
+			args.pa_flags |= FLAG_FILTER_THREAD_ID;
+			args.pa_tid = strtol(optarg, &end, 0);
+			break;
 		case 'l':	/* time duration in seconds */
 			duration = strtod(optarg, &end);
 			if (*end != '\0' || duration <= 0)
@@ -645,7 +655,7 @@ main(int argc, char **argv)
 				errx(EX_SOFTWARE, "ERROR: Out of memory.");
 
 			if (option == 'S' || option == 'P')
-				ev->ev_count = current_sampling_count;
+				ev->ev_count = current_sampling_count ? current_sampling_count : pmcstat_pmu_sample_rate_get(ev->ev_spec);
 			else
 				ev->ev_count = -1;
 

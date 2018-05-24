@@ -73,8 +73,8 @@ __FBSDID("$FreeBSD$");
 #include <net/if_lagg.h>
 #include <net/ieee8023ad_lacp.h>
 
-#define	LAGG_RLOCK()	epoch_enter(net_epoch)
-#define	LAGG_RUNLOCK()	epoch_exit(net_epoch)
+#define	LAGG_RLOCK()	epoch_enter_preempt(net_epoch_preempt)
+#define	LAGG_RUNLOCK()	epoch_exit_preempt(net_epoch_preempt)
 #define	LAGG_RLOCK_ASSERT()	MPASS(in_epoch())
 #define	LAGG_UNLOCK_ASSERT()	MPASS(!in_epoch())
 
@@ -859,7 +859,7 @@ lagg_port_destroy(struct lagg_port *lp, int rundelport)
 	 * free port and release it's ifnet reference after a grace period has
 	 * elapsed.
 	 */
-	epoch_call(net_epoch, &lp->lp_epoch_ctx, lagg_port_destroy_cb);
+	epoch_call(net_epoch_preempt, &lp->lp_epoch_ctx, lagg_port_destroy_cb);
 	/* Update lagg capabilities */
 	lagg_capabilities(sc);
 	lagg_linkstate(sc);
@@ -1532,7 +1532,7 @@ lagg_setmulti(struct lagg_port *lp)
 	int error;
 
 	IF_ADDR_WLOCK(scifp);
-	TAILQ_FOREACH(ifma, &scifp->if_multiaddrs, ifma_link) {
+	CK_STAILQ_FOREACH(ifma, &scifp->if_multiaddrs, ifma_link) {
 		if (ifma->ifma_addr->sa_family != AF_LINK)
 			continue;
 		mc = malloc(sizeof(struct lagg_mc), M_DEVBUF, M_NOWAIT);
@@ -1641,10 +1641,7 @@ static int
 lagg_transmit(struct ifnet *ifp, struct mbuf *m)
 {
 	struct lagg_softc *sc = (struct lagg_softc *)ifp->if_softc;
-	int error, len, mcast;
-
-	len = m->m_pkthdr.len;
-	mcast = (m->m_flags & (M_MCAST | M_BCAST)) ? 1 : 0;
+	int error;
 
 	LAGG_RLOCK();
 	/* We need a Tx algorithm and at least one port */
@@ -1683,7 +1680,7 @@ lagg_input(struct ifnet *ifp, struct mbuf *m)
 
 	LAGG_RLOCK();
 	if ((scifp->if_drv_flags & IFF_DRV_RUNNING) == 0 ||
-	    (lp->lp_flags & LAGG_PORT_DISABLED) ||
+	    lp->lp_detaching != 0 ||
 	    sc->sc_proto == LAGG_PROTO_NONE) {
 		LAGG_RUNLOCK();
 		m_freem(m);
@@ -1692,17 +1689,10 @@ lagg_input(struct ifnet *ifp, struct mbuf *m)
 
 	ETHER_BPF_MTAP(scifp, m);
 
-	if (lp->lp_detaching != 0) {
+	m = lagg_proto_input(sc, lp, m);
+	if (m != NULL && (scifp->if_flags & IFF_MONITOR) != 0) {
 		m_freem(m);
 		m = NULL;
-	} else
-		m = lagg_proto_input(sc, lp, m);
-
-	if (m != NULL) {
-		if (scifp->if_flags & IFF_MONITOR) {
-			m_freem(m);
-			m = NULL;
-		}
 	}
 
 	LAGG_RUNLOCK();

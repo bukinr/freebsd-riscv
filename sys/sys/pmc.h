@@ -61,7 +61,7 @@
  *
  * The patch version is incremented for every bug fix.
  */
-#define	PMC_VERSION_MAJOR	0x03
+#define	PMC_VERSION_MAJOR	0x04
 #define	PMC_VERSION_MINOR	0x01
 #define	PMC_VERSION_PATCH	0x0000
 
@@ -647,6 +647,7 @@ struct pmc_op_getdyneventinfo {
 #define	PMC_NLOGBUFFERS_PCPU		8
 #define	PMC_NSAMPLES				64
 #define	PMC_CALLCHAIN_DEPTH			32
+#define	PMC_THREADLIST_MAX			64
 
 #define PMC_SYSCTL_NAME_PREFIX "kern." PMC_MODULE_NAME "."
 
@@ -656,6 +657,8 @@ struct pmc_op_getdyneventinfo {
  * (b) - pmc_bufferlist_mtx (spin lock)
  * (k) - pmc_kthread_mtx (sleep lock)
  * (o) - po->po_mtx (spin lock)
+ * (g) - global_epoch_preempt (epoch)
+ * (p) - pmc_sx (sx)
  */
 
 /*
@@ -786,6 +789,25 @@ struct pmc {
 #define	PMC_TO_ROWINDEX(P)	PMC_ID_TO_ROWINDEX((P)->pm_id)
 #define	PMC_TO_CPU(P)		PMC_ID_TO_CPU((P)->pm_id)
 
+/*
+ * struct pmc_threadpmcstate
+ *
+ * Record per-PMC, per-thread state.
+ */
+struct pmc_threadpmcstate {
+	pmc_value_t	pt_pmcval;	/* per-thread reload count */
+};
+
+/*
+ * struct pmc_thread
+ *
+ * Record a 'target' thread being profiled.
+ */
+struct pmc_thread {
+	LIST_ENTRY(pmc_thread) pt_next;		/* linked list */
+	struct thread	*pt_td;			/* target thread */
+	struct pmc_threadpmcstate pt_pmcs[];	/* per-PMC state */
+};
 
 /*
  * struct pmc_process
@@ -808,9 +830,11 @@ struct pmc_targetstate {
 
 struct pmc_process {
 	LIST_ENTRY(pmc_process) pp_next;	/* hash chain */
+	LIST_HEAD(,pmc_thread) pp_tds;		/* list of threads */
+	struct mtx	*pp_tdslock;		/* lock on pp_tds thread list */
 	int		pp_refcnt;		/* reference count */
 	uint32_t	pp_flags;		/* flags PMC_PP_* */
-	struct proc	*pp_proc;		/* target thread */
+	struct proc	*pp_proc;		/* target process */
 	struct pmc_targetstate pp_pmcs[];       /* NHWPMCs */
 };
 
@@ -830,7 +854,7 @@ struct pmc_process {
 
 struct pmc_owner  {
 	LIST_ENTRY(pmc_owner)	po_next;	/* hash chain */
-	CK_LIST_ENTRY(pmc_owner)	po_ssnext;	/* list of SS PMC owners */
+	CK_LIST_ENTRY(pmc_owner)	po_ssnext;	/* (g/p) list of SS PMC owners */
 	LIST_HEAD(, pmc)	po_pmcs;	/* owned PMC list */
 	TAILQ_HEAD(, pmclog_buffer) po_logbuffers; /* (o) logbuffer list */
 	struct mtx		po_mtx;		/* spin lock for (o) */
@@ -898,8 +922,10 @@ struct pmc_hw {
 
 struct pmc_sample {
 	uint16_t		ps_nsamples;	/* callchain depth */
-	uint8_t			ps_cpu;		/* cpu number */
-	uint8_t			ps_flags;	/* other flags */
+	uint16_t		ps_cpu;		/* cpu number */
+	uint16_t		ps_flags;	/* other flags */
+	uint8_t			ps_pad[2];
+	lwpid_t			ps_tid;		/* thread id */
 	pid_t			ps_pid;		/* process PID or -1 */
 	struct thread		*ps_td;		/* which thread */
 	struct pmc		*ps_pmc;	/* interrupting PMC */

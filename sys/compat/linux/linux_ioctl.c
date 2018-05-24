@@ -2150,7 +2150,7 @@ ifname_linux_to_bsd(struct thread *td, const char *lxname, char *bsdname)
 	is_eth = (len == 3 && !strncmp(lxname, "eth", len)) ? 1 : 0;
 	CURVNET_SET(TD_TO_VNET(td));
 	IFNET_RLOCK();
-	TAILQ_FOREACH(ifp, &V_ifnet, if_link) {
+	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
 		/*
 		 * Allow Linux programs to use FreeBSD names. Don't presume
 		 * we never have an interface named "eth", so don't make
@@ -2188,7 +2188,7 @@ linux_ioctl_ifname(struct thread *td, struct l_ifreq *uifr)
 	index = 1;	/* ifr.ifr_ifindex starts from 1 */
 	ethno = 0;
 	error = ENODEV;
-	TAILQ_FOREACH(ifp, &V_ifnet, if_link) {
+	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
 		if (ifr.ifr_ifindex == index) {
 			if (IFP_IS_ETH(ifp))
 				snprintf(ifr.ifr_name, LINUX_IFNAMSIZ,
@@ -2240,8 +2240,8 @@ linux_ifconf(struct thread *td, struct ifconf *uifc)
 	if ((l_uintptr_t)ifc.ifc_buf == PTROUT(NULL)) {
 		ifc.ifc_len = 0;
 		IFNET_RLOCK();
-		TAILQ_FOREACH(ifp, &V_ifnet, if_link) {
-			TAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+		CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
+			CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
 				struct sockaddr *sa = ifa->ifa_addr;
 				if (sa->sa_family == AF_INET)
 					ifc.ifc_len += sizeof(ifr);
@@ -2271,7 +2271,7 @@ again:
 
 	/* Return all AF_INET addresses of all interfaces */
 	IFNET_RLOCK();
-	TAILQ_FOREACH(ifp, &V_ifnet, if_link) {
+	CK_STAILQ_FOREACH(ifp, &V_ifnet, if_link) {
 		int addrs = 0;
 
 		bzero(&ifr, sizeof(ifr));
@@ -2282,7 +2282,7 @@ again:
 			strlcpy(ifr.ifr_name, ifp->if_xname, LINUX_IFNAMSIZ);
 
 		/* Walk the address list */
-		TAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
 			struct sockaddr *sa = ifa->ifa_addr;
 
 			if (sa->sa_family == AF_INET) {
@@ -2361,7 +2361,7 @@ linux_gifhwaddr(struct ifnet *ifp, struct l_ifreq *ifr)
 	if (ifp->if_type != IFT_ETHER)
 		return (ENOENT);
 
-	TAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
+	CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
 		sdl = (struct sockaddr_dl*)ifa->ifa_addr;
 		if (sdl != NULL && (sdl->sdl_family == AF_LINK) &&
 		    (sdl->sdl_type == IFT_ETHER)) {
