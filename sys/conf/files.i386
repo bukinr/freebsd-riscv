@@ -234,9 +234,6 @@ dev/hwpmc/hwpmc_amd.c		optional hwpmc
 dev/hwpmc/hwpmc_intel.c		optional hwpmc
 dev/hwpmc/hwpmc_core.c		optional hwpmc
 dev/hwpmc/hwpmc_uncore.c	optional hwpmc
-dev/hwpmc/hwpmc_pentium.c	optional hwpmc
-dev/hwpmc/hwpmc_piv.c		optional hwpmc
-dev/hwpmc/hwpmc_ppro.c		optional hwpmc
 dev/hwpmc/hwpmc_tsc.c		optional hwpmc
 dev/hwpmc/hwpmc_x86.c		optional hwpmc
 dev/hyperv/pcib/vmbus_pcib.c				optional	hyperv pci
@@ -553,7 +550,6 @@ kern/subr_sfbuf.c		standard
 libkern/divdi3.c		standard
 libkern/ffsll.c			standard
 libkern/flsll.c			standard
-libkern/memmove.c		standard
 libkern/memset.c		standard
 libkern/moddi3.c		standard
 libkern/qdivrem.c		standard

@@ -46,6 +46,7 @@ __FBSDID("$FreeBSD$");
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <stdio.h>
 
 #include <machine/pmc_mdep.h>
 
@@ -76,28 +77,6 @@ __FBSDID("$FreeBSD$");
  * insanely complicated, and this code is unlikely to be used in
  * performance critical paths.
  */
-
-enum pmclog_parser_state {
-	PL_STATE_NEW_RECORD,		/* in-between records */
-	PL_STATE_EXPECTING_HEADER,	/* header being read */
-	PL_STATE_PARTIAL_RECORD,	/* header present but not the record */
-	PL_STATE_ERROR			/* parsing error encountered */
-};
-
-struct pmclog_parse_state {
-	enum pmclog_parser_state ps_state;
-	enum pmc_cputype	ps_arch;	/* log file architecture */
-	uint32_t		ps_version;	/* hwpmc version */
-	int			ps_initialized;	/* whether initialized */
-	int			ps_count;	/* count of records processed */
-	off_t			ps_offset;	/* stream byte offset */
-	union pmclog_entry	ps_saved;	/* saved partial log entry */
-	int			ps_svcount;	/* #bytes saved */
-	int			ps_fd;		/* active fd or -1 */
-	char			*ps_buffer;	/* scratch buffer if fd != -1 */
-	char			*ps_data;	/* current parse pointer */
-	size_t			ps_len;		/* length of buffered data */
-};
 
 #define	PMCLOG_HEADER_FROM_SAVED_STATE(PS)				\
 	(* ((uint32_t *) &(PS)->ps_saved))
@@ -135,7 +114,7 @@ pmclog_get_record(struct pmclog_parse_state *ps, char **data, ssize_t *len)
 		return (ps->ps_state = PL_STATE_ERROR);
 
 	src = *data;
-	h = used = 0;
+	used = 0;
 
 	if (ps->ps_state == PL_STATE_NEW_RECORD)
 		ps->ps_svcount = 0;
@@ -278,7 +257,7 @@ pmclog_get_event(void *cookie, char **data, ssize_t *len,
     struct pmclog_ev *ev)
 {
 	int evlen, pathlen;
-	uint32_t h, *le, npc;
+	uint32_t h, *le, npc, noop;
 	enum pmclog_parser_state e;
 	struct pmclog_parse_state *ps;
 
@@ -288,6 +267,7 @@ pmclog_get_event(void *cookie, char **data, ssize_t *len,
 
 	if ((e = pmclog_get_record(ps,data,len)) == PL_STATE_ERROR) {
 		ev->pl_state = PMCLOG_ERROR;
+		printf("state error\n");
 		return -1;
 	}
 
@@ -297,10 +277,11 @@ pmclog_get_event(void *cookie, char **data, ssize_t *len,
 	}
 
 	PMCLOG_INITIALIZE_READER(le, ps->ps_saved);
-
+	ev->pl_data = le;
 	PMCLOG_READ32(le,h);
 
 	if (!PMCLOG_HEADER_CHECK_MAGIC(h)) {
+		printf("bad magic\n");
 		ps->ps_state = PL_STATE_ERROR;
 		ev->pl_state = PMCLOG_ERROR;
 		return -1;
@@ -345,6 +326,8 @@ pmclog_get_event(void *cookie, char **data, ssize_t *len,
 	case PMCLOG_TYPE_INITIALIZE:
 		PMCLOG_READ32(le,ev->pl_u.pl_i.pl_version);
 		PMCLOG_READ32(le,ev->pl_u.pl_i.pl_arch);
+		PMCLOG_READSTRING(le, ev->pl_u.pl_i.pl_cpuid, PMC_CPUID_LEN);
+		memcpy(ev->pl_u.pl_i.pl_cpuid, le, PMC_CPUID_LEN);
 		ps->ps_version = ev->pl_u.pl_i.pl_version;
 		ps->ps_arch = ev->pl_u.pl_i.pl_arch;
 		ps->ps_initialized = 1;
@@ -360,21 +343,20 @@ pmclog_get_event(void *cookie, char **data, ssize_t *len,
 		PMCLOG_READADDR(le,ev->pl_u.pl_mo.pl_start);
 		PMCLOG_READADDR(le,ev->pl_u.pl_mo.pl_end);
 		break;
-	case PMCLOG_TYPE_PCSAMPLE:
-		PMCLOG_READ32(le,ev->pl_u.pl_s.pl_pid);
-		PMCLOG_READADDR(le,ev->pl_u.pl_s.pl_pc);
-		PMCLOG_READ32(le,ev->pl_u.pl_s.pl_pmcid);
-		PMCLOG_READ32(le,ev->pl_u.pl_s.pl_usermode);
-		PMCLOG_READ32(le,ev->pl_u.pl_s.pl_tid);
-		break;
 	case PMCLOG_TYPE_PMCALLOCATE:
 		PMCLOG_READ32(le,ev->pl_u.pl_a.pl_pmcid);
 		PMCLOG_READ32(le,ev->pl_u.pl_a.pl_event);
 		PMCLOG_READ32(le,ev->pl_u.pl_a.pl_flags);
-		if ((ev->pl_u.pl_a.pl_evname =
+		PMCLOG_READ32(le,noop);
+		ev->pl_u.pl_a.pl_evname = pmc_pmu_event_get_by_idx(ev->pl_u.pl_a.pl_event);
+		if (ev->pl_u.pl_a.pl_evname != NULL)
+			break;
+		else if ((ev->pl_u.pl_a.pl_evname =
 		    _pmc_name_of_event(ev->pl_u.pl_a.pl_event, ps->ps_arch))
-		    == NULL)
+		    == NULL) {
+			printf("unknown event\n");
 			goto error;
+		}
 		break;
 	case PMCLOG_TYPE_PMCALLOCATEDYN:
 		PMCLOG_READ32(le,ev->pl_u.pl_ad.pl_pmcid);
@@ -401,14 +383,16 @@ pmclog_get_event(void *cookie, char **data, ssize_t *len,
 	case PMCLOG_TYPE_PROCEXEC:
 		PMCLOG_GET_PATHLEN(pathlen,evlen,pmclog_procexec);
 		PMCLOG_READ32(le,ev->pl_u.pl_x.pl_pid);
-		PMCLOG_READADDR(le,ev->pl_u.pl_x.pl_entryaddr);
 		PMCLOG_READ32(le,ev->pl_u.pl_x.pl_pmcid);
+		PMCLOG_READ32(le,noop);
+		PMCLOG_READADDR(le,ev->pl_u.pl_x.pl_entryaddr);
 		PMCLOG_READSTRING(le,ev->pl_u.pl_x.pl_pathname,pathlen);
 		break;
 	case PMCLOG_TYPE_PROCEXIT:
 		PMCLOG_READ32(le,ev->pl_u.pl_e.pl_pmcid);
-		PMCLOG_READ64(le,ev->pl_u.pl_e.pl_value);
 		PMCLOG_READ32(le,ev->pl_u.pl_e.pl_pid);
+		PMCLOG_READ32(le,noop);
+		PMCLOG_READ64(le,ev->pl_u.pl_e.pl_value);
 		break;
 	case PMCLOG_TYPE_PROCFORK:
 		PMCLOG_READ32(le,ev->pl_u.pl_f.pl_oldpid);
@@ -428,6 +412,7 @@ pmclog_get_event(void *cookie, char **data, ssize_t *len,
 
 	ev->pl_offset = (ps->ps_offset += evlen);
 	ev->pl_count  = (ps->ps_count += 1);
+	ev->pl_len = evlen;
 	ev->pl_state = PMCLOG_OK;
 	return 0;
 
@@ -489,8 +474,9 @@ pmclog_read(void *cookie, struct pmclog_ev *ev)
 
 			ps->ps_len = nread;
 			ps->ps_data = ps->ps_buffer;
-		} else
+		} else {
 			return -1;
+		}
 	}
 
 	assert(ps->ps_len > 0);
@@ -498,7 +484,6 @@ pmclog_read(void *cookie, struct pmclog_ev *ev)
 
 	 /* Retrieve one event from the byte stream. */
 	retval = pmclog_get_event(ps, &ps->ps_data, &ps->ps_len, ev);
-
 	/*
 	 * If we need more data and we have a configured fd, try read
 	 * from it.
