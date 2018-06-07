@@ -269,6 +269,11 @@ static int generic_switch_out(struct pmc_cpu *pc, struct pmc_process *pp);
 static struct pmc_mdep *pmc_generic_cpu_initialize(void);
 static void pmc_generic_cpu_finalize(struct pmc_mdep *md);
 static void pmc_post_callchain_callback(void);
+static void pmc_process_threadcreate(struct thread *td);
+static void pmc_process_threadexit(struct thread *td);
+static void pmc_process_proccreate(struct proc *p);
+static void pmc_process_allproc(struct pmc *pm);
+
 /*
  * Kernel tunables and sysctl(8) interface.
  */
@@ -802,6 +807,19 @@ pmc_force_context_switch(void)
 {
 
 	pause("pmcctx", 1);
+}
+
+uint64_t
+pmc_rdtsc(void)
+{
+#if defined(__i386__) || defined(__amd64__)
+	if (__predict_true(amd_feature & AMDID_RDTSCP))
+		return rdtscp();
+	else
+		return rdtsc();
+#else
+	return get_cyclecount();
+#endif
 }
 
 /*
@@ -1715,11 +1733,9 @@ pmc_process_thread_delete(struct thread *td)
 static void
 pmc_process_thread_userret(struct thread *td)
 {
-
-	thread_lock(td);
-	curthread->td_flags |= TDF_ASTPENDING;
-	thread_unlock(td);
-	pmc_post_callchain_callback();
+	sched_pin();
+	pmc_capture_user_callchain(curcpu, PMC_UR, td->td_frame);
+	sched_unpin();
 }
 
 /*
@@ -1818,7 +1834,8 @@ pmc_log_kernel_mappings(struct pmc *pm)
 
 	if (po->po_flags & PMC_PO_INITIAL_MAPPINGS_DONE)
 		return;
-
+	if (PMC_TO_MODE(pm) == PMC_MODE_SS)
+		pmc_process_allproc(pm);
 	/*
 	 * Log the current set of kernel modules.
 	 */
@@ -2051,6 +2068,9 @@ const char *pmc_hooknames[] = {
 	"THR-CREATE",
 	"THR-EXIT",
 	"THR-USERRET",
+	"THR-CREATE-LOG",
+	"THR-EXIT-LOG",
+	"PROC-CREATE-LOG"
 };
 #endif
 
@@ -2227,6 +2247,10 @@ pmc_hook_handler(struct thread *td, int function, void *arg)
 		pmc_process_munmap(td, (struct pmckern_map_out *) arg);
 		break;
 
+	case PMC_FN_PROC_CREATE_LOG:
+		pmc_process_proccreate((struct proc *)arg);
+		break;
+
 	case PMC_FN_USER_CALLCHAIN:
 		/*
 		 * Record a call chain.
@@ -2254,8 +2278,6 @@ pmc_hook_handler(struct thread *td, int function, void *arg)
 		cpu = PCPU_GET(cpuid);
 		pmc_capture_user_callchain(cpu, PMC_SR,
 		    (struct trapframe *) arg);
-		pmc_capture_user_callchain(cpu, PMC_UR,
-		    (struct trapframe *) arg);
 
 		KASSERT(td->td_pinned == 1,
 		    ("[pmc,%d] invalid td_pinned value", __LINE__));
@@ -2274,14 +2296,22 @@ pmc_hook_handler(struct thread *td, int function, void *arg)
 
 	case PMC_FN_THR_CREATE:
 		pmc_process_thread_add(td);
+		pmc_process_threadcreate(td);
+		break;
+
+	case PMC_FN_THR_CREATE_LOG:
+		pmc_process_threadcreate(td);
 		break;
 
 	case PMC_FN_THR_EXIT:
 		KASSERT(td == curthread, ("[pmc,%d] td != curthread",
 		    __LINE__));
 		pmc_process_thread_delete(td);
+		pmc_process_threadexit(td);
 		break;
-
+	case PMC_FN_THR_EXIT_LOG:
+		pmc_process_threadexit(td);
+		break;
 	case PMC_FN_THR_USERRET:
 		KASSERT(td == curthread, ("[pmc,%d] td != curthread",
 		    __LINE__));
@@ -2701,9 +2731,9 @@ pmc_wait_for_pmc_idle(struct pmc *pm)
 	 * Loop (with a forced context switch) till the PMC's runcount
 	 * comes down to zero.
 	 */
-	pmclog_flush(pm->pm_owner);
+	pmclog_flush(pm->pm_owner, 1);
 	while (counter_u64_fetch(pm->pm_runcount) > 0) {
-		pmclog_flush(pm->pm_owner);
+		pmclog_flush(pm->pm_owner, 1);
 #ifdef HWPMC_DEBUG
 		maxloop--;
 		KASSERT(maxloop > 0,
@@ -3443,7 +3473,7 @@ pmc_syscall_handler(struct thread *td, void *syscall_args)
 			break;
 		}
 
-		error = pmclog_flush(po);
+		error = pmclog_flush(po, 0);
 	}
 	break;
 
@@ -3909,6 +3939,12 @@ pmc_syscall_handler(struct thread *td, void *syscall_args)
 		pmc->pm_caps  = caps;
 		pmc->pm_flags = pa.pm_flags;
 
+		/* XXX set lower bound on sampling for process counters */
+		if (PMC_IS_SAMPLING_MODE(mode))
+			pmc->pm_sc.pm_reloadcount = pa.pm_count;
+		else
+			pmc->pm_sc.pm_initial = pa.pm_count;
+
 		/* switch thread to CPU 'cpu' */
 		pmc_save_cpu_binding(&pb);
 
@@ -4019,6 +4055,7 @@ pmc_syscall_handler(struct thread *td, void *syscall_args)
 			pmc = NULL;
 			break;
 		}
+
 
 		/*
 		 * Return the allocated index.
@@ -4647,16 +4684,14 @@ pmc_add_sample(int cpu, int ring, struct pmc *pm, struct trapframe *tf,
 
 	counter_u64_add(pm->pm_runcount, 1);	/* hold onto PMC */
 
+	td = curthread;
 	ps->ps_pmc = pm;
-	ps->ps_pid = -1;
-	ps->ps_tid = -1;
-	if ((td = curthread) != NULL) {
-		ps->ps_tid = td->td_tid;
-		if (td->td_proc)
-			ps->ps_pid = td->td_proc->p_pid;
-	}
-	ps->ps_cpu = cpu;
 	ps->ps_td = td;
+	ps->ps_pid = td->td_proc->p_pid;
+	ps->ps_tid = td->td_tid;
+	ps->ps_tsc = pmc_rdtsc();
+
+	ps->ps_cpu = cpu;
 	ps->ps_flags = inuserspace ? PMC_CC_F_USERSPACE : 0;
 
 	callchaindepth = (pm->pm_flags & PMC_F_CALLCHAIN) ?
@@ -4715,9 +4750,8 @@ pmc_process_interrupt(int cpu, int ring, struct pmc *pm, struct trapframe *tf,
 
 	td = curthread;
 	if ((pm->pm_flags & PMC_F_USERCALLCHAIN) &&
-		td && td->td_proc &&
-		(td->td_proc->p_flag & P_KPROC) == 0 &&
-		!inuserspace) {
+           (td->td_proc->p_flag & P_KPROC) == 0 &&
+           !inuserspace) {
 		atomic_add_int(&curthread->td_pmcpend, 1);
 		return (pmc_add_sample(cpu, PMC_UR, pm, tf, 0));
 	}
@@ -5225,8 +5259,10 @@ pmc_process_fork(void *arg __unused, struct proc *p1, struct proc *newproc,
 	 */
 	epoch_enter_preempt(global_epoch_preempt);
 	CK_LIST_FOREACH(po, &pmc_ss_owners, po_ssnext)
-	    if (po->po_flags & PMC_PO_OWNS_LOGFILE)
+	    if (po->po_flags & PMC_PO_OWNS_LOGFILE) {
 		    pmclog_process_procfork(po, p1->p_pid, newproc->p_pid);
+			pmclog_process_proccreate(po, newproc, 1);
+		}
 	epoch_exit_preempt(global_epoch_preempt);
 
 	if (!is_using_hwpmcs)
@@ -5286,6 +5322,64 @@ pmc_process_fork(void *arg __unused, struct proc *p1, struct proc *newproc,
 
  done:
 	sx_xunlock(&pmc_sx);
+}
+
+static void
+pmc_process_threadcreate(struct thread *td)
+{
+	struct pmc_owner *po;
+
+	epoch_enter_preempt(global_epoch_preempt);
+	CK_LIST_FOREACH(po, &pmc_ss_owners, po_ssnext)
+	    if (po->po_flags & PMC_PO_OWNS_LOGFILE)
+			pmclog_process_threadcreate(po, td, 1);
+	epoch_exit_preempt(global_epoch_preempt);
+}
+
+static void
+pmc_process_threadexit(struct thread *td)
+{
+	struct pmc_owner *po;
+
+	epoch_enter_preempt(global_epoch_preempt);
+	CK_LIST_FOREACH(po, &pmc_ss_owners, po_ssnext)
+	    if (po->po_flags & PMC_PO_OWNS_LOGFILE)
+			pmclog_process_threadexit(po, td);
+	epoch_exit_preempt(global_epoch_preempt);
+}
+
+static void
+pmc_process_proccreate(struct proc *p)
+{
+	struct pmc_owner *po;
+
+	epoch_enter_preempt(global_epoch_preempt);
+	CK_LIST_FOREACH(po, &pmc_ss_owners, po_ssnext)
+	    if (po->po_flags & PMC_PO_OWNS_LOGFILE)
+			pmclog_process_proccreate(po, p, 1 /* sync */);
+	epoch_exit_preempt(global_epoch_preempt);
+}
+
+static void
+pmc_process_allproc(struct pmc *pm)
+{
+	struct pmc_owner *po;
+	struct thread *td;
+	struct proc *p;
+
+	po = pm->pm_owner;
+	if ((po->po_flags & PMC_PO_OWNS_LOGFILE) == 0)
+		return;
+	sx_slock(&allproc_lock);
+	FOREACH_PROC_IN_SYSTEM(p) {
+		pmclog_process_proccreate(po, p, 0 /* sync */);
+		PROC_LOCK(p);
+		FOREACH_THREAD_IN_PROC(p, td)
+			pmclog_process_threadcreate(po, td, 0 /* sync */);
+		PROC_UNLOCK(p);
+	}
+	sx_sunlock(&allproc_lock);
+	pmclog_flush(po, 0);
 }
 
 static void
