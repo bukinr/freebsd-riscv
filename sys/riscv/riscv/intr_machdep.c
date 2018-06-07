@@ -54,14 +54,13 @@ __FBSDID("$FreeBSD$");
 #include <machine/smp.h>
 #endif
 
-u_long intrcnt[NIRQS];
-size_t sintrcnt = sizeof(intrcnt);
-
-char intrnames[NIRQS * (MAXCOMLEN + 1) * 2];
-size_t sintrnames = sizeof(intrnames);
+u_long riscv_intrcnt[NIRQS];
+size_t riscv_sintrcnt = sizeof(riscv_intrcnt);
 
 static struct intr_event *intr_events[NIRQS];
 static riscv_intrcnt_t riscv_intr_counters[NIRQS];
+
+void intr_irq_handler(struct trapframe *tf);
 
 static int intrcnt_index;
 
@@ -105,12 +104,6 @@ riscv_mask_irq(void *source)
 	case IRQ_SOFTWARE_SUPERVISOR:
 		csr_clear(sie, SIE_SSIE);
 		break;
-#if 0
-	/* lowRISC TODO */
-	case IRQ_UART:
-		machine_command(ECALL_IO_IRQ_MASK, 0);
-		break;
-#endif
 	default:
 		panic("Unknown irq %d\n", irq);
 	}
@@ -133,12 +126,6 @@ riscv_unmask_irq(void *source)
 	case IRQ_SOFTWARE_SUPERVISOR:
 		csr_set(sie, SIE_SSIE);
 		break;
-#if 0
-	/* lowRISC TODO */
-	case IRQ_UART:
-		machine_command(ECALL_IO_IRQ_MASK, 1);
-		break;
-#endif
 	default:
 		panic("Unknown irq %d\n", irq);
 	}
@@ -222,10 +209,6 @@ riscv_cpu_intr(struct trapframe *frame)
 	active_irq = (frame->tf_scause & EXCP_MASK);
 
 	switch (active_irq) {
-#if 0
-	/* lowRISC TODO */
-	case IRQ_UART:
-#endif
 	case IRQ_SOFTWARE_USER:
 	case IRQ_SOFTWARE_SUPERVISOR:
 	case IRQ_TIMER_SUPERVISOR:
@@ -234,6 +217,9 @@ riscv_cpu_intr(struct trapframe *frame)
 		atomic_add_long(riscv_intr_counters[active_irq], 1);
 		VM_CNT_INC(v_intr);
 		break;
+	case IRQ_EXTERNAL_SUPERVISOR:
+		intr_irq_handler(frame);
+		goto end;
 	default:
 		event = NULL;
 	}
@@ -242,6 +228,7 @@ riscv_cpu_intr(struct trapframe *frame)
 	    (intr_event_handle(event, frame) != 0))
 		printf("stray interrupt %d\n", active_irq);
 
+end:
 	critical_exit();
 }
 

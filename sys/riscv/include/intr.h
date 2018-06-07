@@ -37,6 +37,16 @@
 #ifndef	_MACHINE_INTR_MACHDEP_H_
 #define	_MACHINE_INTR_MACHDEP_H_
 
+#define	RISCV_NIRQ		1024
+
+#ifndef	NIRQ
+#define	NIRQ			RISCV_NIRQ
+#endif
+
+#ifdef INTRNG
+#include <sys/intr.h>
+#endif
+
 struct trapframe;
 
 void riscv_init_interrupts(void);
@@ -69,11 +79,6 @@ enum {
 	IRQ_EXTERNAL_SUPERVISOR,
 	IRQ_EXTERNAL_HYPERVISOR,
 	IRQ_EXTERNAL_MACHINE,
-#if 0
-	/* lowRISC TODO */
-	IRQ_COP,	/* lowRISC only */
-	IRQ_UART,	/* lowRISC only */
-#endif
 	NIRQS
 };
 

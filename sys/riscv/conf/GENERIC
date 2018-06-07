@@ -25,8 +25,8 @@ makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
 # makeoptions	WITH_CTF=1		# Run ctfconvert(1) for DTrace support
 
 # FIXME: linker error. "--relax and -r may not be used together"
-makeoptions	WITHOUT_MODULES="usb otusfw mwlfw ispfw mwlfw ralfw rtwnfw"
-# makeoptions	NO_MODULES
+# makeoptions	WITHOUT_MODULES="usb otusfw mwlfw ispfw mwlfw ralfw rtwnfw"
+makeoptions	NO_MODULES
 
 options 	SCHED_ULE		# ULE scheduler
 options 	PREEMPTION		# Enable kernel thread preemption
@@ -80,11 +80,21 @@ options 	SMP
 # RISC-V SBI console
 device		rcons
 
+options		INTRNG
+
+# VirtIO support
+device		virtio			# Generic VirtIO bus (required)
+device		virtio_pci		# VirtIO PCI device
+device		vtnet			# VirtIO Ethernet device
+device		virtio_blk		# VirtIO Block device
+device		virtio_mmio
+
 # Uncomment for memory disk
 options 	MD_ROOT
 options 	MD_ROOT_SIZE=32768	# 32MB ram disk
 makeoptions	MFS_IMAGE=/home/br/dev/freebsd-riscv/riscv.img
 options 	ROOTDEVNAME=\"ufs:/dev/md0\"
+#options 	ROOTDEVNAME=\"ufs:/dev/vtbd0\"
 
 # Debugging support.  Always need this:
 options 	KDB			# Enable kernel debugger support.
@@ -117,3 +127,5 @@ device		firmware	# firmware assist module
 device		bpf		# Berkeley packet filter
 
 options 	FDT
+#options         FDT_DTB_STATIC
+#makeoptions     FDT_DTS_FILE=riscv.dts
