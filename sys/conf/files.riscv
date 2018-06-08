@@ -49,6 +49,7 @@ riscv/riscv/ofw_machdep.c	optional	fdt
 riscv/riscv/plic.c		optional	intrng
 riscv/riscv/pmap.c		standard
 riscv/riscv/riscv_console.c	optional	rcons
+riscv/riscv/soc.c		standard
 riscv/riscv/stack_machdep.c	optional	ddb | stack
 riscv/riscv/support.S		standard
 riscv/riscv/swtch.S		standard
