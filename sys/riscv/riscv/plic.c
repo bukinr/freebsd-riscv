@@ -41,6 +41,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/module.h>
 #include <sys/proc.h>
 #include <sys/rman.h>
+
 #include <machine/bus.h>
 #include <machine/intr.h>
 
@@ -151,8 +152,6 @@ plic_enable_intr(device_t dev, struct intr_irqsrc *isrc)
 	reg = RD4(sc, IRQ_ENABLE(src->irq, 0));
 	reg |= (1 << (src->irq % 32));
 	WR4(sc, IRQ_ENABLE(src->irq, 0), reg);
-
-	csr_set(sie, SIE_SEIE);
 }
 
 static int
@@ -234,6 +233,8 @@ plic_attach(device_t dev)
 	pic = intr_pic_register(sc->dev, xref);
 	if (pic == NULL)
 		return (ENXIO);
+
+	csr_set(sie, SIE_SEIE);
 
 	return (intr_pic_claim_root(sc->dev, xref, plic_intr, sc, 0));
 }
