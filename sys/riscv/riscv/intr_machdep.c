@@ -101,6 +101,7 @@ riscv_mask_irq(void *source)
 		break;
 	case IRQ_SOFTWARE_USER:
 		csr_clear(sie, SIE_USIE);
+		break;
 	case IRQ_SOFTWARE_SUPERVISOR:
 		csr_clear(sie, SIE_SSIE);
 		break;
