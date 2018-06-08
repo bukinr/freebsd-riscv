@@ -59,19 +59,10 @@ __FBSDID("$FreeBSD$");
 
 #define	PLIC_NIRQS		32
 
-#define	PRIORITY_BASE		0
-#define	PRIORITY_PER_ID		4
-#define	ENABLE_BASE		0x2000
-#define	ENABLE_PER_HART		0x80
-#define	CONTEXT_BASE		0x200000
-#define	CONTEXT_PER_HART	0x1000
-#define	CONTEXT_THRESHOLD	0
-#define	CONTEXT_CLAIM		4
-
-#define	IRQ_ENABLE(n, h)	(ENABLE_BASE + (ENABLE_PER_HART * (h)) + ((n) / 32))
-#define	IRQ_PRIORITY(n)		(PRIORITY_BASE + (n) * PRIORITY_PER_ID)
-#define	IRQ_CLAIM(h)		(CONTEXT_BASE + CONTEXT_PER_HART * (h) + CONTEXT_CLAIM)
-#define	IRQ_THRESHOLD(h)	(CONTEXT_BASE + CONTEXT_PER_HART * (h) + CONTEXT_THRESHOLD)
+#define	PLIC_PRIORITY(n)	(0x000000 + (n) * 0x4)
+#define	PLIC_ENABLE(n, h)	(0x002000 + (h) * 0x80 + (n) / 32)
+#define	PLIC_THRESHOLD(h)	(0x200000 + (h) * 0x1000 + 0x0)
+#define	PLIC_CLAIM(h)		(0x200000 + (h) * 0x1000 + 0x4)
 
 struct plic_irqsrc {
 	struct intr_irqsrc	isrc;
@@ -112,11 +103,11 @@ plic_intr(void *arg)
 	sc = arg;
 	cpu = PCPU_GET(cpuid);
 
-	pending = RD4(sc, IRQ_CLAIM(cpu));
+	pending = RD4(sc, PLIC_CLAIM(cpu));
 	if (pending) {
 		tf = curthread->td_intr_frame;
 		plic_irq_dispatch(sc, pending, tf);
-		WR4(sc, IRQ_CLAIM(cpu), pending);
+		WR4(sc, PLIC_CLAIM(cpu), pending);
 	}
 
 	return (FILTER_HANDLED);
@@ -132,9 +123,9 @@ plic_disable_intr(device_t dev, struct intr_irqsrc *isrc)
 	sc = device_get_softc(dev);
 	src = (struct plic_irqsrc *)isrc;
 
-	reg = RD4(sc, IRQ_ENABLE(src->irq, 0));
+	reg = RD4(sc, PLIC_ENABLE(src->irq, 0));
 	reg &= ~(1 << (src->irq % 32));
-	WR4(sc, IRQ_ENABLE(src->irq, 0), reg);
+	WR4(sc, PLIC_ENABLE(src->irq, 0), reg);
 }
 
 static void
@@ -147,11 +138,11 @@ plic_enable_intr(device_t dev, struct intr_irqsrc *isrc)
 	sc = device_get_softc(dev);
 	src = (struct plic_irqsrc *)isrc;
 
-	WR4(sc, IRQ_PRIORITY(src->irq), 1);
+	WR4(sc, PLIC_PRIORITY(src->irq), 1);
 
-	reg = RD4(sc, IRQ_ENABLE(src->irq, 0));
+	reg = RD4(sc, PLIC_ENABLE(src->irq, 0));
 	reg |= (1 << (src->irq % 32));
-	WR4(sc, IRQ_ENABLE(src->irq, 0), reg);
+	WR4(sc, PLIC_ENABLE(src->irq, 0), reg);
 }
 
 static int
@@ -225,9 +216,9 @@ plic_attach(device_t dev)
 		if (error != 0)
 			return (error);
 
-		WR4(sc, IRQ_ENABLE(irq, 0), 0);
+		WR4(sc, PLIC_ENABLE(irq, 0), 0);
 	}
-	WR4(sc, IRQ_THRESHOLD(0), 0);
+	WR4(sc, PLIC_THRESHOLD(0), 0);
 
 	xref = OF_xref_from_node(ofw_bus_get_node(sc->dev));
 	pic = intr_pic_register(sc->dev, xref);
