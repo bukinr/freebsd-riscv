@@ -119,13 +119,16 @@ plic_disable_intr(device_t dev, struct intr_irqsrc *isrc)
 	struct plic_softc *sc;
 	struct plic_irqsrc *src;
 	uint32_t reg;
+	uint32_t cpu;
 
 	sc = device_get_softc(dev);
 	src = (struct plic_irqsrc *)isrc;
 
-	reg = RD4(sc, PLIC_ENABLE(src->irq, 0));
+	cpu = PCPU_GET(cpuid);
+
+	reg = RD4(sc, PLIC_ENABLE(src->irq, cpu));
 	reg &= ~(1 << (src->irq % 32));
-	WR4(sc, PLIC_ENABLE(src->irq, 0), reg);
+	WR4(sc, PLIC_ENABLE(src->irq, cpu), reg);
 }
 
 static void
@@ -134,15 +137,18 @@ plic_enable_intr(device_t dev, struct intr_irqsrc *isrc)
 	struct plic_softc *sc;
 	struct plic_irqsrc *src;
 	uint32_t reg;
+	uint32_t cpu;
 
 	sc = device_get_softc(dev);
 	src = (struct plic_irqsrc *)isrc;
 
 	WR4(sc, PLIC_PRIORITY(src->irq), 1);
 
-	reg = RD4(sc, PLIC_ENABLE(src->irq, 0));
+	cpu = PCPU_GET(cpuid);
+
+	reg = RD4(sc, PLIC_ENABLE(src->irq, cpu));
 	reg |= (1 << (src->irq % 32));
-	WR4(sc, PLIC_ENABLE(src->irq, 0), reg);
+	WR4(sc, PLIC_ENABLE(src->irq, cpu), reg);
 }
 
 static int
@@ -190,6 +196,7 @@ plic_attach(device_t dev)
 	uint32_t irq;
 	const char *name;
 	phandle_t xref;
+	uint32_t cpu;
 	int error;
 	int rid;
 
@@ -209,6 +216,7 @@ plic_attach(device_t dev)
 
 	isrcs = sc->isrcs;
 	name = device_get_nameunit(sc->dev);
+	cpu = PCPU_GET(cpuid);
 	for (irq = 0; irq < PLIC_NIRQS; irq++) {
 		isrcs[irq].irq = irq;
 		error = intr_isrc_register(&isrcs[irq].isrc, sc->dev,
@@ -216,9 +224,9 @@ plic_attach(device_t dev)
 		if (error != 0)
 			return (error);
 
-		WR4(sc, PLIC_ENABLE(irq, 0), 0);
+		WR4(sc, PLIC_ENABLE(irq, cpu), 0);
 	}
-	WR4(sc, PLIC_THRESHOLD(0), 0);
+	WR4(sc, PLIC_THRESHOLD(cpu), 0);
 
 	xref = OF_xref_from_node(ofw_bus_get_node(sc->dev));
 	pic = intr_pic_register(sc->dev, xref);
