@@ -219,7 +219,7 @@ init_secondary(uint64_t cpu)
 
 	/* Spin until the BSP releases the APs */
 	while (!aps_ready)
-		__asm __volatile("wfi");
+		;
 
 	/* Initialize curthread */
 	KASSERT(PCPU_GET(idlethread) != NULL, ("no idle thread"));
@@ -241,6 +241,9 @@ init_secondary(uint64_t cpu)
 
 	/* Enable interrupts */
 	intr_enable();
+
+	/* Enable PLIC interrupts */
+	csr_set(sie, SIE_SEIE);
 
 	mtx_lock_spin(&ap_boot_mtx);
 
