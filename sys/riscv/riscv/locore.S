@@ -53,6 +53,9 @@
 	.text
 	.globl _start
 _start:
+	/* Mask all interrupts */
+	csrw sie, zero
+
 	/* Get the physical address kernel loaded to */
 	la	t0, virt_map
 	ld	t1, 0(t0)
