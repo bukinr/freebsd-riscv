@@ -67,7 +67,7 @@ struct intc_irqsrc {
 	u_int			irq;
 };
 
-struct intc_irqsrc	isrcs[INTC_NIRQS];
+struct intc_irqsrc isrcs[INTC_NIRQS];
 
 static void
 riscv_mask_irq(void *source)
