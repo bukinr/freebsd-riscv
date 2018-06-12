@@ -86,7 +86,7 @@ device		virtio			# Generic VirtIO bus (required)
 device		virtio_pci		# VirtIO PCI device
 device		vtnet			# VirtIO Ethernet device
 device		virtio_blk		# VirtIO Block device
-device		virtio_mmio
+device		virtio_mmio		# VirtIO MMIO bus
 
 # Uncomment for memory disk
 # options 	MD_ROOT
