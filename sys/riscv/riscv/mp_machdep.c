@@ -225,7 +225,7 @@ init_secondary(uint64_t cpu)
 	pcpup = &__pcpu[cpu];
 	__asm __volatile("mv gp, %0" :: "r"(pcpup));
 
-	/* Make sure wfi doesn't halt the hart */
+	/* Workaround: make sure wfi doesn't halt the hart */
 	intr_disable();
 	csr_set(sie, SIE_SSIE);
 	csr_set(sip, SIE_SSIE);
