@@ -192,6 +192,7 @@ release_aps(void *dummy __unused)
 
 	atomic_store_rel_int(&aps_ready, 1);
 
+	/* Wake up the other CPUs */
 	mask = 0;
 
 	for (i = 1; i < mp_ncpus; i++)
