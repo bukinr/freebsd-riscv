@@ -151,15 +151,6 @@ riscv_teardown_intr(void *ih)
 	return (0);
 }
 
-int
-riscv_config_intr(u_int irq, enum intr_trigger trig, enum intr_polarity pol)
-{
-
-	/* There is no configuration for interrupts */
-
-	return (0);
-}
-
 void
 riscv_cpu_intr(struct trapframe *frame)
 {

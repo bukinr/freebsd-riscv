@@ -49,9 +49,7 @@
 
 struct trapframe;
 
-void riscv_init_interrupts(void);
 int riscv_teardown_intr(void *);
-int riscv_config_intr(u_int, enum intr_trigger, enum intr_polarity);
 int riscv_setup_intr(const char *, driver_filter_t *, driver_intr_t *,
     void *, int, int, void **);
 void riscv_cpu_intr(struct trapframe *);
