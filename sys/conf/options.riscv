@@ -2,8 +2,4 @@
 
 RISCV				opt_global.h
 FPE				opt_global.h
-
-#
-# Options to use INTRNG code
-#
 INTRNG				opt_global.h
