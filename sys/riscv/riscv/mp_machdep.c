@@ -181,6 +181,7 @@ riscv64_cpu_attach(device_t dev)
 static void
 release_aps(void *dummy __unused)
 {
+	uintptr_t mask;
 	int cpu, i;
 
 	if (mp_ncpus == 1)
@@ -190,6 +191,13 @@ release_aps(void *dummy __unused)
 	riscv_setup_ipihandler(ipi_handler);
 
 	atomic_store_rel_int(&aps_ready, 1);
+
+	mask = 0;
+
+	for (i = 1; i < mp_ncpus; i++)
+		mask |= (1 << i);
+
+	sbi_send_ipi(&mask);
 
 	printf("Release APs\n");
 
@@ -217,9 +225,14 @@ init_secondary(uint64_t cpu)
 	pcpup = &__pcpu[cpu];
 	__asm __volatile("mv gp, %0" :: "r"(pcpup));
 
+	/* Make sure wfi doesn't halt the hart */
+	intr_disable();
+	csr_set(sie, SIE_SSIE);
+	csr_set(sip, SIE_SSIE);
+
 	/* Spin until the BSP releases the APs */
 	while (!aps_ready)
-		;
+		__asm __volatile("wfi");
 
 	/* Initialize curthread */
 	KASSERT(PCPU_GET(idlethread) != NULL, ("no idle thread"));
@@ -242,7 +255,7 @@ init_secondary(uint64_t cpu)
 	/* Enable interrupts */
 	intr_enable();
 
-	/* Enable PLIC interrupts */
+	/* Enable external (PLIC) interrupts */
 	csr_set(sie, SIE_SEIE);
 
 	mtx_lock_spin(&ap_boot_mtx);
