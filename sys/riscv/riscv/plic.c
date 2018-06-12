@@ -51,14 +51,7 @@ __FBSDID("$FreeBSD$");
 
 #include "pic_if.h"
 
-#ifdef  DEBUG
-#define dprintf(fmt, args...) printf(fmt, ##args)
-#else
-#define dprintf(fmt, args...)
-#endif
-
 #define	PLIC_NIRQS		32
-
 #define	PLIC_PRIORITY(n)	(0x000000 + (n) * 0x4)
 #define	PLIC_ENABLE(n, h)	(0x002000 + (h) * 0x80 + (n) / 32)
 #define	PLIC_THRESHOLD(h)	(0x200000 + (h) * 0x1000 + 0x0)
