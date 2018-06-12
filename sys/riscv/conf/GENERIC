@@ -94,7 +94,8 @@ device		virtio_mmio		# VirtIO MMIO bus
 # makeoptions	MFS_IMAGE=/path/to/img
 # options 	ROOTDEVNAME=\"ufs:/dev/md0\"
 
-options 	ROOTDEVNAME=\"ufs:/dev/vtbd0\"
+# Uncomment for virtio block device
+# options 	ROOTDEVNAME=\"ufs:/dev/vtbd0\"
 
 # Debugging support.  Always need this:
 options 	KDB			# Enable kernel debugger support.
