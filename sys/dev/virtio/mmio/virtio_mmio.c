@@ -537,10 +537,10 @@ vtmmio_alloc_virtqueues(device_t dev, int flags, int nvqs,
 		    VIRTIO_MMIO_VRING_ALIGN);
 #if 0
 		device_printf(dev, "virtqueue paddr 0x%08lx\n",
-				(uint64_t)virtqueue_paddr(vq));
+		    (uint64_t)virtqueue_paddr(vq));
 #endif
 		vtmmio_write_config_4(sc, VIRTIO_MMIO_QUEUE_PFN,
-			virtqueue_paddr(vq) >> PAGE_SHIFT);
+		    virtqueue_paddr(vq) >> PAGE_SHIFT);
 
 		vqx->vtv_vq = *info->vqai_vq = vq;
 		vqx->vtv_no_intr = info->vqai_intr == NULL;
@@ -763,14 +763,18 @@ vtmmio_reinit_virtqueue(struct vtmmio_softc *sc, int idx)
 
 	vtmmio_select_virtqueue(sc, idx);
 	size = vtmmio_read_config_4(sc, VIRTIO_MMIO_QUEUE_NUM_MAX);
-	vtmmio_write_config_4(sc, VIRTIO_MMIO_QUEUE_NUM, size);
-	vtmmio_write_config_4(sc, VIRTIO_MMIO_QUEUE_ALIGN,
-	    VIRTIO_MMIO_VRING_ALIGN);
 
 	error = virtqueue_reinit(vq, size);
 	if (error)
 		return (error);
 
+	vtmmio_write_config_4(sc, VIRTIO_MMIO_QUEUE_NUM, size);
+	vtmmio_write_config_4(sc, VIRTIO_MMIO_QUEUE_ALIGN,
+	    VIRTIO_MMIO_VRING_ALIGN);
+#if 0
+	device_printf(sc->dev, "virtqueue paddr 0x%08lx\n",
+	    (uint64_t)virtqueue_paddr(vq));
+#endif
 	vtmmio_write_config_4(sc, VIRTIO_MMIO_QUEUE_PFN,
 	    virtqueue_paddr(vq) >> PAGE_SHIFT);
 
