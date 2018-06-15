@@ -91,11 +91,11 @@ device		virtio_mmio		# VirtIO MMIO bus
 # Uncomment for memory disk
 # options 	MD_ROOT
 # options 	MD_ROOT_SIZE=32768	# 32MB ram disk
-# makeoptions	MFS_IMAGE=/path/to/img
+# makeoptions	MFS_IMAGE=/home/br/dev/freebsd-riscv/riscv.img
 # options 	ROOTDEVNAME=\"ufs:/dev/md0\"
 
 # Uncomment for virtio block device
-# options 	ROOTDEVNAME=\"ufs:/dev/vtbd0\"
+options 	ROOTDEVNAME=\"ufs:/dev/vtbd0\"
 
 # Debugging support.  Always need this:
 options 	KDB			# Enable kernel debugger support.
