@@ -512,7 +512,8 @@ vtmmio_alloc_virtqueues(device_t dev, int flags, int nvqs,
 	if (sc->vtmmio_vqs == NULL)
 		return (ENOMEM);
 
-	vtmmio_write_config_4(sc, VIRTIO_MMIO_GUEST_PAGE_SIZE, 1 << PAGE_SHIFT);
+	vtmmio_write_config_4(sc, VIRTIO_MMIO_GUEST_PAGE_SIZE,
+	    (1 << PAGE_SHIFT));
 
 	for (idx = 0; idx < nvqs; idx++) {
 		vqx = &sc->vtmmio_vqs[idx];
@@ -592,7 +593,8 @@ vtmmio_reinit(device_t dev, uint64_t features)
 
 	vtmmio_negotiate_features(dev, features);
 
-	vtmmio_write_config_4(sc, VIRTIO_MMIO_GUEST_PAGE_SIZE, 1 << PAGE_SHIFT);
+	vtmmio_write_config_4(sc, VIRTIO_MMIO_GUEST_PAGE_SIZE,
+	    (1 << PAGE_SHIFT));
 
 	for (idx = 0; idx < sc->vtmmio_nvqs; idx++) {
 		error = vtmmio_reinit_virtqueue(sc, idx);
