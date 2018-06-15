@@ -1225,11 +1225,8 @@ vtpci_reset(struct vtpci_softc *sc)
 
 	/*
 	 * Setting the status to RESET sets the host device to
-	 * the original, uninitialized state. This includes
-	 * clearing pointers to virtqueue, so tear down all the
-	 * virtqueues.
+	 * the original, uninitialized state.
 	 */
-	vtpci_free_virtqueues(sc);
 	vtpci_set_status(sc->vtpci_dev, VIRTIO_CONFIG_STATUS_RESET);
 }
 

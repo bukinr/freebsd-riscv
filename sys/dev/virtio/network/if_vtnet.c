@@ -3068,11 +3068,6 @@ vtnet_init_locked(struct vtnet_softc *sc)
 
 	vtnet_stop(sc);
 
-	if (vtnet_alloc_virtqueues(sc) != 0) {
-		device_printf(dev, "cannot allocate virtqueues\n");
-		goto fail;
-	}
-
 	/* Reinitialize with the host. */
 	if (vtnet_virtio_reinit(sc) != 0)
 		goto fail;

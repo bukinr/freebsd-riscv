@@ -592,6 +592,8 @@ vtmmio_reinit(device_t dev, uint64_t features)
 
 	vtmmio_negotiate_features(dev, features);
 
+	vtmmio_write_config_4(sc, VIRTIO_MMIO_GUEST_PAGE_SIZE, 1 << PAGE_SHIFT);
+
 	for (idx = 0; idx < sc->vtmmio_nvqs; idx++) {
 		error = vtmmio_reinit_virtqueue(sc, idx);
 		if (error)
@@ -761,6 +763,9 @@ vtmmio_reinit_virtqueue(struct vtmmio_softc *sc, int idx)
 
 	vtmmio_select_virtqueue(sc, idx);
 	size = vtmmio_read_config_4(sc, VIRTIO_MMIO_QUEUE_NUM_MAX);
+	vtmmio_write_config_4(sc, VIRTIO_MMIO_QUEUE_NUM, size);
+	vtmmio_write_config_4(sc, VIRTIO_MMIO_QUEUE_ALIGN,
+	    VIRTIO_MMIO_VRING_ALIGN);
 
 	error = virtqueue_reinit(vq, size);
 	if (error)
@@ -818,11 +823,8 @@ vtmmio_reset(struct vtmmio_softc *sc)
 
 	/*
 	 * Setting the status to RESET sets the host device to
-	 * the original, uninitialized state. This includes
-	 * clearing pointers to virtqueue, so tear down all the
-	 * virtqueues.
+	 * the original, uninitialized state.
 	 */
-	vtmmio_free_virtqueues(sc);
 	vtmmio_set_status(sc->dev, VIRTIO_CONFIG_STATUS_RESET);
 }
 
