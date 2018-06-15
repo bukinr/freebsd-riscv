@@ -818,8 +818,11 @@ vtmmio_reset(struct vtmmio_softc *sc)
 
 	/*
 	 * Setting the status to RESET sets the host device to
-	 * the original, uninitialized state.
+	 * the original, uninitialized state. This includes
+	 * clearing pointers to virtqueue, so tear down all the
+	 * virtqueues.
 	 */
+	vtmmio_free_virtqueues(sc);
 	vtmmio_set_status(sc->dev, VIRTIO_CONFIG_STATUS_RESET);
 }
 
