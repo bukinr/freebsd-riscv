@@ -1,6 +1,7 @@
 /*-
- * Copyright (c) 2016 Andriy Voskoboinyk <avos@FreeBSD.org>
- * All rights reserved.
+ * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ *
+ * Copyright (C) 2018 Turing Robotic Industries Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -22,51 +23,36 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * $FreeBSD$
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+/*
+ * arm64 Linux VDSO implementation.
+ */
 
-#include "opt_wlan.h"
+#include <machine/asm.h>
 
-#include <sys/param.h>
-#include <sys/lock.h>
-#include <sys/mutex.h>
-#include <sys/mbuf.h>
-#include <sys/kernel.h>
-#include <sys/socket.h>
-#include <sys/systm.h>
-#include <sys/malloc.h>
-#include <sys/queue.h>
-#include <sys/taskqueue.h>
-#include <sys/bus.h>
-#include <sys/endian.h>
-#include <sys/linker.h>
+	.data
 
-#include <net/if.h>
-#include <net/ethernet.h>
-#include <net/if_media.h>
+	.globl linux_platform
+linux_platform:
+	.asciz "arm64"
 
-#include <net80211/ieee80211_var.h>
-#include <net80211/ieee80211_radiotap.h>
+	.text
 
-#include <dev/rtwn/if_rtwnvar.h>
+ENTRY(__kernel_rt_sigreturn)
+	brk #0 /* LINUXTODO: implement __kernel_rt_sigreturn */
+	ret
 
-#include <dev/rtwn/usb/rtwn_usb_var.h>
+ENTRY(__kernel_gettimeofday)
+	brk #0 /* LINUXTODO: implement __kernel_gettimeofday */
+	ret
 
-#include <dev/rtwn/rtl8192c/usb/r92cu.h>
+ENTRY(__kernel_clock_gettime)
+	brk #0 /* LINUXTODO: implement __kernel_clock_gettime */
+	ret
 
-#include <dev/rtwn/rtl8821a/usb/r21au.h>
-#include <dev/rtwn/rtl8821a/usb/r21au_reg.h>
-
-
-void
-r21au_init_tx_agg(struct rtwn_softc *sc)
-{
-	struct rtwn_usb_softc *uc = RTWN_USB_SOFTC(sc);
-
-	r92cu_init_tx_agg(sc);
-
-	rtwn_write_1(sc, R21A_DWBCN1_CTRL, uc->tx_agg_desc_num << 1);
-}
-
+ENTRY(__kernel_clock_getres)
+	brk #0 /* LINUXTODO: implement __kernel_clock_getres */
+	ret

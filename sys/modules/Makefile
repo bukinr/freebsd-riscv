@@ -121,7 +121,6 @@ SUBDIR=	\
 	${_ena} \
 	${_ep} \
 	${_epic} \
-	epoch_test \
 	esp \
 	${_et} \
 	evdev \
@@ -206,7 +205,6 @@ SUBDIR=	\
 	${_ix} \
 	${_ixv} \
 	${_ixl} \
-	${_ixlv} \
 	jme \
 	joy \
 	kbdmux \
