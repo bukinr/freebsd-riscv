@@ -1614,6 +1614,14 @@ OLD_DIRS+=usr/share/bsdconfig/timezone
 OLD_DIRS+=usr/share/bsdconfig/usermgmt
 .endif
 
+.if ${MK_EFI} == no
+OLD_FILES+=usr/sbin/efibootmgr
+OLD_FILES+=usr/sbin/efidp
+OLD_FILES+=usr/sbin/efivar
+OLD_FILES+=usr/sbin/uefisign
+OLD_FILES+=usr/share/examples/uefisign/uefikeys
+.endif
+
 .if ${MK_FMTREE} == no
 OLD_FILES+=usr/sbin/fmtree
 OLD_FILES+=usr/share/man/man8/fmtree.8.gz
@@ -2327,7 +2335,6 @@ OLD_FILES+=usr/share/man/man8/fdcontrol.8.gz
 .endif
 
 .if ${MK_FORTH} == no
-OLD_FILES+=usr/share/man/man5/loader.conf.5.gz
 OLD_FILES+=usr/share/man/man8/beastie.4th.8.gz
 OLD_FILES+=usr/share/man/man8/brand.4th.8.gz
 OLD_FILES+=usr/share/man/man8/check-password.4th.8.gz
