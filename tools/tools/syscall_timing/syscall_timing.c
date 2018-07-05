@@ -29,6 +29,7 @@
  * $FreeBSD$
  */
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/procdesc.h>
@@ -44,7 +45,10 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
+#ifdef WITH_PTHREAD
 #include <pthread.h>
+#endif
+#include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -96,50 +100,51 @@ benchmark_stop(void)
 	error = clock_gettime(CLOCK_REALTIME, &ts_end);
 	assert(error == 0);
 }
-  
+
 static uintmax_t
-test_getuid(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+test_access(uintmax_t num, uintmax_t int_arg __unused, const char *path)
 {
 	uintmax_t i;
+	int fd;
 
-	/*
-	 * Thread-local data should require no locking if system
-	 * call is MPSAFE.
-	 */
+	fd = access(path, O_RDONLY);
+	if (fd < 0)
+		err(-1, "test_access: %s", path);
+	close(fd);
+
 	benchmark_start();
 	BENCHMARK_FOREACH(i, num) {
-		getuid();
+		access(path, O_RDONLY);
+		close(fd);
 	}
 	benchmark_stop();
 	return (i);
 }
 
 static uintmax_t
-test_getppid(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+test_bad_open(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
 {
 	uintmax_t i;
 
-	/*
-	 * This is process-local, but can change, so will require a
-	 * lock.
-	 */
 	benchmark_start();
 	BENCHMARK_FOREACH(i, num) {
-		getppid();
+		open("", O_RDONLY);
 	}
 	benchmark_stop();
 	return (i);
 }
 
 static uintmax_t
-test_getresuid(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+test_chroot(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
 {
-	uid_t ruid, euid, suid;
 	uintmax_t i;
 
+	if (chroot("/") < 0)
+		err(-1, "test_chroot: chroot");
 	benchmark_start();
 	BENCHMARK_FOREACH(i, num) {
-		(void)getresuid(&ruid, &euid, &suid);
+		if (chroot("/") < 0)
+			err(-1, "test_chroot: chroot");
 	}
 	benchmark_stop();
 	return (i);
@@ -159,82 +164,106 @@ test_clock_gettime(uintmax_t num, uintmax_t int_arg __unused, const char *path _
 	return (i);
 }
 
-struct pipepingtd_ctx {
-	int		fd;
-	uintmax_t	int_arg;
-};
-
-static void *
-pipepingtd_proc(void *arg)
-{
-	struct pipepingtd_ctx *ctxp;
-	int fd;
-	void *buf;
-	uintmax_t int_arg;
-	ssize_t ret;
-
-	ctxp = arg;
-	fd = ctxp->fd;
-	int_arg = ctxp->int_arg;
-
-	buf = malloc(int_arg);
-	if (buf == NULL)
-		err(1, "malloc");
-
-	for (;;) {
-		ret = read(fd, buf, int_arg);
-		if ((uintmax_t)ret != int_arg)
-			err(1, "read");
-		ret = write(fd, buf, int_arg);
-		if ((uintmax_t)ret != int_arg)
-			err(1, "write");
-	}
-}
-
 static uintmax_t
-test_pipepingtd(uintmax_t num, uintmax_t int_arg, const char *path __unused)
+test_create_unlink(uintmax_t num, uintmax_t int_arg __unused, const char *path)
 {
-	struct pipepingtd_ctx ctx;
-	char buf[int_arg];
-	pthread_t td;
 	uintmax_t i;
-	ssize_t ret;
-	int error, fd[2];
+	int fd;
 
-	if (pipe(fd) < 0)
-		err(-1, "pipe");
-
-	ctx.fd = fd[1];
-	ctx.int_arg = int_arg;
-
-	error = pthread_create(&td, NULL, pipepingtd_proc, &ctx);
-	if (error != 0)
-		err(1, "pthread_create");
-
+	(void)unlink(path);
+	fd = open(path, O_RDWR | O_CREAT, 0600);
+	if (fd < 0)
+		err(-1, "test_create_unlink: create: %s", path);
+	close(fd);
+	if (unlink(path) < 0)
+		err(-1, "test_create_unlink: unlink: %s", path);
 	benchmark_start();
 	BENCHMARK_FOREACH(i, num) {
-		ret = write(fd[0], buf, int_arg);
-		if ((uintmax_t)ret != int_arg)
-			err(1, "write");
-		ret = read(fd[0], buf, int_arg);
-		if ((uintmax_t)ret != int_arg)
-			err(1, "read");
+		fd = open(path, O_RDWR | O_CREAT, 0600);
+		if (fd < 0)
+			err(-1, "test_create_unlink: create: %s", path);
+		close(fd);
+		if (unlink(path) < 0)
+			err(-1, "test_create_unlink: unlink: %s", path);
 	}
 	benchmark_stop();
-	pthread_cancel(td);
-
 	return (i);
 }
 
 static uintmax_t
-test_gettimeofday(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+test_fork(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
 {
-	struct timeval tv;
+	pid_t pid;
 	uintmax_t i;
 
+	pid = fork();
+	if (pid < 0)
+		err(-1, "test_fork: fork");
+	if (pid == 0)
+		_exit(0);
+	if (waitpid(pid, NULL, 0) < 0)
+		err(-1, "test_fork: waitpid");
 	benchmark_start();
 	BENCHMARK_FOREACH(i, num) {
-		(void)gettimeofday(&tv, NULL);
+		pid = fork();
+		if (pid < 0)
+			err(-1, "test_fork: fork");
+		if (pid == 0)
+			_exit(0);
+		if (waitpid(pid, NULL, 0) < 0)
+			err(-1, "test_fork: waitpid");
+	}
+	benchmark_stop();
+	return (i);
+}
+
+#define	USR_BIN_TRUE	"/usr/bin/true"
+static char *execve_args[] = { __DECONST(char *, USR_BIN_TRUE), NULL};
+extern char **environ;
+
+static uintmax_t
+test_fork_exec(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+{
+	pid_t pid;
+	uintmax_t i;
+
+	pid = fork();
+	if (pid < 0)
+		err(-1, "test_fork_exec: fork");
+	if (pid == 0) {
+		(void)execve(USR_BIN_TRUE, execve_args, environ);
+		err(-1, "execve");
+	}
+	if (waitpid(pid, NULL, 0) < 0)
+		err(-1, "test_fork: waitpid");
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		pid = fork();
+		if (pid < 0)
+			err(-1, "test_fork_exec: fork");
+		if (pid == 0) {
+			(void)execve(USR_BIN_TRUE, execve_args, environ);
+			err(-1, "test_fork_exec: execve");
+		}
+		if (waitpid(pid, NULL, 0) < 0)
+			err(-1, "test_fork_exec: waitpid");
+	}
+	benchmark_stop();
+	return (i);
+}
+
+static uintmax_t
+test_getppid(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+{
+	uintmax_t i;
+
+	/*
+	 * This is process-local, but can change, so will require a
+	 * lock.
+	 */
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		getppid();
 	}
 	benchmark_stop();
 	return (i);
@@ -271,6 +300,118 @@ test_getprogname(uintmax_t num, uintmax_t int_arg __unused, const char *path __u
 }
 
 static uintmax_t
+test_getresuid(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+{
+	uid_t ruid, euid, suid;
+	uintmax_t i;
+
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		(void)getresuid(&ruid, &euid, &suid);
+	}
+	benchmark_stop();
+	return (i);
+}
+
+static uintmax_t
+test_gettimeofday(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+{
+	struct timeval tv;
+	uintmax_t i;
+
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		(void)gettimeofday(&tv, NULL);
+	}
+	benchmark_stop();
+	return (i);
+}
+
+static uintmax_t
+test_getuid(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+{
+	uintmax_t i;
+
+	/*
+	 * Thread-local data should require no locking if system
+	 * call is MPSAFE.
+	 */
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		getuid();
+	}
+	benchmark_stop();
+	return (i);
+}
+
+static uintmax_t
+test_memcpy(uintmax_t num, uintmax_t int_arg, const char *path __unused)
+{
+	char buf[int_arg], buf2[int_arg];
+	uintmax_t i;
+
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		/*
+		 * Copy the memory there and back, to match the total amount
+		 * moved by pipeping/pipepingtd tests.
+		 */
+		memcpy(buf2, buf, int_arg);
+		memcpy(buf, buf2, int_arg);
+	}
+	benchmark_stop();
+
+	return (i);
+}
+
+static uintmax_t
+test_open_close(uintmax_t num, uintmax_t int_arg __unused, const char *path)
+{
+	uintmax_t i;
+	int fd;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		err(-1, "test_open_close: %s", path);
+	close(fd);
+
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		fd = open(path, O_RDONLY);
+		if (fd < 0)
+			err(-1, "test_open_close: %s", path);
+		close(fd);
+	}
+	benchmark_stop();
+	return (i);
+}
+
+static uintmax_t
+test_open_read_close(uintmax_t num, uintmax_t int_arg, const char *path)
+{
+	char buf[int_arg];
+	uintmax_t i;
+	int fd;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		err(-1, "test_open_read_close: %s", path);
+	(void)read(fd, buf, int_arg);
+	close(fd);
+
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		fd = open(path, O_RDONLY);
+		if (fd < 0)
+			err(-1, "test_open_read_close: %s", path);
+		(void)read(fd, buf, int_arg);
+		close(fd);
+	}
+	benchmark_stop();
+	return (i);
+}
+
+static uintmax_t
 test_pipe(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
 {
 	int fd[2];
@@ -297,6 +438,153 @@ test_pipe(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
 	return (i);
 }
 
+static void
+readx(int fd, char *buf, size_t size)
+{
+	ssize_t ret;
+
+	do {
+		ret = read(fd, buf, size);
+		if (ret == -1)
+			err(1, "read");
+		assert((size_t)ret <= size);
+		size -= ret;
+		buf += ret;
+	} while (size > 0);
+}
+
+static void
+writex(int fd, const char *buf, size_t size)
+{
+	ssize_t ret;
+
+	do {
+		ret = write(fd, buf, size);
+		if (ret == -1)
+			err(1, "write");
+		assert((size_t)ret <= size);
+		size -= ret;
+		buf += ret;
+	} while (size > 0);
+}
+
+static uintmax_t
+test_pipeping(uintmax_t num, uintmax_t int_arg, const char *path __unused)
+{
+	char buf[int_arg];
+	uintmax_t i;
+	pid_t pid;
+	int fd[2], procfd;
+
+	if (pipe(fd) < 0)
+		err(-1, "pipe");
+
+	pid = pdfork(&procfd, 0);
+	if (pid < 0)
+		err(1, "pdfork");
+
+	if (pid == 0) {
+		close(fd[0]);
+
+		for (;;) {
+			readx(fd[1], buf, int_arg);
+			writex(fd[1], buf, int_arg);
+		}
+	}
+
+	close(fd[1]);
+
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		writex(fd[0], buf, int_arg);
+		readx(fd[0], buf, int_arg);
+	}
+	benchmark_stop();
+
+	close(procfd);
+	return (i);
+}
+
+#ifdef WITH_PTHREAD
+struct pipepingtd_ctx {
+	int		fd;
+	uintmax_t	int_arg;
+};
+
+static void *
+pipepingtd_proc(void *arg)
+{
+	struct pipepingtd_ctx *ctxp;
+	int fd;
+	void *buf;
+	uintmax_t int_arg;
+
+	ctxp = arg;
+	fd = ctxp->fd;
+	int_arg = ctxp->int_arg;
+
+	buf = malloc(int_arg);
+	if (buf == NULL)
+		err(1, "malloc");
+
+	for (;;) {
+		readx(fd, buf, int_arg);
+		writex(fd, buf, int_arg);
+	}
+}
+
+static uintmax_t
+test_pipepingtd(uintmax_t num, uintmax_t int_arg, const char *path __unused)
+{
+	struct pipepingtd_ctx ctx;
+	char buf[int_arg];
+	pthread_t td;
+	uintmax_t i;
+	int error, fd[2];
+
+	if (pipe(fd) < 0)
+		err(-1, "pipe");
+
+	ctx.fd = fd[1];
+	ctx.int_arg = int_arg;
+
+	error = pthread_create(&td, NULL, pipepingtd_proc, &ctx);
+	if (error != 0)
+		err(1, "pthread_create");
+
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		writex(fd[0], buf, int_arg);
+		readx(fd[0], buf, int_arg);
+	}
+	benchmark_stop();
+	pthread_cancel(td);
+
+	return (i);
+}
+#endif /* WITH_PTHREAD */
+
+static uintmax_t
+test_read(uintmax_t num, uintmax_t int_arg, const char *path)
+{
+	char buf[int_arg];
+	uintmax_t i;
+	int fd;
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		err(-1, "test_open_read: %s", path);
+	(void)pread(fd, buf, int_arg, 0);
+
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		(void)pread(fd, buf, int_arg, 0);
+	}
+	benchmark_stop();
+	close(fd);
+	return (i);
+}
+
 static uintmax_t
 test_select(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
 {
@@ -320,48 +608,144 @@ test_select(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused
 }
 
 static uintmax_t
-test_pipeping(uintmax_t num, uintmax_t int_arg, const char *path __unused)
+test_semaping(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
 {
-	char buf[int_arg];
 	uintmax_t i;
-	ssize_t ret;
 	pid_t pid;
-	int fd[2], procfd;
+	sem_t *buf;
+	int error, j, procfd;
 
-	if (pipe(fd) < 0)
-		err(-1, "pipe");
+	buf = mmap(0, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_ANON | MAP_SHARED, -1, 0);
+	if (buf == MAP_FAILED)
+		err(1, "mmap");
+
+	for (j = 0; j < 2; j++) {
+		error = sem_init(&buf[j], 1, 0);
+		if (error != 0)
+			err(1, "sem_init");
+	}
 
 	pid = pdfork(&procfd, 0);
 	if (pid < 0)
 		err(1, "pdfork");
 
 	if (pid == 0) {
-		close(fd[0]);
-
 		for (;;) {
-			ret = read(fd[1], buf, int_arg);
-			if ((uintmax_t)ret != int_arg)
-				err(1, "read");
-			ret = write(fd[1], buf, int_arg);
-			if ((uintmax_t)ret != int_arg)
-				err(1, "write");
+			error = sem_wait(&buf[0]);
+			if (error != 0)
+				err(1, "sem_wait");
+			error = sem_post(&buf[1]);
+			if (error != 0)
+				err(1, "sem_post");
 		}
 	}
 
-	close(fd[1]);
-
 	benchmark_start();
 	BENCHMARK_FOREACH(i, num) {
-		ret = write(fd[0], buf, int_arg);
-		if ((uintmax_t)ret != int_arg)
-			err(1, "write");
-		ret = read(fd[0], buf, int_arg);
-		if ((uintmax_t)ret != int_arg)
-			err(1, "read");
+		error = sem_post(&buf[0]);
+		if (error != 0)
+			err(1, "sem_post");
+		error = sem_wait(&buf[1]);
+		if (error != 0)
+			err(1, "sem_wait");
 	}
 	benchmark_stop();
 
 	close(procfd);
+
+	for (j = 0; j < 2; j++) {
+		error = sem_destroy(&buf[j]);
+		if (error != 0)
+			err(1, "sem_destroy");
+	}
+
+	error = munmap(buf, PAGE_SIZE);
+	if (error != 0)
+		err(1, "munmap");
+
+	return (i);
+}
+
+static uintmax_t
+test_setuid(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+{
+	uid_t uid;
+	uintmax_t i;
+
+	uid = getuid();
+	if (setuid(uid) < 0)
+		err(-1, "test_setuid: setuid");
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		if (setuid(uid) < 0)
+			err(-1, "test_setuid: setuid");
+	}
+	benchmark_stop();
+	return (i);
+}
+
+static uintmax_t
+test_shmfd(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+{
+	uintmax_t i;
+	int shmfd;
+
+	shmfd = shm_open(SHM_ANON, O_CREAT | O_RDWR, 0600);
+	if (shmfd < 0)
+		err(-1, "test_shmfd: shm_open");
+	close(shmfd);
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		shmfd = shm_open(SHM_ANON, O_CREAT | O_RDWR, 0600);
+		if (shmfd < 0)
+			err(-1, "test_shmfd: shm_open");
+		close(shmfd);
+	}
+	benchmark_stop();
+	return (i);
+}
+
+static uintmax_t
+test_shmfd_dup(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+{
+	uintmax_t i;
+	int fd, shmfd;
+
+	shmfd = shm_open(SHM_ANON, O_CREAT | O_RDWR, 0600);
+	if (shmfd < 0)
+		err(-1, "test_shmfd_dup: shm_open");
+	fd = dup(shmfd);
+	if (fd >= 0)
+		close(fd);
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		fd = dup(shmfd);
+		if (fd >= 0)
+			close(fd);
+	}
+	benchmark_stop();
+	close(shmfd);
+	return (i);
+}
+
+static uintmax_t
+test_shmfd_fstat(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
+{
+	struct stat sb;
+	uintmax_t i;
+	int shmfd;
+
+	shmfd = shm_open(SHM_ANON, O_CREAT | O_RDWR, 0600);
+	if (shmfd < 0)
+		err(-1, "test_shmfd_fstat: shm_open");
+	if (fstat(shmfd, &sb) < 0)
+		err(-1, "test_shmfd_fstat: fstat");
+	benchmark_start();
+	BENCHMARK_FOREACH(i, num) {
+		(void)fstat(shmfd, &sb);
+	}
+	benchmark_stop();
+	close(shmfd);
 	return (i);
 }
 
@@ -450,225 +834,6 @@ test_socketpair_dgram(uintmax_t num, uintmax_t int_arg __unused, const char *pat
 }
 
 static uintmax_t
-test_access(uintmax_t num, uintmax_t int_arg __unused, const char *path)
-{
-	uintmax_t i;
-	int fd;
-
-	fd = access(path, O_RDONLY);
-	if (fd < 0)
-		err(-1, "test_access: %s", path);
-	close(fd);
-
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		access(path, O_RDONLY);
-		close(fd);
-	}
-	benchmark_stop();
-	return (i);
-}
-
-static uintmax_t
-test_create_unlink(uintmax_t num, uintmax_t int_arg __unused, const char *path)
-{
-	uintmax_t i;
-	int fd;
-
-	(void)unlink(path);
-	fd = open(path, O_RDWR | O_CREAT, 0600);
-	if (fd < 0)
-		err(-1, "test_create_unlink: create: %s", path);
-	close(fd);
-	if (unlink(path) < 0)
-		err(-1, "test_create_unlink: unlink: %s", path);
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		fd = open(path, O_RDWR | O_CREAT, 0600);
-		if (fd < 0)
-			err(-1, "test_create_unlink: create: %s", path);
-		close(fd);
-		if (unlink(path) < 0)
-			err(-1, "test_create_unlink: unlink: %s", path);
-	}
-	benchmark_stop();
-	return (i);
-}
-
-static uintmax_t
-test_open_close(uintmax_t num, uintmax_t int_arg __unused, const char *path)
-{
-	uintmax_t i;
-	int fd;
-
-	fd = open(path, O_RDONLY);
-	if (fd < 0)
-		err(-1, "test_open_close: %s", path);
-	close(fd);
-
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		fd = open(path, O_RDONLY);
-		if (fd < 0)
-			err(-1, "test_open_close: %s", path);
-		close(fd);
-	}
-	benchmark_stop();
-	return (i);
-}
-
-static uintmax_t
-test_bad_open(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
-{
-	uintmax_t i;
-
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		open("", O_RDONLY);
-	}
-	benchmark_stop();
-	return (i);
-}
-
-static uintmax_t
-test_read(uintmax_t num, uintmax_t int_arg, const char *path)
-{
-	char buf[int_arg];
-	uintmax_t i;
-	int fd;
-
-	fd = open(path, O_RDONLY);
-	if (fd < 0)
-		err(-1, "test_open_read: %s", path);
-	(void)pread(fd, buf, int_arg, 0);
-
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		(void)pread(fd, buf, int_arg, 0);
-	}
-	benchmark_stop();
-	close(fd);
-	return (i);
-}
-
-static uintmax_t
-test_open_read_close(uintmax_t num, uintmax_t int_arg, const char *path)
-{
-	char buf[int_arg];
-	uintmax_t i;
-	int fd;
-
-	fd = open(path, O_RDONLY);
-	if (fd < 0)
-		err(-1, "test_open_read_close: %s", path);
-	(void)read(fd, buf, int_arg);
-	close(fd);
-
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		fd = open(path, O_RDONLY);
-		if (fd < 0)
-			err(-1, "test_open_read_close: %s", path);
-		(void)read(fd, buf, int_arg);
-		close(fd);
-	}
-	benchmark_stop();
-	return (i);
-}
-
-static uintmax_t
-test_dup(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
-{
-	uintmax_t i;
-	int fd, shmfd;
-
-	shmfd = shm_open(SHM_ANON, O_CREAT | O_RDWR, 0600);
-	if (shmfd < 0)
-		err(-1, "test_dup: shm_open");
-	fd = dup(shmfd);
-	if (fd >= 0)
-		close(fd);
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		fd = dup(shmfd);
-		if (fd >= 0)
-			close(fd);
-	}
-	benchmark_stop();
-	close(shmfd);
-	return (i);
-}
-
-static uintmax_t
-test_shmfd(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
-{
-	uintmax_t i;
-	int shmfd;
-
-	shmfd = shm_open(SHM_ANON, O_CREAT | O_RDWR, 0600);
-	if (shmfd < 0)
-		err(-1, "test_shmfd: shm_open");
-	close(shmfd);
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		shmfd = shm_open(SHM_ANON, O_CREAT | O_RDWR, 0600);
-		if (shmfd < 0)
-			err(-1, "test_shmfd: shm_open");
-		close(shmfd);
-	}
-	benchmark_stop();
-	return (i);
-}
-
-static uintmax_t
-test_fstat_shmfd(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
-{
-	struct stat sb;
-	uintmax_t i;
-	int shmfd;
-
-	shmfd = shm_open(SHM_ANON, O_CREAT | O_RDWR, 0600);
-	if (shmfd < 0)
-		err(-1, "test_fstat_shmfd: shm_open");
-	if (fstat(shmfd, &sb) < 0)
-		err(-1, "test_fstat_shmfd: fstat");
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		(void)fstat(shmfd, &sb);
-	}
-	benchmark_stop();
-	close(shmfd);
-	return (i);
-}
-
-static uintmax_t
-test_fork(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
-{
-	pid_t pid;
-	uintmax_t i;
-
-	pid = fork();
-	if (pid < 0)
-		err(-1, "test_fork: fork");
-	if (pid == 0)
-		_exit(0);
-	if (waitpid(pid, NULL, 0) < 0)
-		err(-1, "test_fork: waitpid");
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		pid = fork();
-		if (pid < 0)
-			err(-1, "test_fork: fork");
-		if (pid == 0)
-			_exit(0);
-		if (waitpid(pid, NULL, 0) < 0)
-			err(-1, "test_fork: waitpid");
-	}
-	benchmark_stop();
-	return (i);
-}
-
-static uintmax_t
 test_vfork(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
 {
 	pid_t pid;
@@ -690,41 +855,6 @@ test_vfork(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
 			_exit(0);
 		if (waitpid(pid, NULL, 0) < 0)
 			err(-1, "test_vfork: waitpid");
-	}
-	benchmark_stop();
-	return (i);
-}
-
-#define	USR_BIN_TRUE	"/usr/bin/true"
-static char *execve_args[] = { __DECONST(char *, USR_BIN_TRUE), NULL};
-extern char **environ;
-
-static uintmax_t
-test_fork_exec(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
-{
-	pid_t pid;
-	uintmax_t i;
-
-	pid = fork();
-	if (pid < 0)
-		err(-1, "test_fork_exec: fork");
-	if (pid == 0) {
-		(void)execve(USR_BIN_TRUE, execve_args, environ);
-		err(-1, "execve");
-	}
-	if (waitpid(pid, NULL, 0) < 0)
-		err(-1, "test_fork: waitpid");
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		pid = fork();
-		if (pid < 0)
-			err(-1, "test_fork_exec: fork");
-		if (pid == 0) {
-			(void)execve(USR_BIN_TRUE, execve_args, environ);
-			err(-1, "test_fork_exec: execve");
-		}
-		if (waitpid(pid, NULL, 0) < 0)
-			err(-1, "test_fork_exec: waitpid");
 	}
 	benchmark_stop();
 	return (i);
@@ -761,40 +891,6 @@ test_vfork_exec(uintmax_t num, uintmax_t int_arg __unused, const char *path __un
 	return (i);
 }
 
-static uintmax_t
-test_chroot(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
-{
-	uintmax_t i;
-
-	if (chroot("/") < 0)
-		err(-1, "test_chroot: chroot");
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		if (chroot("/") < 0)
-			err(-1, "test_chroot: chroot");
-	}
-	benchmark_stop();
-	return (i);
-}
-
-static uintmax_t
-test_setuid(uintmax_t num, uintmax_t int_arg __unused, const char *path __unused)
-{
-	uid_t uid;
-	uintmax_t i;
-
-	uid = getuid();
-	if (setuid(uid) < 0)
-		err(-1, "test_setuid: setuid");
-	benchmark_start();
-	BENCHMARK_FOREACH(i, num) {
-		if (setuid(uid) < 0)
-			err(-1, "test_setuid: setuid");
-	}
-	benchmark_stop();
-	return (i);
-}
-
 struct test {
 	const char	*t_name;
 	uintmax_t	(*t_func)(uintmax_t, uintmax_t, const char *);
@@ -805,48 +901,26 @@ struct test {
 #define	FLAG_PATH	0x00000001
 
 static const struct test tests[] = {
-	{ "getuid", test_getuid, .t_flags = 0 },
-	{ "getppid", test_getppid, .t_flags = 0 },
-	{ "getresuid", test_getresuid, .t_flags = 0 },
+	{ "access", test_access, .t_flags = FLAG_PATH },
+	{ "bad_open", test_bad_open, .t_flags = 0 },
+	{ "chroot", test_chroot, .t_flags = 0 },
 	{ "clock_gettime", test_clock_gettime, .t_flags = 0 },
-	{ "pipeping_1", test_pipeping, .t_flags = 0, .t_int = 1 },
-	{ "pipeping_10", test_pipeping, .t_flags = 0, .t_int = 10 },
-	{ "pipeping_100", test_pipeping, .t_flags = 0, .t_int = 100 },
-	{ "pipeping_1000", test_pipeping, .t_flags = 0, .t_int = 1000 },
-	{ "pipeping_10000", test_pipeping, .t_flags = 0, .t_int = 10000 },
-#ifdef notyet
-	/*
-	 * XXX: Doesn't work; kernel pipe buffer too small?
-	 */
-	{ "pipeping_100000", test_pipeping, .t_flags = 0, .t_int = 100000 },
-	{ "pipeping_1000000", test_pipeping, .t_flags = 0, .t_int = 1000000 },
-#endif
-	{ "pipepingtd_1", test_pipepingtd, .t_flags = 0, .t_int = 1 },
-	{ "pipepingtd_10", test_pipepingtd, .t_flags = 0, .t_int = 10 },
-	{ "pipepingtd_100", test_pipepingtd, .t_flags = 0, .t_int = 100 },
-	{ "pipepingtd_1000", test_pipepingtd, .t_flags = 0, .t_int = 1000 },
-	{ "pipepingtd_10000", test_pipepingtd, .t_flags = 0, .t_int = 10000 },
-#ifdef notyet
-	/*
-	 * XXX: Doesn't work; kernel pipe buffer too small?
-	 */
-	{ "pipepingtd_100000", test_pipepingtd, .t_flags = 0, .t_int = 100000 },
-	{ "pipepingtd_1000000", test_pipepingtd, .t_flags = 0, .t_int = 1000000 },
- #endif
-	{ "gettimeofday", test_gettimeofday, .t_flags = 0 },
+	{ "create_unlink", test_create_unlink, .t_flags = FLAG_PATH },
+	{ "fork", test_fork, .t_flags = 0 },
+	{ "fork_exec", test_fork_exec, .t_flags = 0 },
+	{ "getppid", test_getppid, .t_flags = 0 },
 	{ "getpriority", test_getpriority, .t_flags = 0 },
 	{ "getprogname", test_getprogname, .t_flags = 0 },
-	{ "pipe", test_pipe, .t_flags = 0 },
-	{ "select", test_select, .t_flags = 0 },
-	{ "socket_local_stream", test_socket_stream, .t_int = PF_LOCAL },
-	{ "socket_local_dgram", test_socket_dgram, .t_int = PF_LOCAL },
-	{ "socketpair_stream", test_socketpair_stream, .t_flags = 0 },
-	{ "socketpair_dgram", test_socketpair_dgram, .t_flags = 0 },
-	{ "socket_tcp", test_socket_stream, .t_int = PF_INET },
-	{ "socket_udp", test_socket_dgram, .t_int = PF_INET },
-	{ "access", test_access, .t_flags = FLAG_PATH },
-	{ "create_unlink", test_create_unlink, .t_flags = FLAG_PATH },
-	{ "bad_open", test_bad_open, .t_flags = 0 },
+	{ "getresuid", test_getresuid, .t_flags = 0 },
+	{ "gettimeofday", test_gettimeofday, .t_flags = 0 },
+	{ "getuid", test_getuid, .t_flags = 0 },
+	{ "memcpy_1", test_memcpy, .t_flags = 0, .t_int = 1 },
+	{ "memcpy_10", test_memcpy, .t_flags = 0, .t_int = 10 },
+	{ "memcpy_100", test_memcpy, .t_flags = 0, .t_int = 100 },
+	{ "memcpy_1000", test_memcpy, .t_flags = 0, .t_int = 1000 },
+	{ "memcpy_10000", test_memcpy, .t_flags = 0, .t_int = 10000 },
+	{ "memcpy_100000", test_memcpy, .t_flags = 0, .t_int = 100000 },
+	{ "memcpy_1000000", test_memcpy, .t_flags = 0, .t_int = 1000000 },
 	{ "open_close", test_open_close, .t_flags = FLAG_PATH },
 	{ "open_read_close_1", test_open_read_close, .t_flags = FLAG_PATH,
 	    .t_int = 1 },
@@ -862,6 +936,23 @@ static const struct test tests[] = {
 	    .t_flags = FLAG_PATH, .t_int = 100000 },
 	{ "open_read_close_1000000", test_open_read_close,
 	    .t_flags = FLAG_PATH, .t_int = 1000000 },
+	{ "pipe", test_pipe, .t_flags = 0 },
+	{ "pipeping_1", test_pipeping, .t_flags = 0, .t_int = 1 },
+	{ "pipeping_10", test_pipeping, .t_flags = 0, .t_int = 10 },
+	{ "pipeping_100", test_pipeping, .t_flags = 0, .t_int = 100 },
+	{ "pipeping_1000", test_pipeping, .t_flags = 0, .t_int = 1000 },
+	{ "pipeping_10000", test_pipeping, .t_flags = 0, .t_int = 10000 },
+	{ "pipeping_100000", test_pipeping, .t_flags = 0, .t_int = 100000 },
+	{ "pipeping_1000000", test_pipeping, .t_flags = 0, .t_int = 1000000 },
+#ifdef WITH_PTHREAD
+	{ "pipepingtd_1", test_pipepingtd, .t_flags = 0, .t_int = 1 },
+	{ "pipepingtd_10", test_pipepingtd, .t_flags = 0, .t_int = 10 },
+	{ "pipepingtd_100", test_pipepingtd, .t_flags = 0, .t_int = 100 },
+	{ "pipepingtd_1000", test_pipepingtd, .t_flags = 0, .t_int = 1000 },
+	{ "pipepingtd_10000", test_pipepingtd, .t_flags = 0, .t_int = 10000 },
+	{ "pipepingtd_100000", test_pipepingtd, .t_flags = 0, .t_int = 100000 },
+	{ "pipepingtd_1000000", test_pipepingtd, .t_flags = 0, .t_int = 1000000 },
+#endif
 	{ "read_1", test_read, .t_flags = FLAG_PATH, .t_int = 1 },
 	{ "read_10", test_read, .t_flags = FLAG_PATH, .t_int = 10 },
 	{ "read_100", test_read, .t_flags = FLAG_PATH, .t_int = 100 },
@@ -869,15 +960,20 @@ static const struct test tests[] = {
 	{ "read_10000", test_read, .t_flags = FLAG_PATH, .t_int = 10000 },
 	{ "read_100000", test_read, .t_flags = FLAG_PATH, .t_int = 100000 },
 	{ "read_1000000", test_read, .t_flags = FLAG_PATH, .t_int = 1000000 },
-	{ "dup", test_dup, .t_flags = 0 },
-	{ "shmfd", test_shmfd, .t_flags = 0 },
-	{ "fstat_shmfd", test_fstat_shmfd, .t_flags = 0 },
-	{ "fork", test_fork, .t_flags = 0 },
-	{ "vfork", test_vfork, .t_flags = 0 },
-	{ "fork_exec", test_fork_exec, .t_flags = 0 },
-	{ "vfork_exec", test_vfork_exec, .t_flags = 0 },
-	{ "chroot", test_chroot, .t_flags = 0 },
+	{ "select", test_select, .t_flags = 0 },
+	{ "semaping", test_semaping, .t_flags = 0 },
 	{ "setuid", test_setuid, .t_flags = 0 },
+	{ "shmfd", test_shmfd, .t_flags = 0 },
+	{ "shmfd_dup", test_shmfd_dup, .t_flags = 0 },
+	{ "shmfd_fstat", test_shmfd_fstat, .t_flags = 0 },
+	{ "socket_local_stream", test_socket_stream, .t_int = PF_LOCAL },
+	{ "socket_local_dgram", test_socket_dgram, .t_int = PF_LOCAL },
+	{ "socketpair_stream", test_socketpair_stream, .t_flags = 0 },
+	{ "socketpair_dgram", test_socketpair_dgram, .t_flags = 0 },
+	{ "socket_tcp", test_socket_stream, .t_int = PF_INET },
+	{ "socket_udp", test_socket_dgram, .t_int = PF_INET },
+	{ "vfork", test_vfork, .t_flags = 0 },
+	{ "vfork_exec", test_vfork_exec, .t_flags = 0 },
 };
 static const int tests_count = sizeof(tests) / sizeof(tests[0]);
 
