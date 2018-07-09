@@ -1672,9 +1672,7 @@ retry:
 				if (vm_page_pa_tryrelock(pmap, (pde &
 				    PG_PS_FRAME) | (va & PDRMASK), &pa))
 					goto retry;
-				m = PHYS_TO_VM_PAGE((pde & PG_PS_FRAME) |
-				    (va & PDRMASK));
-				vm_page_hold(m);
+				m = PHYS_TO_VM_PAGE(pa);
 			}
 		} else {
 			pte = pmap_pte_ufast(pmap, va, pde);
@@ -1683,11 +1681,11 @@ retry:
 				if (vm_page_pa_tryrelock(pmap, pte & PG_FRAME,
 				    &pa))
 					goto retry;
-				m = PHYS_TO_VM_PAGE(pte & PG_FRAME);
-				if (m != NULL)
-					vm_page_hold(m);
+				m = PHYS_TO_VM_PAGE(pa);
 			}
 		}
+		if (m != NULL)
+			vm_page_hold(m);
 	}
 	PA_UNLOCK_COND(pa);
 	PMAP_UNLOCK(pmap);
@@ -3638,7 +3636,6 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	}
 
 	pa = VM_PAGE_TO_PHYS(m);
-	om = NULL;
 	origpte = *pte;
 	opa = origpte & PG_FRAME;
 
@@ -3663,10 +3660,8 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 		if (mpte)
 			mpte->wire_count--;
 
-		if (origpte & PG_MANAGED) {
-			om = m;
+		if (origpte & PG_MANAGED)
 			pa |= PG_MANAGED;
-		}
 		goto validate;
 	} 
 
@@ -3674,15 +3669,42 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 
 	/*
 	 * Mapping has changed, invalidate old range and fall through to
-	 * handle validating new mapping.
+	 * handle validating new mapping.  This ensures that all threads
+	 * sharing the pmap keep a consistent view of the mapping, which is
+	 * necessary for the correct handling of COW faults.  It
+	 * also permits reuse of the old mapping's PV entry,
+	 * avoiding an allocation.
+	 *
+	 * For consistency, handle unmanaged mappings the same way.
 	 */
 	if (opa) {
+		origpte = pte_load_clear(pte);
+		KASSERT((origpte & PG_FRAME) == opa,
+		    ("pmap_enter: unexpected pa update for %#x", va));
 		if (origpte & PG_W)
 			pmap->pm_stats.wired_count--;
 		if (origpte & PG_MANAGED) {
 			om = PHYS_TO_VM_PAGE(opa);
+
+			/*
+			 * The pmap lock is sufficient to synchronize with
+			 * concurrent calls to pmap_page_test_mappings() and
+			 * pmap_ts_referenced().
+			 */
+			if ((origpte & (PG_M | PG_RW)) == (PG_M | PG_RW))
+				vm_page_dirty(om);
+			if ((origpte & PG_A) != 0)
+				vm_page_aflag_set(om, PGA_REFERENCED);
 			pv = pmap_pvh_remove(&om->md, pmap, va);
+			if ((om->aflags & PGA_WRITEABLE) != 0 &&
+			    TAILQ_EMPTY(&om->md.pv_list) &&
+			    ((om->flags & PG_FICTITIOUS) != 0 ||
+			    TAILQ_EMPTY(&pa_to_pvh(opa)->pv_list)))
+				vm_page_aflag_clear(om, PGA_WRITEABLE);
 		}
+		if ((origpte & PG_A) != 0)
+			pmap_invalidate_page(pmap, va);
+		origpte = 0;
 		if (mpte != NULL) {
 			mpte->wire_count--;
 			KASSERT(mpte->wire_count > 0,
@@ -3699,9 +3721,10 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 		KASSERT(pmap != kernel_pmap || va < kmi.clean_sva ||
 		    va >= kmi.clean_eva,
 		    ("pmap_enter: managed mapping within the clean submap"));
-		if (pv == NULL)
+		if (pv == NULL) {
 			pv = get_pv_entry(pmap, FALSE);
-		pv->pv_va = va;
+			pv->pv_va = va;
+		}
 		TAILQ_INSERT_TAIL(&m->md.pv_list, pv, pv_next);
 		pa |= PG_MANAGED;
 	} else if (pv != NULL)
@@ -3743,28 +3766,19 @@ validate:
 		if (origpte & PG_V) {
 			invlva = FALSE;
 			origpte = pte_load_store(pte, newpte);
-			if (origpte & PG_A) {
-				if (origpte & PG_MANAGED)
-					vm_page_aflag_set(om, PGA_REFERENCED);
-				if (opa != VM_PAGE_TO_PHYS(m))
-					invlva = TRUE;
-#if defined(PAE) || defined(PAE_TABLES)
-				if ((origpte & PG_NX) == 0 &&
-				    (newpte & PG_NX) != 0)
-					invlva = TRUE;
-#endif
-			}
-			if ((origpte & (PG_M | PG_RW)) == (PG_M | PG_RW)) {
+			KASSERT((origpte & PG_FRAME) == VM_PAGE_TO_PHYS(m),
+			    ("pmap_enter: unexpected pa update for %#x", va));
+			if ((origpte & (PG_M | PG_RW)) == (PG_M | PG_RW) &&
+			    (newpte & PG_M) == 0) {
 				if ((origpte & PG_MANAGED) != 0)
-					vm_page_dirty(om);
-				if ((prot & VM_PROT_WRITE) == 0)
-					invlva = TRUE;
+					vm_page_dirty(m);
+				invlva = TRUE;
 			}
-			if ((origpte & PG_MANAGED) != 0 &&
-			    TAILQ_EMPTY(&om->md.pv_list) &&
-			    ((om->flags & PG_FICTITIOUS) != 0 ||
-			    TAILQ_EMPTY(&pa_to_pvh(opa)->pv_list)))
-				vm_page_aflag_clear(om, PGA_WRITEABLE);
+#if defined(PAE) || defined(PAE_TABLES)
+			else if ((origpte & (PG_A | PG_NX)) == PG_A &&
+			    (newpte & PG_NX) != 0)
+				invlva = TRUE;
+#endif
 			if (invlva)
 				pmap_invalidate_page(pmap, va);
 		} else
