@@ -1,8 +1,13 @@
-/*
- * SPDX-License-Identifier: BSD-3-Clause
+/*-
+ * SPDX-License-Identifier: BSD-2-Clause
  *
- * Copyright (c) 2015 Adrian Chadd <adrian@FreeBSD.org>.
+ * Copyright (c) 2018 SRI International
  * All rights reserved.
+ *
+ * This software was developed by SRI International and the University of
+ * Cambridge Computer Laboratory (Department of Computer Science and
+ * Technology) under DARPA contract HR0011-18-C-0016 ("ECATS"), as part of the
+ * DARPA SSITH research programme.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -12,9 +17,6 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -30,14 +32,27 @@
  *
  * $FreeBSD$
  */
-#ifndef	__SYS_NUMA_H__
-#define	__SYS_NUMA_H__
 
-#include <sys/_vm_domain.h>
+#include <sys/cdefs.h>
+#include <sys/types.h>
+#include <sys/errno.h>
 
-extern	int numa_setaffinity(cpuwhich_t which, id_t id,
-	    struct vm_domain_policy_entry *vd);
-extern	int numa_getaffinity(cpuwhich_t which, id_t id,
-	    struct vm_domain_policy_entry *vd);
+/*
+ * XXX: Ideally we'd use a common function rather than generating one
+ * for each compat symbol, but the bfd linker in base rejects that.
+ * This should be revisited once we're using only modern linkers.
+ */
+#define __compat_nosys(symbol, version)				\
+int __compat_enosys ## symbol(void);				\
+int								\
+__compat_enosys ## symbol(void)					\
+{								\
+								\
+	return (ENOSYS);					\
+}								\
+__sym_compat(symbol, __compat_enosys ## symbol, version)
 
-#endif	/* __SYS_NUMA_H__ */
+__compat_nosys(netbsd_lchown, FBSD_1.0);
+__compat_nosys(netbsd_msync, FBSD_1.0);
+__compat_nosys(numa_getaffinity, FBSD_1.4);
+__compat_nosys(numa_setaffinity, FBSD_1.4);
