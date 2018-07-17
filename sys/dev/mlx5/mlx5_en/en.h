@@ -81,8 +81,19 @@
 #define	MLX5E_PARAMS_DEFAULT_LOG_RQ_SIZE                0xa
 #define	MLX5E_PARAMS_MAXIMUM_LOG_RQ_SIZE                0xe
 
-/* freeBSD HW LRO is limited by 16KB - the size of max mbuf */
+#define	MLX5E_MAX_RX_SEGS 7
+
+#ifndef MLX5E_MAX_RX_BYTES
+#define	MLX5E_MAX_RX_BYTES MCLBYTES
+#endif
+
+#if (MLX5E_MAX_RX_SEGS == 1)
+/* FreeBSD HW LRO is limited by 16KB - the size of max mbuf */
 #define	MLX5E_PARAMS_DEFAULT_LRO_WQE_SZ                 MJUM16BYTES
+#else
+#define	MLX5E_PARAMS_DEFAULT_LRO_WQE_SZ \
+    MIN(65535, MLX5E_MAX_RX_SEGS * MLX5E_MAX_RX_BYTES)
+#endif
 #define	MLX5E_PARAMS_DEFAULT_RX_CQ_MODERATION_USEC      0x10
 #define	MLX5E_PARAMS_DEFAULT_RX_CQ_MODERATION_USEC_FROM_CQE	0x3
 #define	MLX5E_PARAMS_DEFAULT_RX_CQ_MODERATION_PKTS      0x20
@@ -477,6 +488,8 @@ struct mlx5e_params_ethtool {
 	MLX5E_PARAMS(MLX5E_STATS_VAR)
 	u64	max_bw_value[IEEE_8021QAZ_MAX_TCS];
 	u8	prio_tc[IEEE_8021QAZ_MAX_TCS];
+	u8	dscp2prio[MLX5_MAX_SUPPORTED_DSCP];
+	u8	trust_state;
 };
 
 /* EEPROM Standards for plug in modules */
@@ -531,6 +544,7 @@ struct mlx5e_rq {
 	struct mtx mtx;
 	bus_dma_tag_t dma_tag;
 	u32	wqe_sz;
+	u32	nsegs;
 	struct mlx5e_rq_mbuf *mbuf;
 	struct ifnet *ifp;
 	struct mlx5e_rq_stats stats;
@@ -772,6 +786,7 @@ struct mlx5e_priv {
 	struct sysctl_oid *sysctl_hw;
 	int	sysctl_debug;
 	struct mlx5e_stats stats;
+	struct sysctl_ctx_list sysctl_ctx_channel_debug;
 	int	counter_set_id;
 
 	struct workqueue_struct *wq;
@@ -803,8 +818,11 @@ struct mlx5e_tx_wqe {
 
 struct mlx5e_rx_wqe {
 	struct mlx5_wqe_srq_next_seg next;
-	struct mlx5_wqe_data_seg data;
+	struct mlx5_wqe_data_seg data[];
 };
+
+/* the size of the structure above must be power of two */
+CTASSERT(powerof2(sizeof(struct mlx5e_rx_wqe)));
 
 struct mlx5e_eeprom {
 	int	lock_bit;
