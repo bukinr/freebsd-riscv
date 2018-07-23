@@ -38,6 +38,16 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20180722: indent(1) option renamed, test files follow
+OLD_FILES+=usr/bin/indent/tests/nsac.0
+OLD_FILES+=usr/bin/indent/tests/nsac.0.pro
+OLD_FILES+=usr/bin/indent/tests/nsac.0.stdout
+OLD_FILES+=usr/bin/indent/tests/sac.0
+OLD_FILES+=usr/bin/indent/tests/sac.0.pro
+OLD_FILES+=usr/bin/indent/tests/sac.0.stdout
+# 20180721: move of libmlx5.so.1 and libibverbs.so.1
+OLD_LIBS+=usr/lib/libmlx5.so.1
+OLD_LIBS+=usr/lib/libibverbs.so.1
 # 20180710: old numa cleanup
 OLD_FILES+=usr/include/sys/numa.h
 OLD_FILES+=usr/share/man/man2/numa_getaffinity.2.gz

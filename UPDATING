@@ -34,9 +34,21 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 12.x IS SLOW:
 20180720:
 	zfsloader's functionality has now been folded into loader.
 	zfsloader is no longer necesasary once you've updated your
-	boot blocks. For a transition period, there will be a symlink
-	in place from zfsloader to loader to allow a smooth transition
-	until the boot blocks can be updated.
+	boot blocks. For a transition period, we will install a
+	hardlink for zfsloader to loader to allow a smooth transition
+	until the boot blocks can be updated (hard link because old
+	zfs boot blocks don't understand symlinks).
+
+20180719:
+	New uid:gid added, ntpd:ntpd (123:123).  Be sure to run mergemaster
+	or take steps to update /etc/passwd before doing installworld on
+	existing systems.  Also, rc.d/ntpd now starts ntpd(8) as user ntpd
+	if the new mac_ntpd(4) policy is available, unless ntpd_flags or
+	the ntp config file contain options that change file/dir locations.
+	When such options (e.g., "statsdir" or "crypto") are used, ntpd can
+	still be run as non-root by setting ntpd_user=ntpd in rc.conf, after
+	taking steps to ensure that all required files/dirs are accessible
+	by the ntpd user.
 
 20180717:
 	Big endian arm support has been removed.
@@ -74,11 +86,6 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 12.x IS SLOW:
 	6.0.1.  Please see the 20141231 entry below for information about
 	prerequisites and upgrading, if you are not already using clang 3.5.0
 	or higher.
-
-20180628:
-	r335753 introduced a new quoting method. However, etc/devd/devmatch.conf
-	needed to be changed to work with it. This change was made with r335763
-	and requires a mergemaster / etcupdate / etc to update the installed file.
 
 20180628:
 	r335753 introduced a new quoting method. However, etc/devd/devmatch.conf
