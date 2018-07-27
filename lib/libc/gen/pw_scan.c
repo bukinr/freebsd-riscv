@@ -65,6 +65,22 @@ __FBSDID("$FreeBSD$");
  */
 static int	pw_big_ids_warning = 0;
 
+void
+__pw_initpwd(struct passwd *pwd)
+{
+	static char nul[] = "";
+
+	memset(pwd, 0, sizeof(*pwd));
+	pwd->pw_uid = (uid_t)-1;  /* Considered least likely to lead to */
+	pwd->pw_gid = (gid_t)-1;  /* a security issue.                  */
+	pwd->pw_name = nul;
+	pwd->pw_passwd = nul;
+	pwd->pw_class = nul;
+	pwd->pw_gecos = nul;
+	pwd->pw_dir = nul;
+	pwd->pw_shell = nul;
+}
+
 int
 __pw_scan(char *bp, struct passwd *pw, int flags)
 {
@@ -170,8 +186,7 @@ __pw_scan(char *bp, struct passwd *pw, int flags)
 		if (p[0])
 			pw->pw_fields |= _PWF_EXPIRE;
 		pw->pw_expire = atol(p);
-	} else
-		pw->pw_class = NULL;
+	}
 	if (!(pw->pw_gecos = strsep(&bp, ":")))		/* gecos */
 		goto fmt;
 	if (pw->pw_gecos[0])
