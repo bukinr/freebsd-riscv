@@ -372,6 +372,8 @@ static u_int64_t	DMPDphys;	/* phys addr of direct mapped level 2 */
 static u_int64_t	DMPDPphys;	/* phys addr of direct mapped level 3 */
 static int		ndmpdpphys;	/* number of DMPDPphys pages */
 
+static vm_paddr_t	KERNend;	/* phys addr of end of bootstrap data */
+
 /*
  * pmap_mapdev support pre initialization (i.e. console)
  */
@@ -998,8 +1000,9 @@ create_pagetables(vm_paddr_t *firstaddr)
 	/* Map from zero to end of allocations under 2M pages */
 	/* This replaces some of the KPTphys entries above */
 	for (i = 0; (i << PDRSHIFT) < *firstaddr; i++)
+		/* Preset PG_M and PG_A because demotion expects it. */
 		pd_p[i] = (i << PDRSHIFT) | X86_PG_V | PG_PS | pg_g |
-		    bootaddr_rwx(i << PDRSHIFT);
+		    X86_PG_M | X86_PG_A | bootaddr_rwx(i << PDRSHIFT);
 
 	/*
 	 * Because we map the physical blocks in 2M pages, adjust firstaddr
@@ -1089,7 +1092,10 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 {
 	vm_offset_t va;
 	pt_entry_t *pte;
+	uint64_t cr4;
 	int i;
+
+	KERNend = *firstaddr;
 
 	if (!pti)
 		pg_g = X86_PG_G;
@@ -1113,11 +1119,21 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 	virtual_end = VM_MAX_KERNEL_ADDRESS;
 
 
-	/* XXX do %cr0 as well */
-	load_cr4(rcr4() | CR4_PGE);
+	/*
+	 * Enable PG_G global pages, then switch to the kernel page
+	 * table from the bootstrap page table.  After the switch, it
+	 * is possible to enable SMEP and SMAP since PG_U bits are
+	 * correct now.
+	 */
+	cr4 = rcr4();
+	cr4 |= CR4_PGE;
+	load_cr4(cr4);
 	load_cr3(KPML4phys);
 	if (cpu_stdext_feature & CPUID_STDEXT_SMEP)
-		load_cr4(rcr4() | CR4_SMEP);
+		cr4 |= CR4_SMEP;
+	if (cpu_stdext_feature & CPUID_STDEXT_SMAP)
+		cr4 |= CR4_SMAP;
+	load_cr4(cr4);
 
 	/*
 	 * Initialize the kernel pmap (which is statically allocated).
@@ -1323,6 +1339,7 @@ pmap_init(void)
 	 * Initialize the vm page array entries for the kernel pmap's
 	 * page table pages.
 	 */ 
+	PMAP_LOCK(kernel_pmap);
 	for (i = 0; i < nkpt; i++) {
 		mpte = PHYS_TO_VM_PAGE(KPTphys + (i << PAGE_SHIFT));
 		KASSERT(mpte >= vm_page_array &&
@@ -1331,7 +1348,11 @@ pmap_init(void)
 		mpte->pindex = pmap_pde_pindex(KERNBASE) + i;
 		mpte->phys_addr = KPTphys + (i << PAGE_SHIFT);
 		mpte->wire_count = 1;
+		if (i << PDRSHIFT < KERNend &&
+		    pmap_insert_pt_page(kernel_pmap, mpte))
+			panic("pmap_init: pmap_insert_pt_page failed");
 	}
+	PMAP_UNLOCK(kernel_pmap);
 	vm_wire_add(nkpt);
 
 	/*
