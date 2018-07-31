@@ -1,6 +1,5 @@
 /*-
- * Copyright (c) 1999 Luoqi Chen <luoqi@freebsd.org>
- * All rights reserved.
+ * Copyright 2018 Emmanuel Vadot <manu@FreeBSD.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,60 +22,16 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- *	from: FreeBSD: src/sys/i386/include/globaldata.h,v 1.27 2001/04/27
  * $FreeBSD$
  */
 
-#ifndef	_MACHINE_PCPU_H_
-#define	_MACHINE_PCPU_H_
+#ifndef _DEV_EXTRES_NVMEM_H_
+#define _DEV_EXTRES_NVMEM_H_
 
-#include <machine/cpu.h>
-#include <machine/cpufunc.h>
+int nvmem_get_cell_len(phandle_t node, const char *name);
+int nvmem_read_cell_by_name(phandle_t node, const char *name, void *cell, size_t buflen);
+int nvmem_read_cell_by_idx(phandle_t node, int idx, void *cell, size_t buflen);
+int nvmem_write_cell_by_name(phandle_t node, const char *name, void *cell, size_t buflen);
+int nvmem_write_cell_by_idx(phandle_t node, int idx, void *cell, size_t buflen);
 
-#define	ALT_STACK_SIZE	128
-
-typedef int (*pcpu_bp_harden)(void);
-typedef int (*pcpu_ssbd)(int);
-
-#define	PCPU_MD_FIELDS							\
-	u_int	pc_acpi_id;	/* ACPI CPU id */		\
-	u_int	pc_midr;	/* stored MIDR value */	\
-	uint64_t pc_clock;						\
-	pcpu_bp_harden pc_bp_harden;					\
-	pcpu_ssbd pc_ssbd;						\
-	char __pad[225]
-
-#ifdef _KERNEL
-
-struct pcb;
-struct pcpu;
-
-static inline struct pcpu *
-get_pcpu(void)
-{
-	struct pcpu *pcpu;
-
-	__asm __volatile("mov	%0, x18" : "=&r"(pcpu));
-	return (pcpu);
-}
-
-static inline struct thread *
-get_curthread(void)
-{
-	struct thread *td;
-
-	__asm __volatile("ldr	%0, [x18]" : "=&r"(td));
-	return (td);
-}
-
-#define	curthread get_curthread()
-
-#define	PCPU_GET(member)	(get_pcpu()->pc_ ## member)
-#define	PCPU_ADD(member, value)	(get_pcpu()->pc_ ## member += (value))
-#define	PCPU_INC(member)	PCPU_ADD(member, 1)
-#define	PCPU_PTR(member)	(&get_pcpu()->pc_ ## member)
-#define	PCPU_SET(member,value)	(get_pcpu()->pc_ ## member = (value))
-
-#endif	/* _KERNEL */
-
-#endif	/* !_MACHINE_PCPU_H_ */
+#endif /* _DEV_EXTRES_NVMEM_H_ */
