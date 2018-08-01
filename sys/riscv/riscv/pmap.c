@@ -3248,7 +3248,6 @@ void
 pmap_sync_icache(pmap_t pm, vm_offset_t va, vm_size_t sz)
 {
 
-	panic("RISCVTODO: pmap_sync_icache");
 }
 
 /*
