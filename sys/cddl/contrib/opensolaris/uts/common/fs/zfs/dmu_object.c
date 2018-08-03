@@ -32,7 +32,8 @@
 #include <sys/zfeature.h>
 
 uint64_t
-dmu_object_alloc(objset_t *os, dmu_object_type_t ot, int blocksize,
+dmu_object_alloc_ibs(objset_t *os, dmu_object_type_t ot, int blocksize,
+    int indirect_blockshift,
     dmu_object_type_t bonustype, int bonuslen, dmu_tx_t *tx)
 {
 	uint64_t object;
@@ -92,13 +93,22 @@ dmu_object_alloc(objset_t *os, dmu_object_type_t ot, int blocksize,
 			os->os_obj_next = object - 1;
 	}
 
-	dnode_allocate(dn, ot, blocksize, 0, bonustype, bonuslen, tx);
+	dnode_allocate(dn, ot, blocksize, indirect_blockshift,
+	    bonustype, bonuslen, tx);
 	mutex_exit(&os->os_obj_lock);
 
 	dmu_tx_add_new_object(tx, dn);
 	dnode_rele(dn, FTAG);
 
 	return (object);
+}
+
+uint64_t
+dmu_object_alloc(objset_t *os, dmu_object_type_t ot, int blocksize,
+    dmu_object_type_t bonustype, int bonuslen, dmu_tx_t *tx)
+{
+	return (dmu_object_alloc_ibs(os, ot, blocksize, 0,
+	    bonustype, bonuslen, tx));
 }
 
 int
@@ -157,6 +167,10 @@ dmu_object_free(objset_t *os, uint64_t object, dmu_tx_t *tx)
 		return (err);
 
 	ASSERT(dn->dn_type != DMU_OT_NONE);
+	/*
+	 * If we don't create this free range, we'll leak indirect blocks when
+	 * we get to freeing the dnode in syncing context.
+	 */
 	dnode_free_range(dn, 0, DMU_OBJECT_END, tx);
 	dnode_free(dn, tx);
 	dnode_rele(dn, FTAG);
