@@ -86,7 +86,7 @@ __FBSDID("$FreeBSD$");
  * Ethernet frames are DMA'd at this byte offset into the freelist buffer.
  * 0-7 are valid values.
  */
-static int fl_pktshift = 2;
+static int fl_pktshift = 0;
 TUNABLE_INT("hw.cxgbe.fl_pktshift", &fl_pktshift);
 
 /*
@@ -367,7 +367,7 @@ set_tcb_rpl_handler(struct sge_iq *iq, const struct rss_header *rss,
 	MPASS(m == NULL);
 
 	tid = GET_TID(cpl);
-	if (is_ftid(iq->adapter, tid)) {
+	if (is_hpftid(iq->adapter, tid) || is_ftid(iq->adapter, tid)) {
 		/*
 		 * The return code for filter-write is put in the CPL cookie so
 		 * we have to rely on the hardware tid (is_ftid) to determine
@@ -496,8 +496,8 @@ t4_sge_modload(void)
 
 	if (fl_pktshift < 0 || fl_pktshift > 7) {
 		printf("Invalid hw.cxgbe.fl_pktshift value (%d),"
-		    " using 2 instead.\n", fl_pktshift);
-		fl_pktshift = 2;
+		    " using 0 instead.\n", fl_pktshift);
+		fl_pktshift = 0;
 	}
 
 	if (spg_len != 64 && spg_len != 128) {
