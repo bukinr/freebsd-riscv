@@ -922,6 +922,20 @@ oprint1(struct riscv1_op *op, vm_offset_t loc, int insn)
 				imm |= (0x7ffffff << 5);	/* sign extend */
 			db_printf("%d", imm);
 
+		} else if (strncmp("Ca", p, 2) == 0) {
+			/* imm[11|4|9:8|10|6|7|3:1|5] << 2 */
+			imm = ((insn >> 3) & 0x7) << 1;
+			imm |= ((insn >> 11) & 0x1) << 4;
+			imm |= ((insn >> 2) & 0x1) << 5;
+			imm |= ((insn >> 7) & 0x1) << 6;
+			imm |= ((insn >> 6) & 0x1) << 7;
+			imm |= ((insn >> 9) & 0x3) << 8;
+			imm |= ((insn >> 8) & 0x1) << 10;
+			imm |= ((insn >> 12) & 0x1) << 11;
+			if (imm & (1 << 11))
+				imm |= (0xfffff << 12);	/* sign extend */
+			db_printf("0x%lx", (loc + imm));
+
 		} else if (strncmp("CV", p, 2) == 0) {
 			rs1 = (insn >> 2) & 0x1f;
 			db_printf("%s", reg_name[rs1]);
