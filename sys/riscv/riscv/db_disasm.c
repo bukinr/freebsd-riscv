@@ -940,6 +940,25 @@ oprint1(struct riscv1_op *op, vm_offset_t loc, int insn)
 			rs1 = (insn >> 2) & 0x1f;
 			db_printf("%s", reg_name[rs1]);
 
+		} else if (strncmp("P", p, 1) == 0) {
+			if (insn & (1 << 27))
+				db_printf("i");
+			if (insn & (1 << 26))
+				db_printf("o");
+			if (insn & (1 << 25))
+				db_printf("r");
+			if (insn & (1 << 24))
+				db_printf("w");
+
+		} else if (strncmp("Q", p, 1) == 0) {
+			if (insn & (1 << 23))
+				db_printf("i");
+			if (insn & (1 << 22))
+				db_printf("o");
+			if (insn & (1 << 21))
+				db_printf("r");
+			if (insn & (1 << 20))
+				db_printf("w");
 		}
 
 		while (*p && strncmp(p, ",", 1) != 0)
