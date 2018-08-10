@@ -769,8 +769,11 @@ static int
 oprint1(struct riscv1_op *op, vm_offset_t loc, int insn)
 {
 	uint32_t rd, rs1, rs2;
+	uint32_t val;
+	int found;
 	int imm;
 	char *p;
+	int i;
 
 	p = op->fmt;
 
@@ -780,19 +783,16 @@ oprint1(struct riscv1_op *op, vm_offset_t loc, int insn)
 		if (strncmp("d", p, 1) == 0) {
 			rd = (insn >> 7) & 0x1f;
 			db_printf("%s", reg_name[rd]);
-		}
 
-		if (strncmp("s", p, 1) == 0) {
+		} else if (strncmp("s", p, 1) == 0) {
 			rs1 = (insn >> 15) & 0x1f;
 			db_printf("%s", reg_name[rs1]);
-		}
 
-		if (strncmp("t", p, 1) == 0) {
+		} else if (strncmp("t", p, 1) == 0) {
 			rs2 = (insn >> 20) & 0x1f;
 			db_printf("%s", reg_name[rs2]);
-		}
 
-		if (strncmp("p", p, 1) == 0) {
+		} else if (strncmp("p", p, 1) == 0) {
 			imm = ((insn >> 8) & 0xf) << 1;
 			imm |= ((insn >> 25) & 0x3f) << 5;
 			imm |= ((insn >> 7) & 0x1) << 11;
@@ -800,17 +800,27 @@ oprint1(struct riscv1_op *op, vm_offset_t loc, int insn)
 			if (imm & (1 << 12))
 				imm |= (0xfffff << 12);	/* sign extend */
 			db_printf("0x%016lx", (loc + imm));
-		}
 
-		if (strncmp("o(s)", p, 4) == 0) {
+		} else if (strncmp("o(s)", p, 4) == 0) {
 			rs1 = (insn >> 15) & 0x1f;
 			imm = (insn >> 20) & 0xfff;
 			if (imm & (1 << 11))
 				imm |= (0xfffff << 12);	/* sign extend */
 			db_printf("%d(%s)", imm, reg_name[rs1]);
-		}
 
-		if (strncmp("a", p, 1) == 0) {
+		} else if (strncmp("q(s)", p, 4) == 0) {
+			rs1 = (insn >> 15) & 0x1f;
+			imm = (insn >> 7) & 0x1f;
+			imm |= (insn >> 25) & 0x7f;
+			if (imm & (1 << 11))
+				imm |= (0xfffff << 12);	/* sign extend */
+			db_printf("%d(%s)", imm, reg_name[rs1]);
+
+		} else if (strncmp("0(s)", p, 4) == 0) {
+			rs1 = (insn >> 15) & 0x1f;
+			db_printf("(%s)", reg_name[rs1]);
+
+		} else if (strncmp("a", p, 1) == 0) {
 			/* imm[20|10:1|11|19:12] << 12 */
 			imm = ((insn >> 21) & 0x3ff) << 1;
 			imm |= ((insn >> 20) & 0x1) << 11;
@@ -819,24 +829,110 @@ oprint1(struct riscv1_op *op, vm_offset_t loc, int insn)
 			if (imm & (1 << 20))
 				imm |= (0xfff << 20);	/* sign extend */
 			db_printf("0x%lx", (loc + imm));
-		}
 
-		if (strncmp("u", p, 1) == 0) {
-		}
+		} else if (strncmp("u", p, 1) == 0) {
+			/* imm[31:12] << 12 */
+			imm = (insn >> 12) & 0xfffff;
+			if (imm & (1 << 20))
+				imm |= (0xfff << 20);	/* sign extend */
+			db_printf("0x%lx", imm);
 
-		if (strncmp("j", p, 1) == 0) {
-		}
+		} else if (strncmp("j", p, 1) == 0) {
+			/* imm[11:0] << 20 */
+			imm = (insn >> 20) & 0xfff;
+			if (imm & (1 << 11))
+				imm |= (0xfffff << 12); /* sign extend */
+			db_printf("%d", imm);
 
-		if (strncmp(">", p, 1) == 0) {
-			rs2 = (insn >> 20) & 0x1f;
-			db_printf("0x%x", rs2);
+		} else if (strncmp(">", p, 1) == 0) {
+			val = (insn >> 20) & 0x3f;
+			db_printf("0x%x", val);
+
+		} else if (strncmp("<", p, 1) == 0) {
+			val = (insn >> 20) & 0x1f;
+			db_printf("0x%x", val);
+
+		} else if (strncmp("E", p, 1) == 0) {
+			val = (insn >> 20) & 0xfff;
+			found = 0;
+			for (i = 0; csr_name[i].name != NULL; i++)
+				if (csr_name[i].imm == val) {
+					db_printf("%s",
+					    csr_name[i].name);
+					found = 1;
+				}
+			if (found == 0)
+				db_printf("csr?");
+
+		} else if (strncmp("Ct", p, 2) == 0) {
+			rd = (insn >> 2) & 0x7;
+			rd |= 0x8;
+			db_printf("%s", reg_name[rd]);
+
+		} else if (strncmp("Cs", p, 2) == 0) {
+			rs1 = (insn >> 7) & 0x7;
+			rs1 |= 0x8;
+			db_printf("%s", reg_name[rs1]);
+
+		} else if (strncmp("Cl(Cs)", p, 6) == 0) {
+			rs1 = (insn >> 7) & 0x7;
+			rs1 |= 0x8;
+			imm = ((insn >> 10) & 0x7) << 3;
+			imm |= ((insn >> 5) & 0x3) << 6;
+			if (imm & (1 << 8))
+				imm |= 0xffffff << 8;
+			db_printf("%d(%s)", imm, reg_name[rs1]);
+
+		} else if (strncmp("Ck(Cs)", p, 6) == 0) {
+			rs1 = (insn >> 7) & 0x7;
+			rs1 |= 0x8;
+			imm = ((insn >> 10) & 0x7) << 3;
+			imm |= ((insn >> 6) & 0x1) << 2;
+			imm |= ((insn >> 5) & 0x1) << 6;
+			if (imm & (1 << 8))
+				imm |= 0xffffff << 8;
+			db_printf("%d(%s)", imm, reg_name[rs1]);
+
+		} else if (strncmp("Cn(Cc)", p, 6) == 0) {
+			imm = ((insn >> 5) & 0x3) << 3;
+			imm |= ((insn >> 12) & 0x1) << 5;
+			imm |= ((insn >> 2) & 0x7) << 6;
+			if (imm & (1 << 8))
+				imm |= 0xffffff << 8;
+			db_printf("%d(sp)", imm);
+
+		} else if (strncmp("CN(Cc)", p, 6) == 0) {
+			imm = ((insn >> 10) & 0x7) << 3;
+			imm |= ((insn >> 7) & 0x7) << 6;
+			if (imm & (1 << 8))
+				imm |= 0xffffff << 8;
+			db_printf("%d(sp)", imm);
+
+		} else if (strncmp("Cu", p, 2) == 0) {
+			imm = ((insn >> 2) & 0x1f) << 0;
+			imm |= ((insn >> 12) & 0x1) << 5;
+			if (imm & (1 << 5))
+				imm |= (0x7ffffff << 5);	/* sign extend */
+			db_printf("0x%lx", imm);
+
+		} else if (strncmp("Co", p, 2) == 0) {
+			imm = ((insn >> 2) & 0x1f) << 0;
+			imm |= ((insn >> 12) & 0x1) << 5;
+			if (imm & (1 << 5))
+				imm |= (0x7ffffff << 5);	/* sign extend */
+			db_printf("%d", imm);
+
+		} else if (strncmp("CV", p, 2) == 0) {
+			rs1 = (insn >> 2) & 0x1f;
+			db_printf("%s", reg_name[rs1]);
+
 		}
 
 		while (*p && strncmp(p, ",", 1) != 0)
 			p++;
 
 		if (*p) {
-			db_printf(", ");
+			db_printf(",");
 			p++;
 		}
 	}
