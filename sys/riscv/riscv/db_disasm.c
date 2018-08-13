@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2016 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2016-2018 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * Portions of this software were developed by SRI International and the
@@ -45,16 +45,34 @@ __FBSDID("$FreeBSD$");
 #include <machine/riscv_opcode.h>
 #include <machine/riscv_encoding.h>
 
-struct riscv1_op {
+#define	X_RA	1
+#define	X_SP	2
+#define	X_GP	3
+#define	X_TP	4
+#define	X_T0	5
+#define	X_T1	6
+#define	X_T2	7
+#define	X_T3	28
+
+#define	OP_MASK_RD	0x1f
+#define	OP_SH_RD	7
+#define	MASK_RD		(OP_MASK_RD << OP_SH_RD)
+
+struct riscv_op {
 	char *name;
 	char *fmt;
 	int match;
 	int mask;
-	int (*match_func)(struct riscv1_op *op, uint32_t insn);
+	int (*match_func)(struct riscv_op *op, uint32_t insn);
+};
+
+struct csr_op {
+	char *name;
+	int imm;
 };
 
 static int
-match_opcode(struct riscv1_op *op, uint32_t insn)
+match_opcode(struct riscv_op *op, uint32_t insn)
 {
 
 	if (((insn ^ op->match) & op->mask) == 0)
@@ -63,9 +81,7 @@ match_opcode(struct riscv1_op *op, uint32_t insn)
 	return (0);
 }
 
-static struct riscv1_op riscv1_opcodes[] = {
-	//{ "mv",		MATCH_ADDI,	MASK_ADDI | MASK_IMM, match_opcode },
-
+static struct riscv_op riscv_opcodes[] = {
 	{ "beq",	"s,t,p", 	MATCH_BEQ,	MASK_BEQ,	match_opcode },
 	{ "bne",	"s,t,p", 	MATCH_BNE,	MASK_BNE,	match_opcode },
 	{ "blt",	"s,t,p", 	MATCH_BLT,	MASK_BLT,	match_opcode },
@@ -265,7 +281,11 @@ static struct riscv1_op riscv1_opcodes[] = {
 	{ NULL, NULL, 0, 0, NULL },
 };
 
-static struct riscv1_op riscv1_copcodes[] = {
+static struct riscv_op riscv1_copcodes[] = {
+	/* Aliases */
+	{ "ret",	"",		MATCH_C_JR | (X_RA << OP_SH_RD), MASK_C_JR | MASK_RD, match_opcode },
+
+	/* C-Compressed ISA Extension Instructions */
 	{ "c.nop",	"", 		MATCH_C_NOP,	MASK_C_NOP,	match_opcode },
 	{ "c.addi16sp",	"", 		MATCH_C_ADDI16SP,	MASK_C_ADDI16SP,	match_opcode },
 	{ "c.jr",	"d", 		MATCH_C_JR,	MASK_C_JR,	match_opcode },
@@ -309,164 +329,6 @@ static struct riscv1_op riscv1_copcodes[] = {
 	{ "c.swsp",	"CV,CM(Cc)", 	MATCH_C_SWSP,	MASK_C_SWSP,	match_opcode },
 	{ "c.fswsp",	"CT,CM(Cc)", 	MATCH_C_FSWSP,	MASK_C_FSWSP,	match_opcode },
 	{ NULL, NULL, 0, 0, NULL },
-};
-
-struct riscv_op {
-	char *name;
-	char *type;
-	char *fmt;
-	int opcode;
-	int funct3;
-	int funct7; /* Or imm, depending on type. */
-};
-
-/*
- * Keep sorted by opcode, funct3, funct7 so some instructions
- * aliases will be supported (e.g. "mv" instruction alias)
- * Use same print format as binutils do.
- */
-static struct riscv_op riscv_copcodes[] = {
-	{ "c.srli",	"CI",	"Cs,Cw,C>",	1,   4, -1 },
-	{ "c.mv",	"CI",	"d,CV",		2,   4, -1 },
-	{ NULL, NULL, NULL, 0, 0, 0 }
-};
-
-static struct riscv_op riscv_opcodes[] = {
-	{ "lb",		"I",	"d,o(s)",	3,   0, -1 },
-	{ "lh",		"I",	"d,o(s)",	3,   1, -1 },
-	{ "lw",		"I",	"d,o(s)",	3,   2, -1 },
-	{ "ld",		"I",	"d,o(s)",	3,   3, -1 },
-	{ "lbu",	"I",	"d,o(s)",	3,   4, -1 },
-	{ "lhu",	"I",	"d,o(s)",	3,   5, -1 },
-	{ "lwu",	"I",	"d,o(s)",	3,   6, -1 },
-	{ "ldu",	"I",	"d,o(s)",	3,   7, -1 },
-	{ "fence",	"I",	"",		15,  0, -1 },
-	{ "fence.i",	"I",	"",		15,  1, -1 },
-	{ "mv",		"I",	"d,s",		19,  0,  0 },
-	{ "addi",	"I",	"d,s,j",	19,  0, -1 },
-	{ "slli",	"R2",	"d,s,>",	19,  1,  0 },
-	{ "slti",	"I",	"d,s,j",	19,  2, -1 },
-	{ "sltiu",	"I",	"d,s,j",	19,  3, -1 },
-	{ "xori",	"I",	"d,s,j",	19,  4, -1 },
-	{ "srli",	"R2",	"d,s,>",	19,  5,  0 },
-	{ "srai",	"R2",	"d,s,>",	19,  5, 0b010000 },
-	{ "ori",	"I",	"d,s,j",	19,  6, -1 },
-	{ "andi",	"I",	"d,s,j",	19,  7, -1 },
-	{ "auipc",	"U",	"d,u",		23, -1, -1 },
-	{ "sext.w",	"I",	"d,s",		27,  0,  0 },
-	{ "addiw",	"I",	"d,s,j",	27,  0, -1 },
-	{ "slliw",	"R",	"d,s,<",	27,  1,  0 },
-	{ "srliw",	"R",	"d,s,<",	27,  5,  0 },
-	{ "sraiw",	"R",	"d,s,<",	27,  5, 0b0100000 },
-	{ "sb",		"S",	"t,q(s)",	35,  0, -1 },
-	{ "sh",		"S",	"t,q(s)",	35,  1, -1 },
-	{ "sw",		"S",	"t,q(s)",	35,  2, -1 },
-	{ "sd",		"S",	"t,q(s)",	35,  3, -1 },
-	{ "sbu",	"S",	"t,q(s)",	35,  4, -1 },
-	{ "shu",	"S",	"t,q(s)",	35,  5, -1 },
-	{ "swu",	"S",	"t,q(s)",	35,  6, -1 },
-	{ "sdu",	"S",	"t,q(s)",	35,  7, -1 },
-	{ "lr.w",	"R",	"d,t,0(s)",	47,  2, 0b0001000 },
-	{ "sc.w",	"R",	"d,t,0(s)",	47,  2, 0b0001100 },
-	{ "amoswap.w",	"R",	"d,t,0(s)",	47,  2, 0b0000100 },
-	{ "amoadd.w",	"R",	"d,t,0(s)",	47,  2, 0b0000000 },
-	{ "amoxor.w",	"R",	"d,t,0(s)",	47,  2, 0b0010000 },
-	{ "amoand.w",	"R",	"d,t,0(s)",	47,  2, 0b0110000 },
-	{ "amoor.w",	"R",	"d,t,0(s)",	47,  2, 0b0100000 },
-	{ "amomin.w",	"R",	"d,t,0(s)",	47,  2, 0b1000000 },
-	{ "amomax.w",	"R",	"d,t,0(s)",	47,  2, 0b1010000 },
-	{ "amominu.w",	"R",	"d,t,0(s)",	47,  2, 0b1100000 },
-	{ "amomaxu.w",	"R",	"d,t,0(s)",	47,  2, 0b1110000 },
-	{ "lr.w.aq",	"R",	"d,t,0(s)",	47,  2, 0b0001000 },
-	{ "sc.w.aq",	"R",	"d,t,0(s)",	47,  2, 0b0001100 },
-	{ "amoswap.w.aq","R",	"d,t,0(s)",	47,  2, 0b0000110 },
-	{ "amoadd.w.aq","R",	"d,t,0(s)",	47,  2, 0b0000010 },
-	{ "amoxor.w.aq","R",	"d,t,0(s)",	47,  2, 0b0010010 },
-	{ "amoand.w.aq","R",	"d,t,0(s)",	47,  2, 0b0110010 },
-	{ "amoor.w.aq",	"R",	"d,t,0(s)",	47,  2, 0b0100010 },
-	{ "amomin.w.aq","R",	"d,t,0(s)",	47,  2, 0b1000010 },
-	{ "amomax.w.aq","R",	"d,t,0(s)",	47,  2, 0b1010010 },
-	{ "amominu.w.aq","R",	"d,t,0(s)",	47,  2, 0b1100010 },
-	{ "amomaxu.w.aq","R",	"d,t,0(s)",	47,  2, 0b1110010 },
-	{ "amoswap.w.rl","R",	"d,t,0(s)",	47,  2, 0b0000110 },
-	{ "amoadd.w.rl","R",	"d,t,0(s)",	47,  2, 0b0000001 },
-	{ "amoxor.w.rl","R",	"d,t,0(s)",	47,  2, 0b0010001 },
-	{ "amoand.w.rl","R",	"d,t,0(s)",	47,  2, 0b0110001 },
-	{ "amoor.w.rl",	"R",	"d,t,0(s)",	47,  2, 0b0100001 },
-	{ "amomin.w.rl","R",	"d,t,0(s)",	47,  2, 0b1000001 },
-	{ "amomax.w.rl","R",	"d,t,0(s)",	47,  2, 0b1010001 },
-	{ "amominu.w.rl","R",	"d,t,0(s)",	47,  2, 0b1100001 },
-	{ "amomaxu.w.rl","R",	"d,t,0(s)",	47,  2, 0b1110001 },
-	{ "amoswap.d",	"R",	"d,t,0(s)",	47,  3, 0b0000100 },
-	{ "amoadd.d",	"R",	"d,t,0(s)",	47,  3, 0b0000000 },
-	{ "amoxor.d",	"R",	"d,t,0(s)",	47,  3, 0b0010000 },
-	{ "amoand.d",	"R",	"d,t,0(s)",	47,  3, 0b0110000 },
-	{ "amoor.d",	"R",	"d,t,0(s)",	47,  3, 0b0100000 },
-	{ "amomin.d",	"R",	"d,t,0(s)",	47,  3, 0b1000000 },
-	{ "amomax.d",	"R",	"d,t,0(s)",	47,  3, 0b1010000 },
-	{ "amominu.d",	"R",	"d,t,0(s)",	47,  3, 0b1100000 },
-	{ "amomaxu.d",	"R",	"d,t,0(s)",	47,  3, 0b1110000 },
-	{ "lr.d.aq",	"R",	"d,t,0(s)",	47,  3, 0b0001000 },
-	{ "sc.d.aq",	"R",	"d,t,0(s)",	47,  3, 0b0001100 },
-	{ "amoswap.d.aq","R",	"d,t,0(s)",	47,  3, 0b0000110 },
-	{ "amoadd.d.aq","R",	"d,t,0(s)",	47,  3, 0b0000010 },
-	{ "amoxor.d.aq","R",	"d,t,0(s)",	47,  3, 0b0010010 },
-	{ "amoand.d.aq","R",	"d,t,0(s)",	47,  3, 0b0110010 },
-	{ "amoor.d.aq",	"R",	"d,t,0(s)",	47,  3, 0b0100010 },
-	{ "amomin.d.aq","R",	"d,t,0(s)",	47,  3, 0b1000010 },
-	{ "amomax.d.aq","R",	"d,t,0(s)",	47,  3, 0b1010010 },
-	{ "amominu.d.aq","R",	"d,t,0(s)",	47,  3, 0b1100010 },
-	{ "amomaxu.d.aq","R",	"d,t,0(s)",	47,  3, 0b1110010 },
-	{ "amoswap.d.rl","R",	"d,t,0(s)",	47,  3, 0b0000110 },
-	{ "amoadd.d.rl","R",	"d,t,0(s)",	47,  3, 0b0000001 },
-	{ "amoxor.d.rl","R",	"d,t,0(s)",	47,  3, 0b0010001 },
-	{ "amoand.d.rl","R",	"d,t,0(s)",	47,  3, 0b0110001 },
-	{ "amoor.d.rl",	"R",	"d,t,0(s)",	47,  3, 0b0100001 },
-	{ "amomin.d.rl","R",	"d,t,0(s)",	47,  3, 0b1000001 },
-	{ "amomax.d.rl","R",	"d,t,0(s)",	47,  3, 0b1010001 },
-	{ "amominu.d.rl","R",	"d,t,0(s)",	47,  3, 0b1100001 },
-	{ "amomaxu.d.rl","R",	"d,t,0(s)",	47,  3, 0b1110001 },
-	{ "add",	"R",	"d,s,t",	51,  0,  0 },
-	{ "sub",	"R",	"d,s,t",	51,  0,  0b0100000 },
-	{ "mul",	"R",	"d,s,t",	51,  0,  0b0000001 },
-	{ "sll",	"R",	"d,s,t",	51,  1,  0 },
-	{ "slt",	"R",	"d,s,t",	51,  2,  0 },
-	{ "sltu",	"R",	"d,s,t",	51,  3,  0 },
-	{ "xor",	"R",	"d,s,t",	51,  4,  0 },
-	{ "srl",	"R",	"d,s,t",	51,  5,  0 },
-	{ "sra",	"R",	"d,s,t",	51,  5,  0b0100000 },
-	{ "or",		"R",	"d,s,t",	51,  6,  0 },
-	{ "and",	"R",	"d,s,t",	51,  7,  0 },
-	{ "lui",	"U",	"d,u",		55, -1, -1 },
-	{ "addw",	"R",	"d,s,t",	59,  0,  0 },
-	{ "subw",	"R",	"d,s,t",	59,  0,  0b0100000 },
-	{ "mulw",	"R",	"d,s,t",	59,  0,  1 },
-	{ "sllw",	"R",	"d,s,t",	59,  1,  0 },
-	{ "srlw",	"R",	"d,s,t",	59,  5,  0 },
-	{ "sraw",	"R",	"d,s,t",	59,  5,  0b0100000 },
-	{ "beq",	"SB",	"s,t,p",	99,  0,  -1 },
-	{ "bne",	"SB",	"s,t,p",	99,  1,  -1 },
-	{ "blt",	"SB",	"s,t,p",	99,  4,  -1 },
-	{ "bge",	"SB",	"s,t,p",	99,  5,  -1 },
-	{ "bltu",	"SB",	"s,t,p",	99,  6,  -1 },
-	{ "bgeu",	"SB",	"s,t,p",	99,  7,  -1 },
-	{ "jalr",	"I",	"d,s,j",	103,  0, -1 },
-	{ "jal",	"UJ",	"a",		111, -1, -1 },
-	{ "eret",	"I",	"",		115,  0, 0b000100000000 },
-	{ "sfence.vm",	"I",	"",		115,  0, 0b000100000001 },
-	{ "wfi",	"I",	"",		115,  0, 0b000100000010 },
-	{ "csrrw",	"I",	"d,E,s",	115,  1, -1},
-	{ "csrrs",	"I",	"d,E,s",	115,  2, -1},
-	{ "csrrc",	"I",	"d,E,s",	115,  3, -1},
-	{ "csrrwi",	"I",	"d,E,Z",	115,  5, -1},
-	{ "csrrsi",	"I",	"d,E,Z",	115,  6, -1},
-	{ "csrrci",	"I",	"d,E,Z",	115,  7, -1},
-	{ NULL, NULL, NULL, 0, 0, 0 }
-};
-
-struct csr_op {
-	char *name;
-	int imm;
 };
 
 static struct csr_op csr_name[] = {
@@ -547,226 +409,8 @@ static char *reg_name[32] = {
 	"s8",	"s9",	"s10",	"s11",	"t3",	"t4",	"t5",	"t6"
 };
 
-static int32_t
-get_cimm(CInstFmt i, char *type, uint32_t *val)
-{
-	int imm;
-
-	imm = 0;
-
-	if (strcmp(type, "CI") == 0) {
-		imm = i.CIType.imm0_4;
-		imm |= (i.CIType.imm5 << 5);
-		*val = imm;
-		//if (imm & (1 << 5))
-		//	imm |= (0xfffff << 6);	/* sign extend */
-	}
-
-	return (imm);
-}
-
-static int32_t
-get_imm(InstFmt i, char *type, uint32_t *val)
-{
-	int imm;
-
-	imm = 0;
-
-	if (strcmp(type, "I") == 0) {
-		imm = i.IType.imm;
-		*val = imm;
-		if (imm & (1 << 11))
-			imm |= (0xfffff << 12);	/* sign extend */
-
-	} else if (strcmp(type, "S") == 0) {
-		imm = i.SType.imm0_4;
-		imm |= (i.SType.imm5_11 << 5);
-		*val = imm;
-		if (imm & (1 << 11))
-			imm |= (0xfffff << 12);	/* sign extend */
-
-	} else if (strcmp(type, "U") == 0) {
-		imm = i.UType.imm12_31;
-		*val = imm;
-
-	} else if (strcmp(type, "UJ") == 0) {
-		imm = i.UJType.imm12_19 << 12;
-		imm |= i.UJType.imm11 << 11;
-		imm |= i.UJType.imm1_10 << 1;
-		imm |= i.UJType.imm20 << 20;
-		*val = imm;
-		if (imm & (1 << 20))
-			imm |= (0xfff << 21);	/* sign extend */
-
-	} else if (strcmp(type, "SB") == 0) {
-		imm = i.SBType.imm11 << 11;
-		imm |= i.SBType.imm1_4 << 1;
-		imm |= i.SBType.imm5_10 << 5;
-		imm |= i.SBType.imm12 << 12;
-		*val = imm;
-		if (imm & (1 << 12))
-			imm |= (0xfffff << 12);	/* sign extend */
-	}
-
-	return (imm);
-}
-
 static int
-oprint(struct riscv_op *op, vm_offset_t loc, int rd,
-    int rs1, int rs2, uint32_t val, vm_offset_t imm)
-{
-	char *p;
-	int i;
-
-	p = op->fmt;
-
-	db_printf("%s\t", op->name);
-
-	while (*p) {
-		if (strncmp("CV", p, 2) == 0)
-			db_printf("%s", reg_name[imm]);
-
-		else if (strncmp("d", p, 1) == 0)
-			db_printf("%s", reg_name[rd]);
-
-		else if (strncmp("s", p, 1) == 0)
-			db_printf("%s", reg_name[rs1]);
-
-		else if (strncmp("t", p, 1) == 0)
-			db_printf("%s", reg_name[rs2]);
-
-		else if (strncmp(">", p, 1) == 0)
-			db_printf("0x%x", rs2);
-
-		else if (strncmp("E", p, 1) == 0) {
-			for (i = 0; csr_name[i].name != NULL; i++)
-				if (csr_name[i].imm == val)
-					db_printf("%s",
-					    csr_name[i].name);
-		} else if (strncmp("Z", p, 1) == 0)
-			db_printf("%d", rs1);
-
-		else if (strncmp("<", p, 1) == 0)
-			db_printf("0x%x", rs2);
-
-		else if (strncmp("j", p, 1) == 0)
-			db_printf("%d", imm);
-
-		else if (strncmp("u", p, 1) == 0)
-			db_printf("0x%x", imm);
-
-		else if (strncmp("a", p, 1) == 0)
-			db_printf("0x%016lx", imm);
-
-		else if (strncmp("p", p, 1) == 0)
-			db_printf("0x%016lx", (loc + imm));
-
-		else if (strlen(p) >= 4) {
-			if (strncmp("o(s)", p, 4) == 0)
-				db_printf("%d(%s)", imm, reg_name[rs1]);
-			else if (strncmp("q(s)", p, 4) == 0)
-				db_printf("%d(%s)", imm, reg_name[rs1]);
-			else if (strncmp("0(s)", p, 4) == 0)
-				db_printf("(%s)", reg_name[rs1]);
-		}
-
-		while (*p && strncmp(p, ",", 1) != 0)
-			p++;
-
-		if (*p) {
-			db_printf(", ");
-			p++;
-		}
-	}
-
-
-	return (0);
-}
-
-static int
-match_ctype(CInstFmt i, struct riscv_op *op, vm_offset_t loc)
-{
-	uint32_t val;
-	//int found;
-	int imm;
-
-	printf("%s: %lx\n", __func__, loc);
-	val = 0;
-	imm = get_cimm(i, op->type, &val);
-	if ((strcmp(op->type, "CI") == 0) && \
-	    (op->funct3 == i.CIType.funct3)) {
-		oprint(op, loc, i.CIType.rs1, 0, 0, val, imm);
-		return (1);
-	}
-
-	return (0);
-}
-
-static int
-match_type(InstFmt i, struct riscv_op *op, vm_offset_t loc)
-{
-	uint32_t val;
-	int found;
-	int imm;
-
-	val = 0;
-	imm = get_imm(i, op->type, &val);
-
-	if (strcmp(op->type, "U") == 0) {
-		oprint(op, loc, i.UType.rd, 0, 0, val, imm);
-		return (1);
-	}
-	if (strcmp(op->type, "UJ") == 0) {
-		oprint(op, loc, 0, 0, 0, val, (loc + imm));
-		return (1);
-	}
-	if ((strcmp(op->type, "I") == 0) && \
-	    (op->funct3 == i.IType.funct3)) {
-		found = 0;
-		if (op->funct7 != -1) {
-			if (op->funct7 == i.IType.imm)
-				found = 1;
-		} else
-			found = 1;
-
-		if (found) {
-			oprint(op, loc, i.IType.rd,
-			    i.IType.rs1, 0, val, imm);
-			return (1);
-		}
-	}
-	if ((strcmp(op->type, "S") == 0) && \
-	    (op->funct3 == i.SType.funct3)) {
-		oprint(op, loc, 0, i.SType.rs1, i.SType.rs2,
-		    val, imm);
-		return (1);
-	}
-	if ((strcmp(op->type, "SB") == 0) && \
-	    (op->funct3 == i.SBType.funct3)) {
-		oprint(op, loc, 0, i.SBType.rs1, i.SBType.rs2,
-		    val, imm);
-		return (1);
-	}
-	if ((strcmp(op->type, "R2") == 0) && \
-	    (op->funct3 == i.R2Type.funct3) && \
-	    (op->funct7 == i.R2Type.funct7)) {
-		oprint(op, loc, i.R2Type.rd, i.R2Type.rs1,
-		    i.R2Type.rs2, val, imm);
-		return (1);
-	}
-	if ((strcmp(op->type, "R") == 0) && \
-	    (op->funct3 == i.RType.funct3) && \
-	    (op->funct7 == i.RType.funct7)) {
-		oprint(op, loc, i.RType.rd, i.RType.rs1,
-		    i.RType.rs2, val, imm);
-		return (1);
-	}
-
-	return (0);
-}
-
-static int
-oprint1(struct riscv1_op *op, vm_offset_t loc, int insn)
+oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 {
 	uint32_t rd, rs1, rs2;
 	uint32_t val;
@@ -975,72 +619,33 @@ oprint1(struct riscv1_op *op, vm_offset_t loc, int insn)
 		}
 	}
 
-	//db_printf("%s: %s\n", op->name, op->fmt);
-
 	return (0);
 }
 
 vm_offset_t
 db_disasm(vm_offset_t loc, bool altfmt)
 {
-	struct riscv1_op *op1;
 	struct riscv_op *op;
-	CInstFmt ci;
-	InstFmt i;
+	uint32_t insn;
 	int j;
 
-	uint32_t insn;
-
 	insn = db_get_value(loc, 4, 0);
-
-	for (j = 0; riscv1_opcodes[j].name != NULL; j++) {
-		op1 = &riscv1_opcodes[j];
-		if (op1->match_func(op1, insn)) {
-			oprint1(op1, loc, insn);
+	for (j = 0; riscv_opcodes[j].name != NULL; j++) {
+		op = &riscv_opcodes[j];
+		if (op->match_func(op, insn)) {
+			oprint(op, loc, insn);
 			return(loc + 4);
 		}
 	};
 
 	insn = db_get_value(loc, 2, 0);
-
 	for (j = 0; riscv1_copcodes[j].name != NULL; j++) {
-		op1 = &riscv1_copcodes[j];
-		if (op1->match_func(op1, insn)) {
-			oprint1(op1, loc, insn);
+		op = &riscv1_copcodes[j];
+		if (op->match_func(op, insn)) {
+			oprint(op, loc, insn);
 			return(loc + 2);
 		}
 	};
 
 	return(loc);
-	//return(loc + INSN_SIZE);
-
-	/* Try compressed first */
-	ci.half = db_get_value(loc, 2, 0);
-
-	//printf("ci.half %x\n", ci.half);
-
-	/* First match opcode */
-	for (j = 0; riscv_copcodes[j].name != NULL; j++) {
-		op = &riscv_copcodes[j];
-		if (op->opcode == ci.CRType.opcode) {
-			if (match_ctype(ci, op, loc)) {
-				db_printf("\n");
-				return(loc + 2);
-			}
-		}
-	}
-
-	i.word = db_get_value(loc, INSN_SIZE, 0);
-
-	/* First match opcode */
-	for (j = 0; riscv_opcodes[j].name != NULL; j++) {
-		op = &riscv_opcodes[j];
-		if (op->opcode == i.RType.opcode) {
-			if (match_type(i, op, loc))
-				break;
-		}
-	}
-
-	db_printf("\n");
-	return(loc + INSN_SIZE);
 }
