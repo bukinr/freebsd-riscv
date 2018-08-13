@@ -31,7 +31,6 @@ BIN1=	crontab \
 	motd \
 	netconfig \
 	networks \
-	newsyslog.conf \
 	nsswitch.conf \
 	phones \
 	profile \
@@ -64,10 +63,6 @@ BIN1+= amd.map
 BIN1+= ftpusers
 .endif
 
-.if ${MK_INETD} != "no"
-BIN1+= inetd.conf
-.endif
-
 .if ${MK_LOCATE} != "no"
 BIN1+=	${SRCTOP}/usr.bin/locate/locate/locate.rc
 .endif
@@ -78,10 +73,6 @@ BIN1+=	hosts.lpd printcap
 
 .if ${MK_MAIL} != "no"
 BIN1+=	${SRCTOP}/usr.bin/mail/misc/mail.rc
-.endif
-
-.if ${MK_NTP} != "no"
-BIN1+=	ntp.conf
 .endif
 
 .if ${MK_OPENSSH} != "no"
@@ -174,10 +165,6 @@ distribution:
 	${_+_}cd ${.CURDIR}/devd; ${MAKE} install
 	${_+_}cd ${.CURDIR}/gss; ${MAKE} install
 	${_+_}cd ${.CURDIR}/mtree; ${MAKE} install
-	${_+_}cd ${.CURDIR}/newsyslog.conf.d; ${MAKE} install
-.if ${MK_NTP} != "no"
-	${_+_}cd ${.CURDIR}/ntp; ${MAKE} install
-.endif
 	${_+_}cd ${SRCTOP}/share/termcap; ${MAKE} etc-termcap
 	${_+_}cd ${.CURDIR}/syslog.d; ${MAKE} install
 	${_+_}cd ${SRCTOP}/usr.sbin/rmt; ${MAKE} etc-rmt
