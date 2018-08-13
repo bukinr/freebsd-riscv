@@ -41,9 +41,7 @@ __FBSDID("$FreeBSD$");
 #include <ddb/db_access.h>
 #include <ddb/db_sym.h>
 
-#include <machine/riscvreg.h>
-#include <machine/riscv_opcode.h>
-#include <machine/riscv_encoding.h>
+#include <machine/encoding.h>
 
 #define	X_RA	1
 #define	X_SP	2
@@ -281,8 +279,8 @@ static struct riscv_op riscv_opcodes[] = {
 	{ NULL, NULL, 0, 0, NULL },
 };
 
-static struct riscv_op riscv1_copcodes[] = {
-	/* Aliases */
+static struct riscv_op riscv_c_opcodes[] = {
+	/* Aliases first */
 	{ "ret","",MATCH_C_JR | (X_RA << OP_SH_RD), MASK_C_JR | MASK_RD, m_op},
 
 	/* C-Compressed ISA Extension Instructions */
@@ -639,13 +637,13 @@ db_disasm(vm_offset_t loc, bool altfmt)
 	};
 
 	insn = db_get_value(loc, 2, 0);
-	for (j = 0; riscv1_copcodes[j].name != NULL; j++) {
-		op = &riscv1_copcodes[j];
+	for (j = 0; riscv_c_opcodes[j].name != NULL; j++) {
+		op = &riscv_c_opcodes[j];
 		if (op->match_func(op, insn)) {
 			oprint(op, loc, insn);
-			return(loc + 2);
+			break;
 		}
 	};
 
-	return(loc);
+	return(loc + 2);
 }
