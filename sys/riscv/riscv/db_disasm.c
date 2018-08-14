@@ -55,17 +55,26 @@ __FBSDID("$FreeBSD$");
 #define	RD_SHIFT	7
 #define	RD_MASK		(0x1f << RD_SHIFT)
 
+static char *reg_name[32] = {
+	"zero",	"ra",	"sp",	"gp",	"tp",	"t0",	"t1",	"t2",
+	"s0",	"s1",	"a0",	"a1",	"a2",	"a3",	"a4",	"a5",
+	"a6",	"a7",	"s2",	"s3",	"s4",	"s5",	"s6",	"s7",
+	"s8",	"s9",	"s10",	"s11",	"t3",	"t4",	"t5",	"t6"
+};
+
+static char *fp_reg_name[32] = {
+	"ft0", "ft1", "ft2",  "ft3",  "ft4", "ft5", "ft6",  "ft7",
+	"fs0", "fs1", "fa0",  "fa1",  "fa2", "fa3", "fa4",  "fa5",
+	"fa6", "fa7", "fs2",  "fs3",  "fs4", "fs5", "fs6",  "fs7",
+	"fs8", "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11"
+};
+
 struct riscv_op {
 	char *name;
 	char *fmt;
 	int match;
 	int mask;
 	int (*match_func)(struct riscv_op *op, uint32_t insn);
-};
-
-struct csr_op {
-	char *name;
-	int imm;
 };
 
 static int
@@ -328,100 +337,14 @@ static struct riscv_op riscv_c_opcodes[] = {
 	{ NULL, NULL, 0, 0, NULL },
 };
 
-static struct csr_op csr_name[] = {
-	{ "fflags",		0x001 },
-	{ "frm",		0x002 },
-	{ "fcsr",		0x003 },
-	{ "cycle",		0xc00 },
-	{ "time",		0xc01 },
-	{ "instret",		0xc02 },
-	{ "stats",		0x0c0 },
-	{ "uarch0",		0xcc0 },
-	{ "uarch1",		0xcc1 },
-	{ "uarch2",		0xcc2 },
-	{ "uarch3",		0xcc3 },
-	{ "uarch4",		0xcc4 },
-	{ "uarch5",		0xcc5 },
-	{ "uarch6",		0xcc6 },
-	{ "uarch7",		0xcc7 },
-	{ "uarch8",		0xcc8 },
-	{ "uarch9",		0xcc9 },
-	{ "uarch10",		0xcca },
-	{ "uarch11",		0xccb },
-	{ "uarch12",		0xccc },
-	{ "uarch13",		0xccd },
-	{ "uarch14",		0xcce },
-	{ "uarch15",		0xccf },
-	{ "sstatus",		0x100 },
-	{ "stvec",		0x101 },
-	{ "sie",		0x104 },
-	{ "sscratch",		0x140 },
-	{ "sepc",		0x141 },
-	{ "sip",		0x144 },
-	{ "sptbr",		0x180 },
-	{ "sasid",		0x181 },
-	{ "cyclew",		0x900 },
-	{ "timew",		0x901 },
-	{ "instretw",		0x902 },
-	{ "stime",		0xd01 },
-	{ "scause",		0xd42 },
-	{ "sbadaddr",		0xd43 },
-	{ "stimew",		0xa01 },
-	{ "mstatus",		0x300 },
-	{ "mtvec",		0x301 },
-	{ "mtdeleg",		0x302 },
-	{ "mie",		0x304 },
-	{ "mtimecmp",		0x321 },
-	{ "mscratch",		0x340 },
-	{ "mepc",		0x341 },
-	{ "mcause",		0x342 },
-	{ "mbadaddr",		0x343 },
-	{ "mip",		0x344 },
-	{ "mtime",		0x701 },
-	{ "mcpuid",		0xf00 },
-	{ "mimpid",		0xf01 },
-	{ "mhartid",		0xf10 },
-	{ "mtohost",		0x780 },
-	{ "mfromhost",		0x781 },
-	{ "mreset",		0x782 },
-	{ "send_ipi",		0x783 },
-	{ "miobase",		0x784 },
-	{ "cycleh",		0xc80 },
-	{ "timeh",		0xc81 },
-	{ "instreth",		0xc82 },
-	{ "cyclehw",		0x980 },
-	{ "timehw",		0x981 },
-	{ "instrethw",		0x982 },
-	{ "stimeh",		0xd81 },
-	{ "stimehw",		0xa81 },
-	{ "mtimecmph",		0x361 },
-	{ "mtimeh",		0x741 },
-	{ NULL,	0 }
-};
-
-static char *reg_name[32] = {
-	"zero",	"ra",	"sp",	"gp",	"tp",	"t0",	"t1",	"t2",
-	"s0",	"s1",	"a0",	"a1",	"a2",	"a3",	"a4",	"a5",
-	"a6",	"a7",	"s2",	"s3",	"s4",	"s5",	"s6",	"s7",
-	"s8",	"s9",	"s10",	"s11",	"t3",	"t4",	"t5",	"t6"
-};
-
-static char *fp_reg_name[32] = {
-	"ft0", "ft1", "ft2",  "ft3",  "ft4", "ft5", "ft6",  "ft7",
-	"fs0", "fs1", "fa0",  "fa1",  "fa2", "fa3", "fa4",  "fa5",
-	"fa6", "fa7", "fs2",  "fs3",  "fs4", "fs5", "fs6",  "fs7",
-	"fs8", "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11"
-};
-
 static int
 oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 {
 	uint32_t rd, rs1, rs2, rs3;
 	uint32_t val;
-	int found;
+	const char *csr_name;
 	int imm;
 	char *p;
-	int i;
 
 	p = op->fmt;
 
@@ -522,15 +445,12 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 
 		} else if (strncmp("E", p, 1) == 0) {
 			val = (insn >> 20) & 0xfff;
-			found = 0;
-			for (i = 0; csr_name[i].name != NULL; i++)
-				if (csr_name[i].imm == val) {
-					db_printf("%s",
-					    csr_name[i].name);
-					found = 1;
-				}
-			if (found == 0)
-				db_printf("csr?");
+			switch (val) {
+#define DECLARE_CSR(name, num) case num: csr_name = #name; break;
+#include "machine/encoding.h"
+#undef DECLARE_CSR
+			}
+			db_printf("%s", csr_name);
 
 		} else if (strncmp("Ct", p, 2) == 0) {
 			rd = (insn >> 2) & 0x7;
@@ -605,8 +525,8 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 			db_printf("0x%lx", (loc + imm));
 
 		} else if (strncmp("CV", p, 2) == 0) {
-			rs1 = (insn >> 2) & 0x1f;
-			db_printf("%s", reg_name[rs1]);
+			rs2 = (insn >> 2) & 0x1f;
+			db_printf("%s", reg_name[rs2]);
 
 		} else if (strncmp("C>", p, 2) == 0) {
 			imm = ((insn >> 2) & 0x1f) << 0;
