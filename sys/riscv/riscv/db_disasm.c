@@ -52,9 +52,8 @@ __FBSDID("$FreeBSD$");
 #define	X_T2	7
 #define	X_T3	28
 
-#define	OP_MASK_RD	0x1f
-#define	OP_SH_RD	7
-#define	MASK_RD		(OP_MASK_RD << OP_SH_RD)
+#define	RD_SHIFT	7
+#define	RD_MASK		(0x1f << RD_SHIFT)
 
 struct riscv_op {
 	char *name;
@@ -281,7 +280,7 @@ static struct riscv_op riscv_opcodes[] = {
 
 static struct riscv_op riscv_c_opcodes[] = {
 	/* Aliases first */
-	{ "ret","",MATCH_C_JR | (X_RA << OP_SH_RD), MASK_C_JR | MASK_RD, m_op},
+	{ "ret","",MATCH_C_JR | (X_RA << RD_SHIFT), MASK_C_JR | RD_MASK, m_op},
 
 	/* C-Compressed ISA Extension Instructions */
 	{ "c.nop",	"", 		MATCH_C_NOP, MASK_C_NOP,	m_op },
