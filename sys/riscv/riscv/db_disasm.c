@@ -54,6 +54,10 @@ __FBSDID("$FreeBSD$");
 
 #define	RD_SHIFT	7
 #define	RD_MASK		(0x1f << RD_SHIFT)
+#define	RS1_SHIFT	15
+#define	RS1_MASK	(0x1f << RS1_SHIFT)
+#define	RS2_SHIFT	20
+#define	RS2_MASK	(0x1f << RS2_SHIFT)
 
 static char *reg_name[32] = {
 	"zero",	"ra",	"sp",	"gp",	"tp",	"t0",	"t1",	"t2",
@@ -348,6 +352,10 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 
 	p = op->fmt;
 
+	rd = (insn & RD_MASK) >> RD_SHIFT;
+	rs1 = (insn & RS1_MASK) >> RS1_SHIFT;
+	rs2 = (insn & RS2_MASK) >> RS2_SHIFT;
+
 	db_printf("%s\t", op->name);
 
 	while (*p) {
@@ -436,27 +444,21 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 			};
 			break;
 		case 'd':
-			rd = (insn >> 7) & 0x1f;
 			db_printf("%s", reg_name[rd]);
 			break;
 		case 'D':
-			rd = (insn >> 7) & 0x1f;
 			db_printf("%s", fp_reg_name[rd]);
 			break;
 		case 's':
-			rs1 = (insn >> 15) & 0x1f;
 			db_printf("%s", reg_name[rs1]);
 			break;
 		case 'S':
-			rs1 = (insn >> 15) & 0x1f;
 			db_printf("%s", fp_reg_name[rs1]);
 			break;
 		case 't':
-			rs2 = (insn >> 20) & 0x1f;
 			db_printf("%s", reg_name[rs2]);
 			break;
 		case 'T':
-			rs2 = (insn >> 20) & 0x1f;
 			db_printf("%s", fp_reg_name[rs2]);
 			break;
 		case 'R':
@@ -491,7 +493,7 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 			break;
 		case 'q':
 			imm = (insn >> 7) & 0x1f;
-			imm |= (insn >> 25) & 0x7f;
+			imm |= ((insn >> 25) & 0x7f) << 5;
 			if (imm & (1 << 11))
 				imm |= (0xfffff << 12);	/* sign extend */
 			db_printf("%d", imm);
@@ -533,12 +535,16 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 			break;
 		case 'E':
 			val = (insn >> 20) & 0xfff;
+			csr_name = NULL;
 			switch (val) {
 #define DECLARE_CSR(name, num) case num: csr_name = #name; break;
 #include "machine/encoding.h"
 #undef DECLARE_CSR
 			}
-			db_printf("%s", csr_name);
+			if (csr_name)
+				db_printf("%s", csr_name);
+			else
+				db_printf("0x%x", val);
 			break;
 		case 'P':
 			if (insn & (1 << 27)) db_printf("i");
