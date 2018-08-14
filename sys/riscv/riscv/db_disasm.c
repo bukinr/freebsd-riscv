@@ -351,39 +351,123 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 	db_printf("%s\t", op->name);
 
 	while (*p) {
-		if (strncmp("d", p, 1) == 0) {
+		switch (*p) {
+		case 'C':
+			switch (*++p) {
+			case 't':
+				rd = (insn >> 2) & 0x7;
+				rd += 0x8;
+				db_printf("%s", reg_name[rd]);
+				break;
+			case 's':
+				rs2 = (insn >> 7) & 0x7;
+				rs2 += 0x8;
+				db_printf("%s", reg_name[rs2]);
+				break;
+			case 'l':
+				imm = ((insn >> 10) & 0x7) << 3;
+				imm |= ((insn >> 5) & 0x3) << 6;
+				if (imm & (1 << 8))
+					imm |= 0xffffff << 8;
+				db_printf("%d", imm);
+				break;
+			case 'k':
+				imm = ((insn >> 10) & 0x7) << 3;
+				imm |= ((insn >> 6) & 0x1) << 2;
+				imm |= ((insn >> 5) & 0x1) << 6;
+				if (imm & (1 << 8))
+					imm |= 0xffffff << 8;
+				db_printf("%d", imm);
+				break;
+			case 'c':
+				db_printf("sp");
+				break;
+			case 'n':
+				imm = ((insn >> 5) & 0x3) << 3;
+				imm |= ((insn >> 12) & 0x1) << 5;
+				imm |= ((insn >> 2) & 0x7) << 6;
+				if (imm & (1 << 8))
+					imm |= 0xffffff << 8;
+				db_printf("%d", imm);
+				break;
+			case 'N':
+				imm = ((insn >> 10) & 0x7) << 3;
+				imm |= ((insn >> 7) & 0x7) << 6;
+				if (imm & (1 << 8))
+					imm |= 0xffffff << 8;
+				db_printf("%d", imm);
+				break;
+			case 'u':
+				imm = ((insn >> 2) & 0x1f) << 0;
+				imm |= ((insn >> 12) & 0x1) << 5;
+				if (imm & (1 << 5))
+					imm |= (0x7ffffff << 5); /* sign ext */
+				db_printf("0x%lx", imm);
+				break;
+			case 'o':
+				imm = ((insn >> 2) & 0x1f) << 0;
+				imm |= ((insn >> 12) & 0x1) << 5;
+				if (imm & (1 << 5))
+					imm |= (0x7ffffff << 5); /* sign ext */
+				db_printf("%d", imm);
+				break;
+			case 'a':
+				/* imm[11|4|9:8|10|6|7|3:1|5] << 2 */
+				imm = ((insn >> 3) & 0x7) << 1;
+				imm |= ((insn >> 11) & 0x1) << 4;
+				imm |= ((insn >> 2) & 0x1) << 5;
+				imm |= ((insn >> 7) & 0x1) << 6;
+				imm |= ((insn >> 6) & 0x1) << 7;
+				imm |= ((insn >> 9) & 0x3) << 8;
+				imm |= ((insn >> 8) & 0x1) << 10;
+				imm |= ((insn >> 12) & 0x1) << 11;
+				if (imm & (1 << 11))
+					imm |= (0xfffff << 12);	/* sign ext */
+				db_printf("0x%lx", (loc + imm));
+				break;
+			case 'V':
+				rs2 = (insn >> 2) & 0x1f;
+				db_printf("%s", reg_name[rs2]);
+				break;
+			case '>':
+				imm = ((insn >> 2) & 0x1f) << 0;
+				imm |= ((insn >> 12) & 0x1) << 5;
+				db_printf("%d", imm);
+			};
+			break;
+		case 'd':
 			rd = (insn >> 7) & 0x1f;
 			db_printf("%s", reg_name[rd]);
-
-		} else if (strncmp("D", p, 1) == 0) {
+			break;
+		case 'D':
 			rd = (insn >> 7) & 0x1f;
 			db_printf("%s", fp_reg_name[rd]);
-
-		} else if (strncmp("s", p, 1) == 0) {
+			break;
+		case 's':
 			rs1 = (insn >> 15) & 0x1f;
 			db_printf("%s", reg_name[rs1]);
-
-		} else if (strncmp("S", p, 1) == 0) {
+			break;
+		case 'S':
 			rs1 = (insn >> 15) & 0x1f;
 			db_printf("%s", fp_reg_name[rs1]);
-
-		} else if (strncmp("t", p, 1) == 0) {
+			break;
+		case 't':
 			rs2 = (insn >> 20) & 0x1f;
 			db_printf("%s", reg_name[rs2]);
-
-		} else if (strncmp("T", p, 1) == 0) {
+			break;
+		case 'T':
 			rs2 = (insn >> 20) & 0x1f;
 			db_printf("%s", fp_reg_name[rs2]);
-
-		} else if (strncmp("R", p, 1) == 0) {
+			break;
+		case 'R':
 			rs3 = (insn >> 27) & 0x1f;
 			db_printf("%s", fp_reg_name[rs3]);
-
-		} else if (strncmp("Z", p, 1) == 0) {
+			break;
+		case 'Z':
 			imm = (insn >> 15) & 0x1f;
 			db_printf("%d", imm);
-
-		} else if (strncmp("p", p, 1) == 0) {
+			break;
+		case 'p':
 			imm = ((insn >> 8) & 0xf) << 1;
 			imm |= ((insn >> 25) & 0x3f) << 5;
 			imm |= ((insn >> 7) & 0x1) << 11;
@@ -391,27 +475,31 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 			if (imm & (1 << 12))
 				imm |= (0xfffff << 12);	/* sign extend */
 			db_printf("0x%016lx", (loc + imm));
-
-		} else if (strncmp("o(s)", p, 4) == 0) {
-			rs1 = (insn >> 15) & 0x1f;
+			break;
+		case '(':
+		case ')':
+		case '[':
+		case ']':
+		case ',':
+			db_printf("%c", *p);
+			break;
+		case 'o':
 			imm = (insn >> 20) & 0xfff;
 			if (imm & (1 << 11))
 				imm |= (0xfffff << 12);	/* sign extend */
-			db_printf("%d(%s)", imm, reg_name[rs1]);
-
-		} else if (strncmp("q(s)", p, 4) == 0) {
-			rs1 = (insn >> 15) & 0x1f;
+			db_printf("%d", imm);
+			break;
+		case 'q':
 			imm = (insn >> 7) & 0x1f;
 			imm |= (insn >> 25) & 0x7f;
 			if (imm & (1 << 11))
 				imm |= (0xfffff << 12);	/* sign extend */
-			db_printf("%d(%s)", imm, reg_name[rs1]);
-
-		} else if (strncmp("0(s)", p, 4) == 0) {
-			rs1 = (insn >> 15) & 0x1f;
-			db_printf("(%s)", reg_name[rs1]);
-
-		} else if (strncmp("a", p, 1) == 0) {
+			db_printf("%d", imm);
+			break;
+		case '0':
+			db_printf("0");
+			break;
+		case 'a':
 			/* imm[20|10:1|11|19:12] << 12 */
 			imm = ((insn >> 21) & 0x3ff) << 1;
 			imm |= ((insn >> 20) & 0x1) << 11;
@@ -420,30 +508,30 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 			if (imm & (1 << 20))
 				imm |= (0xfff << 20);	/* sign extend */
 			db_printf("0x%lx", (loc + imm));
-
-		} else if (strncmp("u", p, 1) == 0) {
+			break;
+		case 'u':
 			/* imm[31:12] << 12 */
 			imm = (insn >> 12) & 0xfffff;
 			if (imm & (1 << 20))
 				imm |= (0xfff << 20);	/* sign extend */
 			db_printf("0x%lx", imm);
-
-		} else if (strncmp("j", p, 1) == 0) {
+			break;
+		case 'j':
 			/* imm[11:0] << 20 */
 			imm = (insn >> 20) & 0xfff;
 			if (imm & (1 << 11))
 				imm |= (0xfffff << 12); /* sign extend */
 			db_printf("%d", imm);
-
-		} else if (strncmp(">", p, 1) == 0) {
+			break;
+		case '>':
 			val = (insn >> 20) & 0x3f;
 			db_printf("0x%x", val);
-
-		} else if (strncmp("<", p, 1) == 0) {
+			break;
+		case '<':
 			val = (insn >> 20) & 0x1f;
 			db_printf("0x%x", val);
-
-		} else if (strncmp("E", p, 1) == 0) {
+			break;
+		case 'E':
 			val = (insn >> 20) & 0xfff;
 			switch (val) {
 #define DECLARE_CSR(name, num) case num: csr_name = #name; break;
@@ -451,116 +539,22 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 #undef DECLARE_CSR
 			}
 			db_printf("%s", csr_name);
-
-		} else if (strncmp("Ct", p, 2) == 0) {
-			rd = (insn >> 2) & 0x7;
-			rd |= 0x8;
-			db_printf("%s", reg_name[rd]);
-
-		} else if (strncmp("Cs", p, 2) == 0) {
-			rs1 = (insn >> 7) & 0x7;
-			rs1 |= 0x8;
-			db_printf("%s", reg_name[rs1]);
-
-		} else if (strncmp("Cl(Cs)", p, 6) == 0) {
-			rs1 = (insn >> 7) & 0x7;
-			rs1 |= 0x8;
-			imm = ((insn >> 10) & 0x7) << 3;
-			imm |= ((insn >> 5) & 0x3) << 6;
-			if (imm & (1 << 8))
-				imm |= 0xffffff << 8;
-			db_printf("%d(%s)", imm, reg_name[rs1]);
-
-		} else if (strncmp("Ck(Cs)", p, 6) == 0) {
-			rs1 = (insn >> 7) & 0x7;
-			rs1 |= 0x8;
-			imm = ((insn >> 10) & 0x7) << 3;
-			imm |= ((insn >> 6) & 0x1) << 2;
-			imm |= ((insn >> 5) & 0x1) << 6;
-			if (imm & (1 << 8))
-				imm |= 0xffffff << 8;
-			db_printf("%d(%s)", imm, reg_name[rs1]);
-
-		} else if (strncmp("Cn(Cc)", p, 6) == 0) {
-			imm = ((insn >> 5) & 0x3) << 3;
-			imm |= ((insn >> 12) & 0x1) << 5;
-			imm |= ((insn >> 2) & 0x7) << 6;
-			if (imm & (1 << 8))
-				imm |= 0xffffff << 8;
-			db_printf("%d(sp)", imm);
-
-		} else if (strncmp("CN(Cc)", p, 6) == 0) {
-			imm = ((insn >> 10) & 0x7) << 3;
-			imm |= ((insn >> 7) & 0x7) << 6;
-			if (imm & (1 << 8))
-				imm |= 0xffffff << 8;
-			db_printf("%d(sp)", imm);
-
-		} else if (strncmp("Cu", p, 2) == 0) {
-			imm = ((insn >> 2) & 0x1f) << 0;
-			imm |= ((insn >> 12) & 0x1) << 5;
-			if (imm & (1 << 5))
-				imm |= (0x7ffffff << 5); /* sign extend */
-			db_printf("0x%lx", imm);
-
-		} else if (strncmp("Co", p, 2) == 0) {
-			imm = ((insn >> 2) & 0x1f) << 0;
-			imm |= ((insn >> 12) & 0x1) << 5;
-			if (imm & (1 << 5))
-				imm |= (0x7ffffff << 5); /* sign extend */
-			db_printf("%d", imm);
-
-		} else if (strncmp("Ca", p, 2) == 0) {
-			/* imm[11|4|9:8|10|6|7|3:1|5] << 2 */
-			imm = ((insn >> 3) & 0x7) << 1;
-			imm |= ((insn >> 11) & 0x1) << 4;
-			imm |= ((insn >> 2) & 0x1) << 5;
-			imm |= ((insn >> 7) & 0x1) << 6;
-			imm |= ((insn >> 6) & 0x1) << 7;
-			imm |= ((insn >> 9) & 0x3) << 8;
-			imm |= ((insn >> 8) & 0x1) << 10;
-			imm |= ((insn >> 12) & 0x1) << 11;
-			if (imm & (1 << 11))
-				imm |= (0xfffff << 12);	/* sign extend */
-			db_printf("0x%lx", (loc + imm));
-
-		} else if (strncmp("CV", p, 2) == 0) {
-			rs2 = (insn >> 2) & 0x1f;
-			db_printf("%s", reg_name[rs2]);
-
-		} else if (strncmp("C>", p, 2) == 0) {
-			imm = ((insn >> 2) & 0x1f) << 0;
-			imm |= ((insn >> 12) & 0x1) << 5;
-			db_printf("%d", imm);
-
-		} else if (strncmp("P", p, 1) == 0) {
-			if (insn & (1 << 27))
-				db_printf("i");
-			if (insn & (1 << 26))
-				db_printf("o");
-			if (insn & (1 << 25))
-				db_printf("r");
-			if (insn & (1 << 24))
-				db_printf("w");
-
-		} else if (strncmp("Q", p, 1) == 0) {
-			if (insn & (1 << 23))
-				db_printf("i");
-			if (insn & (1 << 22))
-				db_printf("o");
-			if (insn & (1 << 21))
-				db_printf("r");
-			if (insn & (1 << 20))
-				db_printf("w");
+			break;
+		case 'P':
+			if (insn & (1 << 27)) db_printf("i");
+			if (insn & (1 << 26)) db_printf("o");
+			if (insn & (1 << 25)) db_printf("r");
+			if (insn & (1 << 24)) db_printf("w");
+			break;
+		case 'Q':
+			if (insn & (1 << 23)) db_printf("i");
+			if (insn & (1 << 22)) db_printf("o");
+			if (insn & (1 << 21)) db_printf("r");
+			if (insn & (1 << 20)) db_printf("w");
+			break;
 		}
 
-		while (*p && strncmp(p, ",", 1) != 0)
-			p++;
-
-		if (*p) {
-			db_printf(",");
-			p++;
-		}
+		p++;
 	}
 
 	return (0);
