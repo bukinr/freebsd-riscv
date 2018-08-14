@@ -483,6 +483,7 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 		case '[':
 		case ']':
 		case ',':
+		case '0':
 			db_printf("%c", *p);
 			break;
 		case 'o':
@@ -497,9 +498,6 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 			if (imm & (1 << 11))
 				imm |= (0xfffff << 12);	/* sign extend */
 			db_printf("%d", imm);
-			break;
-		case '0':
-			db_printf("0");
 			break;
 		case 'a':
 			/* imm[20|10:1|11|19:12] << 12 */
