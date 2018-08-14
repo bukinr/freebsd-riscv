@@ -360,7 +360,7 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 
 	while (*p) {
 		switch (*p) {
-		case 'C':
+		case 'C':	/* C-Compressed ISA extension */
 			switch (*++p) {
 			case 't':
 				rd = (insn >> 2) & 0x7;
