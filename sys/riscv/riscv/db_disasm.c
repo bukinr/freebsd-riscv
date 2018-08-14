@@ -58,6 +58,8 @@ __FBSDID("$FreeBSD$");
 #define	RS1_MASK	(0x1f << RS1_SHIFT)
 #define	RS2_SHIFT	20
 #define	RS2_MASK	(0x1f << RS2_SHIFT)
+#define	IMM_SHIFT	20
+#define	IMM_MASK	(0xfff << IMM_SHIFT)
 
 static char *reg_name[32] = {
 	"zero",	"ra",	"sp",	"gp",	"tp",	"t0",	"t1",	"t2",
@@ -92,6 +94,10 @@ m_op(struct riscv_op *op, uint32_t insn)
 }
 
 static struct riscv_op riscv_opcodes[] = {
+	/* Aliases first */
+	{"ret","", MATCH_JALR | (X_RA << RS1_SHIFT),
+	    MASK_JALR | RD_MASK | RS1_MASK | IMM_MASK, m_op },
+
 	{ "beq",	"s,t,p", 	MATCH_BEQ, MASK_BEQ,		m_op },
 	{ "bne",	"s,t,p", 	MATCH_BNE, MASK_BNE,		m_op },
 	{ "blt",	"s,t,p", 	MATCH_BLT, MASK_BLT,		m_op },
@@ -483,9 +489,13 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 		case '[':
 		case ']':
 		case ',':
-		case '0':
 			db_printf("%c", *p);
 			break;
+		case '0':
+			if (!p[1])
+				db_printf("%c", *p);
+			break;
+			
 		case 'o':
 			imm = (insn >> 20) & 0xfff;
 			if (imm & (1 << 11))
