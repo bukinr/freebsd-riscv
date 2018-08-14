@@ -46,67 +46,6 @@
 /*
  * Define the instruction formats.
  */
-
-typedef union {
-	unsigned short half;
-
-	struct {
-		unsigned short opcode: 2;
-		unsigned short rs2: 5;
-		unsigned short rs1: 5;
-		unsigned short funct4: 4;
-	} CRType;
-
-	struct {
-		unsigned short opcode: 2;
-		unsigned short imm0_4: 5;
-		unsigned short rs1: 5;
-		unsigned short imm5: 1;
-		unsigned short funct3: 3;
-	} CIType;
-
-	struct {
-		unsigned short opcode: 2;
-		unsigned short rs2: 5;
-		unsigned short imm: 6;
-		unsigned short funct3: 3;
-	} CSSType;
-
-	struct {
-		unsigned short opcode: 2;
-		unsigned short rd: 3;
-		unsigned short imm: 8;
-		unsigned short funct3: 3;
-	} CIWType;
-
-	struct {
-		unsigned short opcode: 2;
-		unsigned short rd: 3;
-		unsigned short imm0_1: 2;
-		unsigned short rs1: 3;
-		unsigned short imm2_4: 3;
-		unsigned short funct3: 3;
-	} CLType;
-
-	struct {
-		unsigned short opcode: 2;
-		unsigned short rs2: 3;
-		unsigned short imm0_1: 2;
-		unsigned short rs1: 3;
-		unsigned short imm2_4: 3;
-		unsigned short funct3: 3;
-	} CSType;
-
-	struct {
-		unsigned short opcode: 2;
-		unsigned short offset0_4: 5;
-		unsigned short rs1: 3;
-		unsigned short offset5_7: 3;
-		unsigned short funct3: 3;
-	} CBType;
-
-} CInstFmt;
-
 typedef union {
 	unsigned word;
 
@@ -171,5 +110,7 @@ typedef union {
 		unsigned imm20: 1;
 	} UJType;
 } InstFmt;
+
+#define	RISCV_OPCODE(r)		(r & 0x7f)
 
 #endif /* !_MACHINE_RISCV_OPCODE_H_ */
