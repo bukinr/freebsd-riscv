@@ -407,10 +407,17 @@ static char *reg_name[32] = {
 	"s8",	"s9",	"s10",	"s11",	"t3",	"t4",	"t5",	"t6"
 };
 
+static char *fp_reg_name[32] = {
+	"ft0", "ft1", "ft2",  "ft3",  "ft4", "ft5", "ft6",  "ft7",
+	"fs0", "fs1", "fa0",  "fa1",  "fa2", "fa3", "fa4",  "fa5",
+	"fa6", "fa7", "fs2",  "fs3",  "fs4", "fs5", "fs6",  "fs7",
+	"fs8", "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11"
+};
+
 static int
 oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 {
-	uint32_t rd, rs1, rs2;
+	uint32_t rd, rs1, rs2, rs3;
 	uint32_t val;
 	int found;
 	int imm;
@@ -426,13 +433,33 @@ oprint(struct riscv_op *op, vm_offset_t loc, int insn)
 			rd = (insn >> 7) & 0x1f;
 			db_printf("%s", reg_name[rd]);
 
+		} else if (strncmp("D", p, 1) == 0) {
+			rd = (insn >> 7) & 0x1f;
+			db_printf("%s", fp_reg_name[rd]);
+
 		} else if (strncmp("s", p, 1) == 0) {
 			rs1 = (insn >> 15) & 0x1f;
 			db_printf("%s", reg_name[rs1]);
 
+		} else if (strncmp("S", p, 1) == 0) {
+			rs1 = (insn >> 15) & 0x1f;
+			db_printf("%s", fp_reg_name[rs1]);
+
 		} else if (strncmp("t", p, 1) == 0) {
 			rs2 = (insn >> 20) & 0x1f;
 			db_printf("%s", reg_name[rs2]);
+
+		} else if (strncmp("T", p, 1) == 0) {
+			rs2 = (insn >> 20) & 0x1f;
+			db_printf("%s", fp_reg_name[rs2]);
+
+		} else if (strncmp("R", p, 1) == 0) {
+			rs3 = (insn >> 27) & 0x1f;
+			db_printf("%s", fp_reg_name[rs3]);
+
+		} else if (strncmp("Z", p, 1) == 0) {
+			imm = (insn >> 15) & 0x1f;
+			db_printf("%d", imm);
 
 		} else if (strncmp("p", p, 1) == 0) {
 			imm = ((insn >> 8) & 0xf) << 1;
