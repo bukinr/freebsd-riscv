@@ -33,7 +33,6 @@ BIN1=	crontab \
 	networks \
 	nsswitch.conf \
 	phones \
-	profile \
 	protocols \
 	rc.bsdextended \
 	rc.firewall \
@@ -75,21 +74,12 @@ BIN1+=	hosts.lpd printcap
 BIN1+=	${SRCTOP}/usr.bin/mail/misc/mail.rc
 .endif
 
-.if ${MK_OPENSSH} != "no"
-SSH=	${SRCTOP}/crypto/openssh/ssh_config \
-	${SRCTOP}/crypto/openssh/sshd_config \
-	${SRCTOP}/crypto/openssh/moduli
-.endif
 .if ${MK_OPENSSL} != "no"
 SSL=	${SRCTOP}/crypto/openssl/apps/openssl.cnf
 .endif
 
 .if ${MK_SENDMAIL} != "no"
 BIN1+=	rc.sendmail
-.endif
-
-.if ${MK_TCSH} != "no"
-BIN1+= csh.cshrc csh.login csh.logout
 .endif
 
 .if ${MK_WIRELESS} != "no"
@@ -145,10 +135,6 @@ distribution:
 		${DESTDIR}/etc/services;
 .endif
 
-.if ${MK_TCSH} == "no"
-	sed -i "" -e 's;/bin/csh;/bin/sh;' ${DESTDIR}/etc/master.passwd
-.endif
-	pwd_mkdb -i -p -d ${DESTDIR}/etc ${DESTDIR}/etc/master.passwd
 .if defined(NO_ROOT)
 	( \
 		echo "./etc/login.conf.db type=file mode=0644 uname=root gname=wheel"; \
@@ -177,10 +163,6 @@ distribution:
 .if ${MK_SENDMAIL} != "no"
 	${_+_}cd ${.CURDIR}/sendmail; ${MAKE} distribution
 .endif
-.if ${MK_OPENSSH} != "no"
-	cd ${.CURDIR}; ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
-	    ${SSH} ${DESTDIR}/etc/ssh
-.endif
 .if ${MK_OPENSSL} != "no"
 	cd ${.CURDIR}; ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
 	    ${SSL} ${DESTDIR}/etc/ssl
@@ -190,20 +172,7 @@ distribution:
 	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
 		dot.k5login ${DESTDIR}/root/.k5login;
 .endif
-	cd ${.CURDIR}/root; \
-	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
-		dot.profile ${DESTDIR}/root/.profile; \
-	    rm -f ${DESTDIR}/.profile; \
-	    ${INSTALL_LINK} ${DESTDIR}/root/.profile ${DESTDIR}/.profile
-.if ${MK_TCSH} != "no"
-	cd ${.CURDIR}/root; \
-	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
-		dot.cshrc ${DESTDIR}/root/.cshrc; \
-	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
-		dot.login ${DESTDIR}/root/.login; \
-	    rm -f ${DESTDIR}/.cshrc; \
-	    ${INSTALL_LINK} ${DESTDIR}/root/.cshrc ${DESTDIR}/.cshrc
-.endif
+
 .if ${MK_MAIL} != "no"
 	cd ${.CURDIR}/mail; ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
 	    ${ETCMAIL} ${DESTDIR}/etc/mail
