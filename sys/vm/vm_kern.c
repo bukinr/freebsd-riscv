@@ -220,15 +220,12 @@ retry:
 }
 
 vm_offset_t
-kmem_alloc_attr(vmem_t *vmem, vm_size_t size, int flags, vm_paddr_t low,
-    vm_paddr_t high, vm_memattr_t memattr)
+kmem_alloc_attr(vm_size_t size, int flags, vm_paddr_t low, vm_paddr_t high,
+    vm_memattr_t memattr)
 {
 	struct vm_domainset_iter di;
 	vm_offset_t addr;
 	int domain;
-
-	KASSERT(vmem == kernel_arena,
-	    ("kmem_alloc_attr: Only kernel_arena is supported."));
 
 	vm_domainset_iter_malloc_init(&di, kernel_object, &domain, &flags);
 	do {
@@ -307,16 +304,12 @@ retry:
 }
 
 vm_offset_t
-kmem_alloc_contig(struct vmem *vmem, vm_size_t size, int flags, vm_paddr_t low,
-    vm_paddr_t high, u_long alignment, vm_paddr_t boundary,
-    vm_memattr_t memattr)
+kmem_alloc_contig(vm_size_t size, int flags, vm_paddr_t low, vm_paddr_t high,
+    u_long alignment, vm_paddr_t boundary, vm_memattr_t memattr)
 {
 	struct vm_domainset_iter di;
 	vm_offset_t addr;
 	int domain;
-
-	KASSERT(vmem == kernel_arena,
-	    ("kmem_alloc_contig: Only kernel_arena is supported."));
 
 	vm_domainset_iter_malloc_init(&di, kernel_object, &domain, &flags);
 	do {
@@ -372,23 +365,18 @@ kmem_suballoc(vm_map_t parent, vm_offset_t *min, vm_offset_t *max,
  *	Allocate wired-down pages in the kernel's address space.
  */
 vm_offset_t
-kmem_malloc_domain(struct vmem *vmem, int domain, vm_size_t size, int flags)
+kmem_malloc_domain(int domain, vm_size_t size, int flags)
 {
 	vmem_t *arena;
 	vm_offset_t addr;
 	int rv;
 
 #if VM_NRESERVLEVEL > 0
-	KASSERT(vmem == kernel_arena || vmem == kernel_rwx_arena,
-	    ("kmem_malloc_domain: Only kernel_arena or kernel_rwx_arena "
-	    "are supported."));
-	if (__predict_true(vmem == kernel_arena))
+	if (__predict_true((flags & M_EXEC) == 0))
 		arena = vm_dom[domain].vmd_kernel_arena;
 	else
 		arena = vm_dom[domain].vmd_kernel_rwx_arena;
 #else
-	KASSERT(vmem == kernel_arena,
-	    ("kmem_malloc_domain: Only kernel_arena is supported."));
 	arena = vm_dom[domain].vmd_kernel_arena;
 #endif
 	size = round_page(size);
@@ -404,7 +392,7 @@ kmem_malloc_domain(struct vmem *vmem, int domain, vm_size_t size, int flags)
 }
 
 vm_offset_t
-kmem_malloc(struct vmem *vmem, vm_size_t size, int flags)
+kmem_malloc(vm_size_t size, int flags)
 {
 	struct vm_domainset_iter di;
 	vm_offset_t addr;
@@ -412,7 +400,7 @@ kmem_malloc(struct vmem *vmem, vm_size_t size, int flags)
 
 	vm_domainset_iter_malloc_init(&di, kernel_object, &domain, &flags);
 	do {
-		addr = kmem_malloc_domain(vmem, domain, size, flags);
+		addr = kmem_malloc_domain(domain, size, flags);
 		if (addr != 0)
 			break;
 	} while (vm_domainset_iter_malloc(&di, &domain, &flags) == 0);

@@ -13,7 +13,6 @@ SUBDIR+=sendmail
 .endif
 
 BIN1=	crontab \
-	devd.conf \
 	devfs.conf \
 	dhclient.conf \
 	disktab \
@@ -39,7 +38,6 @@ BIN1=	crontab \
 	remote \
 	rpc \
 	services \
-	syslog.conf \
 	termcap.small
 
 .if exists(${.CURDIR}/etc.${MACHINE}/ttys)
@@ -56,10 +54,6 @@ BIN1+=	etc.${MACHINE_CPUARCH}/ttys
 
 .if ${MK_AMD} != "no"
 BIN1+= amd.map
-.endif
-
-.if ${MK_FTP} != "no"
-BIN1+= ftpusers
 .endif
 
 .if ${MK_LOCATE} != "no"
@@ -148,15 +142,10 @@ distribution:
 		echo "./var/db/services.db type=file mode=0644 uname=root gname=wheel"; \
 	) | ${METALOG.add}
 .endif
-.if ${MK_BLUETOOTH} != "no"
-	${_+_}cd ${.CURDIR}/bluetooth; ${MAKE} install
-.endif
 	${_+_}cd ${.CURDIR}/defaults; ${MAKE} install
-	${_+_}cd ${.CURDIR}/devd; ${MAKE} install
 	${_+_}cd ${.CURDIR}/gss; ${MAKE} install
 	${_+_}cd ${.CURDIR}/mtree; ${MAKE} install
 	${_+_}cd ${SRCTOP}/share/termcap; ${MAKE} etc-termcap
-	${_+_}cd ${.CURDIR}/syslog.d; ${MAKE} install
 	${_+_}cd ${SRCTOP}/usr.sbin/rmt; ${MAKE} etc-rmt
 	${_+_}cd ${.CURDIR}/pam.d; ${MAKE} install
 .if ${MK_UNBOUND} != "no"

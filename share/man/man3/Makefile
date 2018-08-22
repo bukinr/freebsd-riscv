@@ -8,6 +8,7 @@ PACKAGE=runtime-manuals
 MAN=		assert.3 \
 		ATOMIC_VAR_INIT.3 \
 		bitstring.3 \
+		CMSG_DATA.3 \
 		end.3 \
 		fpgetround.3 \
 		intro.3 \
@@ -57,6 +58,10 @@ MLINKS+=	bitstring.3 bit_alloc.3 \
 		bitstring.3 bit_set.3 \
 		bitstring.3 bitstr_size.3 \
 		bitstring.3 bit_test.3
+MLINKS+=	CMSG_DATA.3 CMSG_FIRSTHDR.3 \
+		CMSG_DATA.3 CMSG_LEN.3 \
+		CMSG_DATA.3 CMSG_NEXTHDR.3 \
+		CMSG_DATA.3 CMSG_SPACE.3
 MLINKS+=	end.3 edata.3 \
 		end.3 etext.3
 MLINKS+=	fpgetround.3 fpgetmask.3 \
@@ -334,6 +339,7 @@ PTHREAD_MLINKS+=pthread_rwlock_rdlock.3 pthread_rwlock_tryrdlock.3
 PTHREAD_MLINKS+=pthread_rwlock_wrlock.3 pthread_rwlock_trywrlock.3
 PTHREAD_MLINKS+=pthread_schedparam.3 pthread_getschedparam.3 \
 		pthread_schedparam.3 pthread_setschedparam.3
+PTHREAD_MLINKS+=pthread_set_name_np.3 pthread_get_name_np.3
 PTHREAD_MLINKS+=pthread_spin_init.3 pthread_spin_destroy.3 \
 		pthread_spin_lock.3 pthread_spin_trylock.3 \
 		pthread_spin_lock.3 pthread_spin_unlock.3

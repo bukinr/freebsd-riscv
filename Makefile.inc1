@@ -968,29 +968,10 @@ _worldtmp: .PHONY
 .endif	# !defined(NO_CLEAN)
 	@mkdir -p ${WORLDTMP}
 	@touch ${WORLDTMP}/${.TARGET}
-
-.for _dir in \
-    lib lib/casper lib/geom usr legacy/bin legacy/usr
-	mkdir -p ${WORLDTMP}/${_dir}
-.endfor
-	${WORLDTMP_MTREE} -f ${.CURDIR}/etc/mtree/BSD.usr.dist \
-	    -p ${WORLDTMP}/legacy/usr >/dev/null
-	${WORLDTMP_MTREE} -f ${.CURDIR}/etc/mtree/BSD.include.dist \
-	    -p ${WORLDTMP}/legacy/usr/include >/dev/null
-	${WORLDTMP_MTREE} -f ${.CURDIR}/etc/mtree/BSD.usr.dist \
-	    -p ${WORLDTMP}/usr >/dev/null
-	${WORLDTMP_MTREE} -f ${.CURDIR}/etc/mtree/BSD.include.dist \
-	    -p ${WORLDTMP}/usr/include >/dev/null
-	ln -sf ${.CURDIR}/sys ${WORLDTMP}
-.if ${MK_DEBUG_FILES} != "no"
-	${WORLDTMP_MTREE} -f ${.CURDIR}/etc/mtree/BSD.debug.dist \
-	    -p ${WORLDTMP}/legacy/usr/lib >/dev/null
-	${WORLDTMP_MTREE} -f ${.CURDIR}/etc/mtree/BSD.debug.dist \
-	    -p ${WORLDTMP}/usr/lib >/dev/null
-.endif
-.for _mtree in ${LOCAL_MTREE}
-	${WORLDTMP_MTREE} -f ${.CURDIR}/${_mtree} -p ${WORLDTMP} > /dev/null
-.endfor
+# We can't use mtree to create the worldtmp directories since it may not be
+# available on the target system (this happens e.g. when building on non-FreeBSD)
+	cd ${.CURDIR}/tools/build; \
+	    ${MAKE} DIRPRFX=tools/build/ DESTDIR=${WORLDTMP}/legacy installdirs
 _legacy:
 	@echo
 	@echo "--------------------------------------------------------------"
@@ -1003,6 +984,19 @@ _bootstrap-tools:
 	@echo ">>> stage 1.2: bootstrap tools"
 	@echo "--------------------------------------------------------------"
 	${_+_}cd ${.CURDIR}; ${BMAKE} bootstrap-tools
+	mkdir -p ${WORLDTMP}/usr ${WORLDTMP}/lib/casper ${WORLDTMP}/lib/geom
+	${WORLDTMP_MTREE} -f ${.CURDIR}/etc/mtree/BSD.usr.dist \
+	    -p ${WORLDTMP}/usr >/dev/null
+	${WORLDTMP_MTREE} -f ${.CURDIR}/etc/mtree/BSD.include.dist \
+	    -p ${WORLDTMP}/usr/include >/dev/null
+	ln -sf ${.CURDIR}/sys ${WORLDTMP}
+.if ${MK_DEBUG_FILES} != "no"
+	${WORLDTMP_MTREE} -f ${.CURDIR}/etc/mtree/BSD.debug.dist \
+	    -p ${WORLDTMP}/usr/lib >/dev/null
+.endif
+.for _mtree in ${LOCAL_MTREE}
+	${WORLDTMP_MTREE} -f ${.CURDIR}/${_mtree} -p ${WORLDTMP} > /dev/null
+.endfor
 _cleanobj:
 .if !defined(NO_CLEAN)
 	@echo
@@ -1765,7 +1759,7 @@ create-packages: .PHONY create-packages-world create-packages-kernel
 create-world-packages:	_pkgbootstrap .PHONY
 	@rm -f ${WSTAGEDIR}/*.plist 2>/dev/null || :
 	@cd ${WSTAGEDIR} ; \
-		env -i LC_COLLATE=C sort ${WSTAGEDIR}/METALOG | \
+		env -i LC_COLLATE=C sort ${WSTAGEDIR}/${DISTDIR}/METALOG | \
 		awk -f ${SRCDIR}/release/scripts/mtree-to-plist.awk
 	@for plist in ${WSTAGEDIR}/*.plist; do \
 	  plist=$${plist##*/} ; \
@@ -2605,7 +2599,7 @@ cddl/lib/libzfs__L: cddl/lib/libzfs_core__L lib/msun__L lib/libutil__L
 cddl/lib/libzfs__L: lib/libthr__L lib/libmd__L lib/libz__L cddl/lib/libumem__L
 cddl/lib/libzfs__L: cddl/lib/libuutil__L cddl/lib/libavl__L lib/libgeom__L
 
-cddl/lib/libbe__L: cddl/lib/libzfs__L
+lib/libbe__L: cddl/lib/libzfs__L
 .endif
 _cddl_lib_libctf= cddl/lib/libctf
 _cddl_lib= cddl/lib
