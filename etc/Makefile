@@ -13,7 +13,6 @@ SUBDIR+=sendmail
 .endif
 
 BIN1=	crontab \
-	devfs.conf \
 	dhclient.conf \
 	disktab \
 	fbtab \
@@ -37,7 +36,6 @@ BIN1=	crontab \
 	rc.firewall \
 	remote \
 	rpc \
-	services \
 	termcap.small
 
 .if exists(${.CURDIR}/etc.${MACHINE}/ttys)
@@ -123,12 +121,6 @@ distribution:
 	    ${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 600 \
 		master.passwd nsmb.conf opieaccess ${DESTDIR}/etc;
 
-.if ${MK_SERVICESDB} != "no"
-	cd ${.CURDIR}; \
-	    services_mkdb ${CAP_MKDB_ENDIAN} -q -o ${DESTDIR}/var/db/services.db \
-		${DESTDIR}/etc/services;
-.endif
-
 .if ${MK_TCSH} == "no"
 	sed -i "" -e 's;/bin/csh;/bin/sh;' ${DESTDIR}/etc/master.passwd
 .endif
@@ -139,10 +131,8 @@ distribution:
 		echo "./etc/passwd type=file mode=0644 uname=root gname=wheel"; \
 		echo "./etc/pwd.db type=file mode=0644 uname=root gname=wheel"; \
 		echo "./etc/spwd.db type=file mode=0600 uname=root gname=wheel"; \
-		echo "./var/db/services.db type=file mode=0644 uname=root gname=wheel"; \
 	) | ${METALOG.add}
 .endif
-	${_+_}cd ${.CURDIR}/defaults; ${MAKE} install
 	${_+_}cd ${.CURDIR}/gss; ${MAKE} install
 	${_+_}cd ${.CURDIR}/mtree; ${MAKE} install
 	${_+_}cd ${SRCTOP}/share/termcap; ${MAKE} etc-termcap
@@ -281,15 +271,10 @@ distrib-dirs: ${MTREES:N/*} distrib-cleanup .PHONY
 	done
 .endif
 
-etc-examples-install: ${META_DEPS}
+etc-examples: ${META_DEPS}
 	cd ${.CURDIR}; ${INSTALL} ${TAG_ARGS} -o ${BINOWN} -g ${BINGRP} -m 444 \
 	    ${BIN1} ${BIN2} nsmb.conf opieaccess \
 	    ${DESTDIR}${SHAREDIR}/examples/etc
-
-etc-examples: etc-examples-install
-	${_+_}cd ${.CURDIR}/defaults; \
-	    ${MAKE} ${${MK_STAGING} == "yes":?all:install} \
-	    DESTDIR=${DESTDIR}${SHAREDIR}/examples
 
 .include <bsd.prog.mk>
 
