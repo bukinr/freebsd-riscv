@@ -1288,7 +1288,7 @@ OLD_FILES+=usr/bin/ztest
 OLD_FILES+=usr/lib/libbe.a
 OLD_FILES+=usr/lib/libbe_p.a
 OLD_FILES+=usr/lib/libbe.so
-OLD_LIBS+=usr/lib/libbe.so.1
+OLD_LIBS+=lib/libbe.so.1
 OLD_FILES+=usr/lib/libzfs.a
 OLD_LIBS+=usr/lib/libzfs.so
 OLD_FILES+=usr/lib/libzfs_core.a
@@ -9369,6 +9369,7 @@ OLD_FILES+=usr/libexec/hyperv/hv_set_ifconfig
 OLD_FILES+=usr/libexec/hyperv/hv_get_dns_info
 OLD_FILES+=usr/libexec/hyperv/hv_get_dhcp_info
 OLD_FILES+=usr/sbin/hv_kvp_daemon
+OLD_FILES+=usr/sbin/hv_vss_daemon
 OLD_FILES+=usr/share/man/man8/hv_kvp_daemon.8.gz
 .endif
 
