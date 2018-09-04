@@ -62,9 +62,6 @@ _start:
 	mv	s10, a0		/* s10 = hart id */
 	mv	s11, a1		/* s11 = dtbp */
 
-	li	t0, SSTATUS_SUM
-	csrs	sstatus, t0
-
 	/* Direct secondary cores to mpentry */
 	bnez	s10, mpentry
 

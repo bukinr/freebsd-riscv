@@ -105,7 +105,6 @@ cpu_fork(struct thread *td1, struct proc *p2, struct thread *td2, int flags)
 	tf->tf_a[0] = 0;
 	tf->tf_a[1] = 0;
 	tf->tf_sstatus |= (SSTATUS_SPIE); /* Enable interrupts. */
-	tf->tf_sstatus |= (SSTATUS_SUM); /* Supervisor can access userspace. */
 	tf->tf_sstatus &= ~(SSTATUS_SPP); /* User mode. */
 
 	td2->td_frame = tf;

@@ -63,4 +63,12 @@
 	ld	tmp, TD_PCB(tmp);		/* Load the pcb */	\
 	sd	handler, PCB_ONFAULT(tmp)	/* Set the handler */
 
+#define	ENTER_USER_ACCESS(tmp)						\
+	li	tmp, SSTATUS_SUM;					\
+	csrs	sstatus, tmp
+
+#define	EXIT_USER_ACCESS(tmp)						\
+	li	tmp, SSTATUS_SUM;					\
+	csrc	sstatus, tmp
+
 #endif /* _MACHINE_ASM_H_ */
