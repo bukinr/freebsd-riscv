@@ -505,7 +505,7 @@ pmap_bootstrap_dmap(vm_offset_t kern_l1, vm_paddr_t min_pa, vm_paddr_t max_pa)
 
 		/* superpages */
 		pn = (pa / PAGE_SIZE);
-		entry = (PTE_V | PTE_RWX);
+		entry = (PTE_KERN);
 		entry |= (pn << PTE_PPN0_S);
 		pmap_load_store(&l1[l1_slot], entry);
 	}
@@ -933,7 +933,7 @@ pmap_kenter_device(vm_offset_t sva, vm_size_t size, vm_paddr_t pa)
 		KASSERT(l3 != NULL, ("Invalid page table, va: 0x%lx", va));
 
 		pn = (pa / PAGE_SIZE);
-		entry = (PTE_V | PTE_RWX);
+		entry = (PTE_KERN);
 		entry |= (pn << PTE_PPN0_S);
 		pmap_load_store(l3, entry);
 
@@ -1035,7 +1035,7 @@ pmap_qenter(vm_offset_t sva, vm_page_t *ma, int count)
 		pn = (pa / PAGE_SIZE);
 		l3 = pmap_l3(kernel_pmap, va);
 
-		entry = (PTE_V | PTE_RWX);
+		entry = (PTE_KERN);
 		entry |= (pn << PTE_PPN0_S);
 		pmap_load_store(l3, entry);
 
@@ -1450,7 +1450,8 @@ pmap_growkernel(vm_offset_t addr)
 			continue; /* try again */
 		}
 		l2 = pmap_l1_to_l2(l1, kernel_vm_end);
-		if ((pmap_load(l2) & PTE_A) != 0) {
+		if ((pmap_load(l2) & PTE_V) != 0 &&
+		    (pmap_load(l2) & PTE_RWX) == 0) {
 			kernel_vm_end = (kernel_vm_end + L2_SIZE) & ~L2_OFFSET;
 			if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
 				kernel_vm_end = vm_map_max(kernel_map);
@@ -2038,7 +2039,7 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	pa = VM_PAGE_TO_PHYS(m);
 	pn = (pa / PAGE_SIZE);
 
-	new_l3 = PTE_V | PTE_R | PTE_X;
+	new_l3 = PTE_V | PTE_R | PTE_X | PTE_A | PTE_D;
 	if (prot & VM_PROT_WRITE)
 		new_l3 |= PTE_W;
 	if ((va >> 63) == 0)
@@ -2414,8 +2415,7 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 	pa = VM_PAGE_TO_PHYS(m);
 	pn = (pa / PAGE_SIZE);
 
-	/* RISCVTODO: check permissions */
-	entry = (PTE_V | PTE_RWX);
+	entry = (PTE_V);
 	entry |= (pn << PTE_PPN0_S);
 
 	/*
