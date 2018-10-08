@@ -2039,11 +2039,13 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 	pa = VM_PAGE_TO_PHYS(m);
 	pn = (pa / PAGE_SIZE);
 
-	new_l3 = PTE_V | PTE_R | PTE_X | PTE_A | PTE_D;
+	new_l3 = PTE_V | PTE_R | PTE_X;
 	if (prot & VM_PROT_WRITE)
 		new_l3 |= PTE_W;
 	if ((va >> 63) == 0)
 		new_l3 |= PTE_U;
+	else
+		new_l3 |= PTE_A | PTE_D;
 
 	new_l3 |= (pn << PTE_PPN0_S);
 	if ((flags & PMAP_ENTER_WIRED) != 0)
@@ -2158,8 +2160,13 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 			 * No, might be a protection or wiring change.
 			 */
 			if ((orig_l3 & PTE_SW_MANAGED) != 0) {
-				if (pmap_is_write(new_l3))
+				if (pmap_is_write(new_l3)) {
+					if (flags & PROT_WRITE)
+						new_l3 |= PTE_D;
 					vm_page_aflag_set(m, PGA_WRITEABLE);
+				}
+				if (flags & PROT_READ)
+					new_l3 |= PTE_A;
 			}
 			goto validate;
 		}
