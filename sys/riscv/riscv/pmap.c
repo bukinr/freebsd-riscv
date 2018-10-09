@@ -505,7 +505,7 @@ pmap_bootstrap_dmap(vm_offset_t kern_l1, vm_paddr_t min_pa, vm_paddr_t max_pa)
 
 		/* superpages */
 		pn = (pa / PAGE_SIZE);
-		entry = (PTE_KERN);
+		entry = PTE_KERN;
 		entry |= (pn << PTE_PPN0_S);
 		pmap_load_store(&l1[l1_slot], entry);
 	}
@@ -933,7 +933,7 @@ pmap_kenter_device(vm_offset_t sva, vm_size_t size, vm_paddr_t pa)
 		KASSERT(l3 != NULL, ("Invalid page table, va: 0x%lx", va));
 
 		pn = (pa / PAGE_SIZE);
-		entry = (PTE_KERN);
+		entry = PTE_KERN;
 		entry |= (pn << PTE_PPN0_S);
 		pmap_load_store(l3, entry);
 
@@ -1035,7 +1035,7 @@ pmap_qenter(vm_offset_t sva, vm_page_t *ma, int count)
 		pn = (pa / PAGE_SIZE);
 		l3 = pmap_l3(kernel_pmap, va);
 
-		entry = (PTE_KERN);
+		entry = PTE_KERN;
 		entry |= (pn << PTE_PPN0_S);
 		pmap_load_store(l3, entry);
 
@@ -2044,8 +2044,11 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 		new_l3 |= PTE_W;
 	if ((va >> 63) == 0)
 		new_l3 |= PTE_U;
-	else
-		new_l3 |= PTE_A | PTE_D;
+	else {
+		new_l3 |= PTE_A;
+		if ((flags & VM_PROT_WRITE) != 0)
+			new_l3 |= PTE_D;
+	}
 
 	new_l3 |= (pn << PTE_PPN0_S);
 	if ((flags & PMAP_ENTER_WIRED) != 0)
@@ -2422,7 +2425,7 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 	pa = VM_PAGE_TO_PHYS(m);
 	pn = (pa / PAGE_SIZE);
 
-	entry = (PTE_V);
+	entry = (PTE_V | PTE_R);
 	entry |= (pn << PTE_PPN0_S);
 
 	/*
