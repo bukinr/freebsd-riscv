@@ -200,7 +200,7 @@ static void
 lowrisc_uart_putc(struct uart_bas *bas, int c)
 {
 
-	while (GETREG(bas, 0) & (1 << 10))
+	while (GETREG(bas, 0) & DR_TX_FIFO_FULL)
 		;
 
 	SETREG(bas, 0, c);
@@ -210,7 +210,7 @@ static int
 lowrisc_uart_rxready(struct uart_bas *bas)
 {
 
-	if (GETREG(bas, 0) & (1 << 9))
+	if (GETREG(bas, 0) & DR_RX_FIFO_EMPTY)
 		return (0);
 
 	return (1);
@@ -222,7 +222,7 @@ lowrisc_uart_getc(struct uart_bas *bas, struct mtx *hwmtx)
 	uint32_t reg;
 
 	uart_lock(hwmtx);
-	SETREG(bas, 4096, 1);
+	SETREG(bas, UART_INT_STATUS, INT_STATUS_ACK);
 	reg = GETREG(bas, 0);
 	uart_unlock(hwmtx);
 
@@ -380,10 +380,10 @@ lowrisc_uart_bus_ipend(struct uart_softc *sc)
 
 	uart_lock(sc->sc_hwmtx);
 	reg = GETREG(bas, 0);
-	if ((reg & (1 << 9)) == 0) {
+	if ((reg & DR_RX_FIFO_EMPTY) == 0) {
 		ipend |= SER_INT_RXREADY;
 	}
-	SETREG(bas, 4096, 1);
+	SETREG(bas, UART_INT_STATUS, INT_STATUS_ACK);
 	uart_unlock(sc->sc_hwmtx);
 
 	return (ipend);
@@ -441,9 +441,9 @@ lowrisc_uart_bus_receive(struct uart_softc *sc)
 			break;
 		}
 		reg = GETREG(bas, 0);
-		SETREG(bas, 4096, 1);
+		SETREG(bas, UART_INT_STATUS, INT_STATUS_ACK);
 		uart_rx_put(sc, reg & 0xff);
-	} while ((reg & (1 << 9)) == 0);
+	} while ((reg & DR_RX_FIFO_EMPTY) == 0);
 
 	uart_unlock(sc->sc_hwmtx);
 
@@ -467,7 +467,7 @@ lowrisc_uart_bus_transmit(struct uart_softc *sc)
 
 	uart_lock(sc->sc_hwmtx);
 	for (i = 0; i < sc->sc_txdatasz; i++) {
-		while (GETREG(bas, 0) & (1 << 10))
+		while (GETREG(bas, 0) & DR_TX_FIFO_FULL)
 			;
 		SETREG(bas, 0, sc->sc_txbuf[i] & 0xff);
 	}

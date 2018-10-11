@@ -33,6 +33,26 @@
 #ifndef	_UART_DEV_LOWRISC_H_
 #define	_UART_DEV_LOWRISC_H_
 
+#define	UART_DR				0x0000
+#define	 DR_DATA_S			0
+#define	 DR_DATA_M			0xff
+#define	 DR_RX_ERR			(1 << 8)
+#define	 DR_RX_FIFO_EMPTY		(1 << 9)
+#define	 DR_TX_FIFO_FULL		(1 << 10)
+#define	 DR_RX_FIFO_FULL		(1 << 11)
+#define	UART_INT_STATUS			0x1000
+#define	 INT_STATUS_ACK			1
+#define	UART_STAT_RX			0x2000
+#define	 STAT_RX_FIFO_RD_COUNT_S	0
+#define	 STAT_RX_FIFO_RD_COUNT_M	(0xffff << STAT_RX_FIFO_RD_COUNT_S)
+#define	 STAT_RX_FIFO_WR_COUNT_S	16
+#define	 STAT_RX_FIFO_WR_COUNT_M	(0xffff << STAT_RX_FIFO_WR_COUNT_S)
+#define	UART_STAT_TX			0x2004
+#define	 STAT_TX_FIFO_RD_COUNT_S	0
+#define	 STAT_TX_FIFO_RD_COUNT_M	(0xffff << STAT_TX_FIFO_RD_COUNT_S)
+#define	 STAT_TX_FIFO_WR_COUNT_S	16
+#define	 STAT_TX_FIFO_WR_COUNT_M	(0xffff << STAT_TX_FIFO_WR_COUNT_S)
+
 #define	GETREG(bas, reg)						\
     bus_space_read_2((bas)->bst, (bas)->bsh, (reg))
 #define	SETREG(bas, reg, value)						\
