@@ -100,10 +100,12 @@ device		virtio_mmio		# VirtIO MMIO bus
 # Serial (COM) ports
 device		uart		# Generic UART driver
 device		uart_ns8250	# ns8250-type UART driver
+device		uart_lowrisc
 
 # Uncomment for memory disk
 # options 	MD_ROOT
 # options 	MD_ROOT_SIZE=32768	# 32MB ram disk
+# options 	MD_ROOT_SIZE=7168	# 7MB ram disk
 # makeoptions	MFS_IMAGE=/home/br/dev/freebsd-riscv/riscv.img
 # options 	ROOTDEVNAME=\"ufs:/dev/md0\"
 

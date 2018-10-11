@@ -323,7 +323,7 @@ lowrisc_uart_bus_receive(struct uart_softc *sc)
 
 	do {
 		if (uart_rx_full(sc)) {
-			/* No space left in input buffer */
+			/* No space left in the input buffer */
 			sc->sc_rxbuf[sc->sc_rxput] = UART_STAT_OVERRUN;
 			break;
 		}
