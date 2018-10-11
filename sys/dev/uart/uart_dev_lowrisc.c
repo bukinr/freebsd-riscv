@@ -200,9 +200,9 @@ static void
 lowrisc_uart_putc(struct uart_bas *bas, int c)
 {
 
-	//sbi_console_putchar(c);
 	while (GETREG(bas, 0) & (1 << 10))
 		;
+
 	SETREG(bas, 0, c);
 }
 
@@ -210,23 +210,23 @@ static int
 lowrisc_uart_rxready(struct uart_bas *bas)
 {
 
-	return (0);
-	//return ((IS(bas, USR2, RDR)) ? 1 : 0);
+	if (GETREG(bas, 0) & (1 << 9))
+		return (0);
+
+	return (1);
 }
 
 static int
 lowrisc_uart_getc(struct uart_bas *bas, struct mtx *hwmtx)
 {
-	int c;
+	uint32_t reg;
 
 	uart_lock(hwmtx);
-	c = 0;
-#if 0
-	while (!(IS(bas, USR2, RDR)))
-		;
-
-	c = GETREG(bas, REG(URXD));
+	SETREG(bas, 4096, 1);
+	reg = GETREG(bas, 0);
 	uart_unlock(hwmtx);
+
+#if 0
 #if defined(KDB)
 	if (c & FLD(URXD, BRK)) {
 		if (kdb_break())
@@ -234,7 +234,8 @@ lowrisc_uart_getc(struct uart_bas *bas, struct mtx *hwmtx)
 	}
 #endif
 #endif
-	return (c & 0xff);
+
+	return (reg & 0xff);
 }
 
 /*
