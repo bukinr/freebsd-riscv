@@ -78,42 +78,7 @@ lowrisc_uart_probe(struct uart_bas *bas)
 static u_int
 lowrisc_uart_getbaud(struct uart_bas *bas)
 {
-#if 0
-	uint32_t rate, ubir, ubmr;
-	u_int baud, blo, bhi, i;
-	static const u_int predivs[] = {6, 5, 4, 3, 2, 1, 7, 1};
-	static const u_int std_rates[] = {
-		9600, 14400, 19200, 38400, 57600, 115200, 230400, 460800, 921600
-	};
 
-	/*
-	 * Get the baud rate the hardware is programmed for, then search the
-	 * table of standard baud rates for a number that's within 3% of the
-	 * actual rate the hardware is programmed for.  It's more comforting to
-	 * see that your console is running at 115200 than 114942.  Note that
-	 * here we cannot make a simplifying assumption that the predivider and
-	 * numerator are 1 (like we do when setting the baud rate), because we
-	 * don't know what u-boot might have set up.
-	 */
-	i = (GETREG(bas, REG(UFCR)) & IMXUART_UFCR_RFDIV_MASK) >>
-	    IMXUART_UFCR_RFDIV_SHIFT;
-	rate = lowrisc_ccm_uart_hz() / predivs[i];
-	ubir = GETREG(bas, REG(UBIR)) + 1;
-	ubmr = GETREG(bas, REG(UBMR)) + 1;
-	baud = ((rate / 16 ) * ubir) / ubmr;
-
-	blo = (baud * 100) / 103;
-	bhi = (baud * 100) / 97;
-	for (i = 0; i < nitems(std_rates); i++) {
-		rate = std_rates[i];
-		if (rate >= blo && rate <= bhi) {
-			baud = rate;
-			break;
-		}
-	}
-
-	return (baud);
-#endif
 	return (115200);
 }
 
@@ -121,79 +86,15 @@ static void
 lowrisc_uart_init(struct uart_bas *bas, int baudrate, int databits, 
     int stopbits, int parity)
 {
-#if 0
-	uint32_t baseclk, reg;
 
-        /* Enable the device and the RX/TX channels. */
-	SET(bas, REG(UCR1), FLD(UCR1, UARTEN));
-	SET(bas, REG(UCR2), FLD(UCR2, RXEN) | FLD(UCR2, TXEN));
-
-	if (databits == 7)
-		DIS(bas, UCR2, WS);
-	else
-		ENA(bas, UCR2, WS);
-
-	if (stopbits == 2)
-		ENA(bas, UCR2, STPB);
-	else
-		DIS(bas, UCR2, STPB);
-
-	switch (parity) {
-	case UART_PARITY_ODD:
-		DIS(bas, UCR2, PROE);
-		ENA(bas, UCR2, PREN);
-		break;
-	case UART_PARITY_EVEN:
-		ENA(bas, UCR2, PROE);
-		ENA(bas, UCR2, PREN);
-		break;
-	case UART_PARITY_MARK:
-	case UART_PARITY_SPACE:
-                /* FALLTHROUGH: Hardware doesn't support mark/space. */
-	case UART_PARITY_NONE:
-	default:
-		DIS(bas, UCR2, PREN);
-		break;
-	}
-
-	/*
-	 * The hardware has an extremely flexible baud clock: it allows setting
-	 * both the numerator and denominator of the divider, as well as a
-	 * separate pre-divider.  We simplify the problem of coming up with a
-	 * workable pair of numbers by assuming a pre-divider and numerator of
-	 * one because our base clock is so fast we can reach virtually any
-	 * reasonable speed with a simple divisor.  The numerator value actually
-	 * includes the 16x over-sampling (so a value of 16 means divide by 1);
-	 * the register value is the numerator-1, so we have a hard-coded 15.
-	 * Note that a quirk of the hardware requires that both UBIR and UBMR be
-	 * set back to back in order for the change to take effect.
-	 */
-	if (baudrate > 0) {
-		baseclk = lowrisc_ccm_uart_hz();
-		reg = GETREG(bas, REG(UFCR));
-		reg = (reg & ~IMXUART_UFCR_RFDIV_MASK) | IMXUART_UFCR_RFDIV_DIV1;
-		SETREG(bas, REG(UFCR), reg);
-		SETREG(bas, REG(UBIR), 15);
-		SETREG(bas, REG(UBMR), (baseclk / baudrate) - 1);
-	}
-
-	/*
-	 * Program the tx lowater and rx hiwater levels at which fifo-service
-	 * interrupts are signaled.  The tx value is interpetted as "when there
-	 * are only this many bytes remaining" (not "this many free").
-	 */
-	reg = GETREG(bas, REG(UFCR));
-	reg &= ~(IMXUART_UFCR_TXTL_MASK | IMXUART_UFCR_RXTL_MASK);
-	reg |= (IMX_FIFOSZ - IMX_TXFIFO_LEVEL) << IMXUART_UFCR_TXTL_SHIFT;
-	reg |= IMX_RXFIFO_LEVEL << IMXUART_UFCR_RXTL_SHIFT;
-	SETREG(bas, REG(UFCR), reg);
-#endif
+	/* TODO */
 }
 
 static void
 lowrisc_uart_term(struct uart_bas *bas)
 {
 
+	/* TODO */
 }
 
 static void
@@ -225,15 +126,6 @@ lowrisc_uart_getc(struct uart_bas *bas, struct mtx *hwmtx)
 	SETREG(bas, UART_INT_STATUS, INT_STATUS_ACK);
 	reg = GETREG(bas, 0);
 	uart_unlock(hwmtx);
-
-#if 0
-#if defined(KDB)
-	if (c & FLD(URXD, BRK)) {
-		if (kdb_break())
-			return (0);
-	}
-#endif
-#endif
 
 	return (reg & 0xff);
 }
@@ -282,7 +174,7 @@ static struct uart_class uart_lowrisc_class = {
 	sizeof(struct lowrisc_uart_softc),
 	.uc_ops = &uart_lowrisc_uart_ops,
 	.uc_range = 0x100,
-	.uc_rclk = 24000000, /* TODO: get value from CCM */
+	.uc_rclk = 12500000, /* TODO: get value from clock manager */
 	.uc_rshift = 0
 };
 
@@ -308,9 +200,7 @@ lowrisc_uart_bus_attach(struct uart_softc *sc)
 
 	(void)lowrisc_uart_bus_getsig(sc);
 
-	/* Clear all pending interrupts. */
-	//SETREG(bas, REG(USR1), 0xffff);
-	//SETREG(bas, REG(USR2), 0xffff);
+	/* TODO: clear all pending interrupts. */
 
 	return (0);
 }
@@ -371,7 +261,6 @@ static int
 lowrisc_uart_bus_ipend(struct uart_softc *sc)
 {
 	struct uart_bas *bas;
-	uint32_t reg;
 	int ipend;
 
 	bas = &sc->sc_bas;
@@ -379,10 +268,8 @@ lowrisc_uart_bus_ipend(struct uart_softc *sc)
 	ipend = 0;
 
 	uart_lock(sc->sc_hwmtx);
-	reg = GETREG(bas, 0);
-	if ((reg & DR_RX_FIFO_EMPTY) == 0) {
+	if ((GETREG(bas, 0) & DR_RX_FIFO_EMPTY) == 0)
 		ipend |= SER_INT_RXREADY;
-	}
 	SETREG(bas, UART_INT_STATUS, INT_STATUS_ACK);
 	uart_unlock(sc->sc_hwmtx);
 
@@ -460,7 +347,7 @@ lowrisc_uart_bus_setsig(struct uart_softc *sc, int sig)
 static int
 lowrisc_uart_bus_transmit(struct uart_softc *sc)
 {
-	struct uart_bas *bas = &sc->sc_bas;
+	struct uart_bas *bas;
 	int i;
 
 	bas = &sc->sc_bas;
@@ -479,9 +366,10 @@ lowrisc_uart_bus_transmit(struct uart_softc *sc)
 static void
 lowrisc_uart_bus_grab(struct uart_softc *sc)
 {
-	struct uart_bas *bas = &sc->sc_bas;
+	struct uart_bas *bas;
 
 	bas = &sc->sc_bas;
+
 	uart_lock(sc->sc_hwmtx);
 	/* TODO */
 	uart_unlock(sc->sc_hwmtx);
@@ -490,9 +378,10 @@ lowrisc_uart_bus_grab(struct uart_softc *sc)
 static void
 lowrisc_uart_bus_ungrab(struct uart_softc *sc)
 {
-	struct uart_bas *bas = &sc->sc_bas;
+	struct uart_bas *bas;
 
 	bas = &sc->sc_bas;
+
 	uart_lock(sc->sc_hwmtx);
 	/* TODO */
 	uart_unlock(sc->sc_hwmtx);

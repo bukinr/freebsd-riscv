@@ -42,7 +42,9 @@
 #define	 DR_RX_FIFO_FULL		(1 << 11)
 #define	UART_INT_STATUS			0x1000
 #define	 INT_STATUS_ACK			1
-#define	UART_STAT_RX			0x2000
+#define	UART_BAUD			0x2000	/* write-only */
+#define	 BAUD_115200			108
+#define	UART_STAT_RX			0x2000	/* read-only */
 #define	 STAT_RX_FIFO_RD_COUNT_S	0
 #define	 STAT_RX_FIFO_RD_COUNT_M	(0xffff << STAT_RX_FIFO_RD_COUNT_S)
 #define	 STAT_RX_FIFO_WR_COUNT_S	16
