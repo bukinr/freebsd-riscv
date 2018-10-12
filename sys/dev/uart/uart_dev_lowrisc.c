@@ -52,6 +52,8 @@ __FBSDID("$FreeBSD$");
 
 #include "uart_if.h"
 
+#define	DEFAULT_BAUD_RATE	115200
+
 /*
  * Low-level UART interface.
  */
@@ -82,7 +84,7 @@ static u_int
 lowrisc_uart_getbaud(struct uart_bas *bas)
 {
 
-	return (115200);
+	return (DEFAULT_BAUD_RATE);
 }
 
 static void
@@ -104,17 +106,17 @@ static void
 lowrisc_uart_putc(struct uart_bas *bas, int c)
 {
 
-	while (GETREG(bas, 0) & DR_TX_FIFO_FULL)
+	while (GETREG(bas, UART_DR) & DR_TX_FIFO_FULL)
 		;
 
-	SETREG(bas, 0, c);
+	SETREG(bas, UART_DR, c);
 }
 
 static int
 lowrisc_uart_rxready(struct uart_bas *bas)
 {
 
-	if (GETREG(bas, 0) & DR_RX_FIFO_EMPTY)
+	if (GETREG(bas, UART_DR) & DR_RX_FIFO_EMPTY)
 		return (0);
 
 	return (1);
@@ -127,7 +129,7 @@ lowrisc_uart_getc(struct uart_bas *bas, struct mtx *hwmtx)
 
 	uart_lock(hwmtx);
 	SETREG(bas, UART_INT_STATUS, INT_STATUS_ACK);
-	reg = GETREG(bas, 0);
+	reg = GETREG(bas, UART_DR);
 	uart_unlock(hwmtx);
 
 	return (reg & 0xff);
@@ -199,7 +201,7 @@ lowrisc_uart_bus_attach(struct uart_softc *sc)
 		lowrisc_uart_init(bas, di->baudrate, di->databits, di->stopbits,
 		    di->parity);
 	} else
-		lowrisc_uart_init(bas, 115200, 8, 1, 0);
+		lowrisc_uart_init(bas, DEFAULT_BAUD_RATE, 8, 1, 0);
 
 	(void)lowrisc_uart_bus_getsig(sc);
 
@@ -271,7 +273,7 @@ lowrisc_uart_bus_ipend(struct uart_softc *sc)
 	ipend = 0;
 
 	uart_lock(sc->sc_hwmtx);
-	if ((GETREG(bas, 0) & DR_RX_FIFO_EMPTY) == 0)
+	if ((GETREG(bas, UART_DR) & DR_RX_FIFO_EMPTY) == 0)
 		ipend |= SER_INT_RXREADY;
 	SETREG(bas, UART_INT_STATUS, INT_STATUS_ACK);
 	uart_unlock(sc->sc_hwmtx);
@@ -330,7 +332,7 @@ lowrisc_uart_bus_receive(struct uart_softc *sc)
 			sc->sc_rxbuf[sc->sc_rxput] = UART_STAT_OVERRUN;
 			break;
 		}
-		reg = GETREG(bas, 0);
+		reg = GETREG(bas, UART_DR);
 		SETREG(bas, UART_INT_STATUS, INT_STATUS_ACK);
 		uart_rx_put(sc, reg & 0xff);
 	} while ((reg & DR_RX_FIFO_EMPTY) == 0);
@@ -357,9 +359,9 @@ lowrisc_uart_bus_transmit(struct uart_softc *sc)
 
 	uart_lock(sc->sc_hwmtx);
 	for (i = 0; i < sc->sc_txdatasz; i++) {
-		while (GETREG(bas, 0) & DR_TX_FIFO_FULL)
+		while (GETREG(bas, UART_DR) & DR_TX_FIFO_FULL)
 			;
-		SETREG(bas, 0, sc->sc_txbuf[i] & 0xff);
+		SETREG(bas, UART_DR, sc->sc_txbuf[i] & 0xff);
 	}
 	uart_unlock(sc->sc_hwmtx);
 
