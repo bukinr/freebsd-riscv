@@ -21,6 +21,8 @@
 cpu		RISCV
 ident		GENERIC
 
+include         "../lowrisc/std.lowrisc"
+
 makeoptions	DEBUG=-g		# Build kernel with gdb(1) debug symbols
 # makeoptions	WITH_CTF=1		# Run ctfconvert(1) for DTrace support
 
@@ -103,11 +105,11 @@ device		uart_ns8250	# ns8250-type UART driver
 device		uart_lowrisc
 
 # Uncomment for memory disk
-# options 	MD_ROOT
+options 	MD_ROOT
 # options 	MD_ROOT_SIZE=32768	# 32MB ram disk
-# options 	MD_ROOT_SIZE=7168	# 7MB ram disk
-# makeoptions	MFS_IMAGE=/home/br/dev/freebsd-riscv/riscv.img
-# options 	ROOTDEVNAME=\"ufs:/dev/md0\"
+options 	MD_ROOT_SIZE=7168	# 7MB ram disk
+makeoptions	MFS_IMAGE=/home/jrrk2/freebsd-riscv/riscv.img
+options 	ROOTDEVNAME=\"ufs:/dev/md0\"
 
 # Uncomment for virtio block device
 options 	ROOTDEVNAME=\"ufs:/dev/vtbd0\"
