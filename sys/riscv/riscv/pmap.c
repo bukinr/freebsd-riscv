@@ -15,7 +15,7 @@
  * All rights reserved.
  * Copyright (c) 2014 The FreeBSD Foundation
  * All rights reserved.
- * Copyright (c) 2015-2017 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2015-2018 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
  *
  * This code is derived from software contributed to Berkeley by
@@ -2004,6 +2004,36 @@ pmap_protect(pmap_t pmap, vm_offset_t sva, vm_offset_t eva, vm_prot_t prot)
 	PMAP_UNLOCK(pmap);
 }
 
+int
+pmap_fault_fixup(pmap_t pmap, vm_offset_t va, vm_prot_t prot)
+{
+	pt_entry_t orig_l3;
+	pt_entry_t new_l3;
+	pt_entry_t *l3;
+
+	l3 = pmap_l3(pmap, va);
+	if (l3 == NULL)
+		return (0);
+
+	orig_l3 = pmap_load(l3);
+	new_l3 = orig_l3;
+	if (((orig_l3 & (PTE_D | PTE_W)) == PTE_W) && \
+	    ((prot & PROT_WRITE) != 0))
+		new_l3 |= PTE_D;
+
+	if (((orig_l3 & (PTE_A | PTE_R)) == PTE_R) && \
+	    ((prot & PROT_READ) != 0))
+		new_l3 |= PTE_A;
+
+	if (orig_l3 != new_l3) {
+		pmap_load_store(l3, new_l3);
+		pmap_invalidate_page(pmap, va);
+		return (1);
+	}
+
+	return (0);
+}
+
 /*
  *	Insert the given physical page (p) at
  *	the specified virtual address (v) in the
@@ -2044,11 +2074,8 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 		new_l3 |= PTE_W;
 	if ((va >> 63) == 0)
 		new_l3 |= PTE_U;
-	else {
+	else
 		new_l3 |= PTE_A;
-		if ((flags & VM_PROT_WRITE) != 0)
-			new_l3 |= PTE_D;
-	}
 
 	new_l3 |= (pn << PTE_PPN0_S);
 	if ((flags & PMAP_ENTER_WIRED) != 0)
@@ -2163,13 +2190,8 @@ pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
 			 * No, might be a protection or wiring change.
 			 */
 			if ((orig_l3 & PTE_SW_MANAGED) != 0) {
-				if (pmap_is_write(new_l3)) {
-					if (flags & PROT_WRITE)
-						new_l3 |= PTE_D;
+				if (pmap_is_write(new_l3))
 					vm_page_aflag_set(m, PGA_WRITEABLE);
-				}
-				if (flags & PROT_READ)
-					new_l3 |= PTE_A;
 			}
 			goto validate;
 		}

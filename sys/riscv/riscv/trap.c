@@ -212,6 +212,9 @@ data_abort(struct trapframe *frame, int lower)
 		ftype = (VM_PROT_READ);
 	}
 
+	if (pmap_fault_fixup(map->pmap, va, ftype))
+		goto done;
+
 	if (map != kernel_map) {
 		/*
 		 * Keep swapout from messing with us during this
@@ -256,6 +259,7 @@ data_abort(struct trapframe *frame, int lower)
 		}
 	}
 
+done:
 	if (lower)
 		userret(td, frame);
 }
