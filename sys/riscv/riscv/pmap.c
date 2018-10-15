@@ -2020,6 +2020,9 @@ pmap_fault_fixup(pmap_t pmap, vm_offset_t va, vm_prot_t prot)
 		return (0);
 
 	orig_l3 = pmap_load(l3);
+	if ((orig_l3 & PTE_V) == 0)
+		return (0);
+
 	new_l3 = orig_l3;
 	if (((orig_l3 & (PTE_D | PTE_W)) == PTE_W) && \
 	    ((prot & PROT_WRITE) != 0))
