@@ -28,8 +28,8 @@
  * $FreeBSD$
  */
 
-#ifndef	_DEV_LOWRISC_ETHER_LOWRISC_REG_H_
-#define	_DEV_LOWRISC_ETHER_LOWRISC_REG_H_
+#ifndef	LRE_REG_H_
+#define	LRE_REG_H_
 
 /* Register offsets (in bytes) for the LowRISC Core */
 #define TXBUFF_OFFSET       0x1000          /* Transmit Buffer */
@@ -84,7 +84,7 @@
 #define ARP_PACKET_SIZE             28      /* Max ARP packet size */
 #define HEADER_IP_LENGTH_OFFSET     16      /* IP Length Offset */
 
-#ifdef DEBUG_LOWRISC_ETHER
+#ifdef DEBUG_LRE
 uint64_t dbg_generic_bs_r_8(device_t, uint64_t (*)(void *, bus_space_handle_t, bus_size_t), void *, bus_space_handle_t, bus_size_t);
 void dbg_generic_bs_w_8(device_t, void (*)(void *, bus_space_handle_t, bus_size_t, uint64_t), void *, bus_space_handle_t, bus_size_t, uint64_t);
 
@@ -99,4 +99,4 @@ void dbg_generic_bs_w_8(device_t, void (*)(void *, bus_space_handle_t, bus_size_
 
 #endif
 
-#endif /* !_DEV_LOWRISC_ETHER_LOWRISC_REG_H_ */
+#endif /* !LRE_REG_H_ */
