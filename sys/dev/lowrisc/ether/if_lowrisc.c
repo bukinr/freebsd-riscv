@@ -43,6 +43,7 @@
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <sys/sysctl.h>
+#include <sys/callout.h>
 
 #include <net/bpf.h>
 #include <net/ethernet.h>
@@ -91,6 +92,9 @@ static int	lowrisc_ioctl(struct ifnet *, u_long, caddr_t);
 
 static void	lowrisc_rx_intr(void *);
 
+static int polltime;
+static struct callout net_callout;
+
 static device_method_t lowrisc_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe,		lowrisc_probe),
@@ -111,18 +115,20 @@ static devclass_t lowrisc_devclass;
 
 DRIVER_MODULE(lowrisc_eth, simplebus, lowrisc_driver, lowrisc_devclass, 0, 0);
 
-uint64_t dbg_generic_bs_r_8(device_t dev, uint64_t (*f)(void *, bus_space_handle_t, bus_size_t), void *c, bus_space_handle_t b, bus_size_t o)
+#ifdef DEBUG_LOWRISC_ETHER
+static uint64_t dbg_generic_bs_r_8(device_t dev, uint64_t (*f)(void *, bus_space_handle_t, bus_size_t), void *c, bus_space_handle_t b, bus_size_t o)
 {
 uint64_t res = f(c, b, o);
-device_printf(dev, "dbg_generic_bs_r_8(%p,%ld) => %lx\n", b, o, res);
+device_printf(dev, "dbg_generic_bs_r_8(0x%lx) => 0x%lx\n", o, res);
 return res;
 }
 
-void dbg_generic_bs_w_8(device_t dev, void (*f)(void *, bus_space_handle_t, bus_size_t, uint64_t), void *c, bus_space_handle_t b, bus_size_t o, uint64_t v)
+static void dbg_generic_bs_w_8(device_t dev, void (*f)(void *, bus_space_handle_t, bus_size_t, uint64_t), void *c, bus_space_handle_t b, bus_size_t o, uint64_t v)
 {
-device_printf(dev, "dbg_generic_bs_w_8(%p,%lx,%lx)\n", b, o, v);
+device_printf(dev, "dbg_generic_bs_w_8(0x%lx,0x%lx)\n", o, v);
 f(c, b, o, v) ;
 }
+#endif
 
 static int
 lowrisc_probe(device_t dev)
@@ -136,6 +142,21 @@ lowrisc_probe(device_t dev)
 	device_set_desc(dev, "LowRISC test Ethernet");
 
 	return (BUS_PROBE_DEFAULT);
+}
+
+static void
+net_timeout(void *arg)
+{
+        struct lowrisc_softc *sc = arg;
+        struct ifnet *ifp = sc->sc_ifp;
+
+        if ((ifp->if_drv_flags & IFF_DRV_RUNNING) == IFF_DRV_RUNNING)
+	{
+		if (0) device_printf(sc->sc_dev, "net_timer\n");
+	    	lowrisc_rx_intr(sc);
+	}
+
+        callout_reset(&net_callout, polltime, net_timeout, arg);
 }
 
 static int
@@ -174,17 +195,20 @@ lowrisc_attach(device_t dev)
 
 	device_printf(dev, "Try to allocate eth mac address\n");
 
-	/* Write MAC address.  */
-        memcpy (&macaddr_lo, mac+2, sizeof(uint32_t));
-        memcpy (&macaddr_hi, mac+0, sizeof(uint16_t));
-        SETREG(sc, MACLO_OFFSET, __bswap32(macaddr_lo));
-        SETREG(sc, MACHI_OFFSET, __bswap16(macaddr_hi));
+	/* Read MAC address.  */
+        macaddr_lo = __bswap32(GETREG(sc, MACLO_OFFSET));
+        macaddr_hi = __bswap16(GETREG(sc, MACHI_OFFSET) & MACHI_MACADDR_MASK);
+        memcpy (mac+2, &macaddr_lo, sizeof(uint32_t));
+        memcpy (mac+0, &macaddr_hi, sizeof(uint16_t));
+
 	/* discard pending packets from boot loader */
 	status = GETREG(sc, RSR_OFFSET);
         while (status & RSR_RECV_DONE_MASK) {
-                uint64_t buf = status & RSR_RECV_FIRST_MASK;
-		uint64_t length = GETREG(sc, RPLR_OFFSET+((buf&7)<<3)) & RPLR_LENGTH_MASK;
-                device_printf(sc->sc_dev, "Discarded buffer %d  of length %d\n", buf, length);
+                uint32_t buf = status & RSR_RECV_FIRST_MASK;
+		uint32_t off = RPLR_OFFSET+((buf&7)<<3);
+		uint32_t length = GETREG(sc, off) & RPLR_LENGTH_MASK;
+                device_printf(sc->sc_dev, "Discarded buffer %d of length %d (off=%x)\n",
+			buf, length, off);
 		SETREG(sc, RSR_OFFSET, buf+1);
                 status = GETREG(sc, RSR_OFFSET);
  		}
@@ -227,6 +251,10 @@ lowrisc_attach(device_t dev)
 
 	ifp->if_transmit = lowrisc_transmit;
 
+	polltime = 1;
+        callout_init(&net_callout, 1);
+        callout_reset(&net_callout, polltime, net_timeout, sc);
+
 	return (bus_generic_attach(dev));
 }
 
@@ -262,6 +290,12 @@ lowrisc_init(void *arg)
 		ifp->if_drv_flags &= ~IFF_DRV_RUNNING;
 
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
+
+	device_printf(sc->sc_dev, "lowrisc_init called\n");
+
+	/*
+        SETREG(sc, MACHI_OFFSET, MACHI_IRQ_EN | GETREG(sc, MACHI_OFFSET));
+	*/
 }
 
 static int
@@ -296,8 +330,6 @@ lowrisc_transmit(struct ifnet *ifp, struct mbuf *m)
 	if_inc_counter(ifp, IFCOUNTER_OBYTES, m->m_pkthdr.len);
 
 	m_freem(m);
-
-	lowrisc_rx_intr(sc);
 
 	return (0);
 }
@@ -369,6 +401,18 @@ lowrisc_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			}
 		}
 		sc->sc_flags = ifp->if_flags;
+		if (sc->sc_flags & IFF_PROMISC)
+			SETREG(sc, MACHI_OFFSET, MACHI_ALLPKTS_MASK | GETREG(sc, MACHI_OFFSET));
+		else
+			SETREG(sc, MACHI_OFFSET, (~MACHI_ALLPKTS_MASK) & GETREG(sc, MACHI_OFFSET));
+		return (0);
+
+	case SIOCGIFFLAGS:
+		if (MACHI_ALLPKTS_MASK & GETREG(sc, MACHI_OFFSET))
+			sc->sc_flags |= IFF_PROMISC;
+		else
+			sc->sc_flags &= ~IFF_PROMISC;
+		ifp->if_flags = sc->sc_flags;
 		return (0);
 
 	case SIOCSIFMTU:
@@ -394,13 +438,14 @@ lowrisc_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 static void
 lowrisc_rx_intr(void *arg)
 {
-	uint64_t status;
+	uint32_t status;
 	struct lowrisc_softc *sc = arg;
 
 	LOWRISC_ETHER_LOCK(sc);
 	status = GETREG(sc, RSR_OFFSET);
+	if (0) device_printf(sc->sc_dev, "Receive interrupt status %x\n", status);
 	while (status & RSR_RECV_DONE_MASK) {
-		uint64_t length, buf, errs, start, rnd;
+		uint32_t length, buf, errs, start, rnd;
 		struct mbuf *m;
 		uint64_t *alloc;
 		int i;
@@ -413,10 +458,11 @@ lowrisc_rx_intr(void *arg)
 		errs = GETREG(sc, RBAD_OFFSET);
 		length = GETREG(sc, RPLR_OFFSET+((buf&7)<<3)) & RPLR_LENGTH_MASK;
 
-		device_printf(sc->sc_dev, "Receive interrupt loop %d, %d, %d\n", buf, errs, length);
+		if (0) device_printf(sc->sc_dev, "Receive interrupt loop %d, %d, %d\n", buf, errs, length);
 
-		if ((length > MCLBYTES - ETHER_ALIGN) || ((0x101<<(buf&7)) & ~errs))
+		if ((length > MCLBYTES - ETHER_ALIGN) || ((0x101<<(buf&7)) & errs))
 		{
+			device_printf(sc->sc_dev, "Receive discarded\n");
 			if_inc_counter(sc->sc_ifp, IFCOUNTER_IERRORS, 1);
 			SETREG(sc, RSR_OFFSET, buf+1);
 			status = GETREG(sc, RSR_OFFSET);
@@ -434,13 +480,13 @@ lowrisc_rx_intr(void *arg)
 		/* Align incoming frame so IP headers are aligned.  */
 		m->m_data += ETHER_ALIGN;
 
-		start = (RXBUFF_OFFSET>>3) + ((buf&7)<<8);
+		start = RXBUFF_OFFSET + ((buf&7)<<11);
 
-		rnd = (((length-1)|7)+1); /* round to a multiple of 8 */
+		rnd = ((length-1)|7)+1; /* round to a multiple of 8 */
 		alloc = (uint64_t *)(m->m_data);
                 for (i = 0; i < rnd/8; i++)
                   {
-                     alloc[i] = GETREG(sc, start+i);
+                     alloc[i] = GETREG(sc, start+(i << 3));
                   }
 
 		SETREG(sc, RSR_OFFSET, buf+1);
@@ -457,9 +503,6 @@ lowrisc_rx_intr(void *arg)
 		LOWRISC_ETHER_LOCK(sc);
 		status = GETREG(sc, RSR_OFFSET);
 	}
-
-	/* I hope we are ready to take another interrupt by now */
-        SETREG(sc, MACHI_OFFSET, MACHI_IRQ_EN | GETREG(sc, MACHI_OFFSET));
 
 	LOWRISC_ETHER_UNLOCK(sc);
 
