@@ -84,11 +84,22 @@
 #define ARP_PACKET_SIZE             28      /* Max ARP packet size */
 #define HEADER_IP_LENGTH_OFFSET     16      /* IP Length Offset */
 
+#if 1
+uint64_t dbg_generic_bs_r_8(device_t, uint64_t (*)(void *, bus_space_handle_t, bus_size_t), void *, bus_space_handle_t, bus_size_t);
+void dbg_generic_bs_w_8(device_t, void (*)(void *, bus_space_handle_t, bus_size_t, uint64_t), void *, bus_space_handle_t, bus_size_t, uint64_t);
 
 #define	GETREG(bas, reg)						\
-    bus_read_8((bas)->sc_mem, (reg))
+    dbg_generic_bs_r_8((bas)->sc_dev, *((bas)->sc_mem->r_bustag)->bs_r_8, (bas)->sc_mem->r_bustag->bs_cookie, (bas)->sc_mem->r_bushandle, (reg))
 #define	SETREG(bas, reg, value)						\
-    bus_write_8((bas)->sc_mem, (reg), (value))
+    dbg_generic_bs_w_8((bas)->sc_dev, *((bas)->sc_mem->r_bustag)->bs_w_8, (bas)->sc_mem->r_bustag->bs_cookie, (bas)->sc_mem->r_bushandle, (reg), (value))
+#else
 
+#define	GETREG(bas, reg)						\
+    (*((bas)->sc_mem->r_bustag)->bs_r_8)((bas)->sc_mem->r_bustag->bs_cookie, (bas)->sc_mem->r_bushandle, (reg))
+
+#define	SETREG(bas, reg, value)						\
+    (*((bas)->sc_mem->r_bustag)->bs_w_8)((bas)->sc_mem->r_bustag->bs_cookie, (bas)->sc_mem->r_bushandle, (reg), (value))
+
+#endif
 
 #endif /* !_DEV_LOWRISC_ETHER_LOWRISC_REG_H_ */

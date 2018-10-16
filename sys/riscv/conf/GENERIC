@@ -107,9 +107,9 @@ device		uart_lowrisc
 
 # Uncomment for memory disk
 options 	MD_ROOT
-# options 	MD_ROOT_SIZE=32768	# 32MB ram disk
-options 	MD_ROOT_SIZE=7168	# 7MB ram disk
-makeoptions	MFS_IMAGE=/home/jrrk2/freebsd-riscv/riscv.img
+options 	MD_ROOT_SIZE=32768	# 32MB ram disk
+# options 	MD_ROOT_SIZE=7168	# 7MB ram disk
+makeoptions	MFS_IMAGE=/home/jrrk2/freebsd-riscv/riscv-local.img
 options 	ROOTDEVNAME=\"ufs:/dev/md0\"
 
 # Uncomment for virtio block device

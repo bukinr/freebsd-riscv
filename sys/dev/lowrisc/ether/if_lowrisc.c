@@ -102,7 +102,7 @@ static device_method_t lowrisc_methods[] = {
 };
 
 static driver_t lowrisc_driver = {
-	"lowrisc-eth",
+	"eth",
 	lowrisc_methods,
 	sizeof (struct lowrisc_softc),
 };
@@ -110,6 +110,19 @@ static driver_t lowrisc_driver = {
 static devclass_t lowrisc_devclass;
 
 DRIVER_MODULE(lowrisc_eth, simplebus, lowrisc_driver, lowrisc_devclass, 0, 0);
+
+uint64_t dbg_generic_bs_r_8(device_t dev, uint64_t (*f)(void *, bus_space_handle_t, bus_size_t), void *c, bus_space_handle_t b, bus_size_t o)
+{
+uint64_t res = f(c, b, o);
+device_printf(dev, "dbg_generic_bs_r_8(%p,%ld) => %lx\n", b, o, res);
+return res;
+}
+
+void dbg_generic_bs_w_8(device_t dev, void (*f)(void *, bus_space_handle_t, bus_size_t, uint64_t), void *c, bus_space_handle_t b, bus_size_t o, uint64_t v)
+{
+device_printf(dev, "dbg_generic_bs_w_8(%p,%lx,%lx)\n", b, o, v);
+f(c, b, o, v) ;
+}
 
 static int
 lowrisc_probe(device_t dev)
@@ -128,6 +141,7 @@ lowrisc_probe(device_t dev)
 static int
 lowrisc_attach(device_t dev)
 {
+        uint64_t status;
 	struct ifnet *ifp;
 	struct lowrisc_softc *sc;
 	uint8_t mac[6];
@@ -160,11 +174,20 @@ lowrisc_attach(device_t dev)
 
 	device_printf(dev, "Try to allocate eth mac address\n");
 
-	/* Read MAC address.  */
+	/* Write MAC address.  */
         memcpy (&macaddr_lo, mac+2, sizeof(uint32_t));
         memcpy (&macaddr_hi, mac+0, sizeof(uint16_t));
         SETREG(sc, MACLO_OFFSET, __bswap32(macaddr_lo));
         SETREG(sc, MACHI_OFFSET, __bswap16(macaddr_hi));
+	/* discard pending packets from boot loader */
+	status = GETREG(sc, RSR_OFFSET);
+        while (status & RSR_RECV_DONE_MASK) {
+                uint64_t buf = status & RSR_RECV_FIRST_MASK;
+		uint64_t length = GETREG(sc, RPLR_OFFSET+((buf&7)<<3)) & RPLR_LENGTH_MASK;
+                device_printf(sc->sc_dev, "Discarded buffer %d  of length %d\n", buf, length);
+		SETREG(sc, RSR_OFFSET, buf+1);
+                status = GETREG(sc, RSR_OFFSET);
+ 		}
 
 	error = bus_setup_intr(sc->sc_dev, sc->sc_intr, INTR_TYPE_NET, NULL,
 	    lowrisc_rx_intr, sc, &sc->sc_intr_cookie);
@@ -264,6 +287,7 @@ lowrisc_transmit(struct ifnet *ifp, struct mbuf *m)
           }
 
 	SETREG(sc, TPLR_OFFSET, m->m_pkthdr.len);
+
 	LOWRISC_ETHER_UNLOCK(sc);
 
 	ETHER_BPF_MTAP(ifp, m);
@@ -272,6 +296,8 @@ lowrisc_transmit(struct ifnet *ifp, struct mbuf *m)
 	if_inc_counter(ifp, IFCOUNTER_OBYTES, m->m_pkthdr.len);
 
 	m_freem(m);
+
+	lowrisc_rx_intr(sc);
 
 	return (0);
 }
@@ -368,11 +394,13 @@ lowrisc_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 static void
 lowrisc_rx_intr(void *arg)
 {
+	uint64_t status;
 	struct lowrisc_softc *sc = arg;
 
 	LOWRISC_ETHER_LOCK(sc);
-	for (;;) {
-		uint64_t status, length, buf, errs, start, rnd;
+	status = GETREG(sc, RSR_OFFSET);
+	while (status & RSR_RECV_DONE_MASK) {
+		uint64_t length, buf, errs, start, rnd;
 		struct mbuf *m;
 		uint64_t *alloc;
 		int i;
@@ -381,15 +409,17 @@ lowrisc_rx_intr(void *arg)
 		 * XXX
 		 * Limit number of packets received at once?
 		 */
-		status = GETREG(sc, RSR_OFFSET);
 		buf = status & RSR_RECV_FIRST_MASK;
 		errs = GETREG(sc, RBAD_OFFSET);
 		length = GETREG(sc, RPLR_OFFSET+((buf&7)<<3)) & RPLR_LENGTH_MASK;
 
-		if ((0x101<<(buf&7)) & ~errs)
-			break;
-		if (length > MCLBYTES - ETHER_ALIGN) {
+		device_printf(sc->sc_dev, "Receive interrupt loop %d, %d, %d\n", buf, errs, length);
+
+		if ((length > MCLBYTES - ETHER_ALIGN) || ((0x101<<(buf&7)) & ~errs))
+		{
 			if_inc_counter(sc->sc_ifp, IFCOUNTER_IERRORS, 1);
+			SETREG(sc, RSR_OFFSET, buf+1);
+			status = GETREG(sc, RSR_OFFSET);
 			continue;
 		}
 
@@ -425,7 +455,12 @@ lowrisc_rx_intr(void *arg)
 		(*sc->sc_ifp->if_input)(sc->sc_ifp, m);
 
 		LOWRISC_ETHER_LOCK(sc);
+		status = GETREG(sc, RSR_OFFSET);
 	}
+
+	/* I hope we are ready to take another interrupt by now */
+        SETREG(sc, MACHI_OFFSET, MACHI_IRQ_EN | GETREG(sc, MACHI_OFFSET));
+
 	LOWRISC_ETHER_UNLOCK(sc);
 
 }
