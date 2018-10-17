@@ -2025,12 +2025,11 @@ pmap_fault_fixup(pmap_t pmap, vm_offset_t va, vm_prot_t prot)
 		return (0);
 
 	new_l3 = orig_l3;
-	if (((orig_l3 & (PTE_D | PTE_W)) == PTE_W) && \
-	    ((prot & PROT_WRITE) != 0))
-		new_l3 |= PTE_D;
-
-	if (((orig_l3 & (PTE_A | PTE_R)) == PTE_R) && \
-	    ((prot & PROT_READ) != 0))
+	if ((prot & PROT_WRITE) != 0 &&
+	    (orig_l3 & (PTE_D | PTE_W)) == PTE_W)
+		new_l3 |= PTE_A | PTE_D;
+	else if ((prot & PROT_READ) != 0 &&
+	    (orig_l3 & (PTE_A | PTE_R)) == PTE_R)
 		new_l3 |= PTE_A;
 
 	if (orig_l3 != new_l3) {
@@ -2449,7 +2448,7 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 	pa = VM_PAGE_TO_PHYS(m);
 	pn = (pa / PAGE_SIZE);
 
-	entry = (PTE_V | PTE_R);
+	entry = (PTE_V | PTE_R | PTE_X);
 	entry |= (pn << PTE_PPN0_S);
 
 	/*
