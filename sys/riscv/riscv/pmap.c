@@ -2021,22 +2021,25 @@ pmap_fault_fixup(pmap_t pmap, vm_offset_t va, vm_prot_t prot)
 		return (0);
 
 	orig_l3 = pmap_load(l3);
-	if ((orig_l3 & PTE_V) == 0)
+	if ((orig_l3 & PTE_V) == 0 ||
+	    ((prot & VM_PROT_WRITE) != 0 && (orig_l3 & PTE_W) == 0) ||
+	    ((prot & VM_PROT_READ) != 0 && (orig_l3 & PTE_R) == 0))
 		return (0);
 
-	new_l3 = orig_l3;
-	if ((prot & PROT_WRITE) != 0 &&
-	    (orig_l3 & (PTE_D | PTE_W)) == PTE_W)
-		new_l3 |= PTE_A | PTE_D;
-	else if ((prot & PROT_READ) != 0 &&
-	    (orig_l3 & (PTE_A | PTE_R)) == PTE_R)
-		new_l3 |= PTE_A;
+	new_l3 = orig_l3 | PTE_A;
+	if ((prot & VM_PROT_WRITE) != 0)
+		new_l3 |= PTE_D;
 
 	if (orig_l3 != new_l3) {
 		pmap_load_store(l3, new_l3);
 		pmap_invalidate_page(pmap, va);
 		return (1);
 	}
+
+	/*	
+	 * XXX: This case should never happen since it means
+	 * the PTE shouldn't have resulted in a fault.
+	 */
 
 	return (0);
 }
