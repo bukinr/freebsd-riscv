@@ -67,7 +67,7 @@ struct lre_softc {
 	struct ifnet *sc_ifp;
 	device_t sc_dev;
 	unsigned sc_port;
-	int sc_flags;
+	int sc_flags, sc_cap;
 	struct ifmedia sc_ifmedia;
 	struct resource *sc_intr, *sc_mem;
 	void *sc_intr_cookie;
@@ -288,6 +288,7 @@ lre_init(void *arg)
 #ifndef LOWRISC_NET_POLL
         SETREG(sc, MACHI_OFFSET, MACHI_IRQ_EN | GETREG(sc, MACHI_OFFSET));
 #endif
+	sc->sc_cap = IFCAP_RXCSUM;
 }
 
 static int
@@ -348,16 +349,20 @@ lre_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct lre_softc *sc;
 	struct ifreq *ifr;
+	struct ifstat *ifs;
 #ifdef INET
 	struct ifaddr *ifa;
 #endif
 	int error;
 
 	sc = ifp->if_softc;
+	
 	ifr = (struct ifreq *)data;
 #ifdef INET
 	ifa = (struct ifaddr *)data;
 #endif
+
+	ifs = (struct ifstat *)data;
 
 	switch (cmd) {
 	case SIOCSIFADDR:
@@ -404,6 +409,14 @@ lre_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 		ifp->if_flags = sc->sc_flags;
 		return (0);
 
+	case SIOCGIFCAP:
+		ifr->ifr_curcap = sc->sc_cap;
+		return (0);
+
+	case SIOCSIFCAP:
+		sc->sc_cap = ifr->ifr_reqcap;
+		return (0);
+
 	case SIOCSIFMTU:
 		if (ifr->ifr_mtu + ifp->if_hdrlen > 1536)
 			return (ENOTSUP);
@@ -411,16 +424,39 @@ lre_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	case SIOCSIFMEDIA:
 	case SIOCGIFMEDIA:
-		error = ifmedia_ioctl(ifp, ifr, &sc->sc_ifmedia, cmd);
-		if (error != 0)
-			return (error);
-		return (0);
+		return ifmedia_ioctl(ifp, ifr, &sc->sc_ifmedia, cmd);
 	
+	case SIOCGIFSTATUS:
+		snprintf(ifs->ascii, sizeof(ifs->ascii), "if_lre status");
+		return 0;
+
+	case SIOCGIFXMEDIA:
+		return ether_ioctl(ifp, cmd, data);
+
+	case SIOCGTUNFIB:
+		return ether_ioctl(ifp, cmd, data);
+
+	case SIOCGIFGENERIC:
+		return ether_ioctl(ifp, cmd, data);
+
+	case SIOCGDRVSPEC:
+		return ether_ioctl(ifp, cmd, data);
+
+	case SIOCGLANPCP:
+		return ether_ioctl(ifp, cmd, data);
+
+	case SIOCGIFPSRCADDR:
+		return ether_ioctl(ifp, cmd, data);
+
+	case SIOCADDMULTI:
+		return ether_ioctl(ifp, cmd, data);
+
+	case SIOCDELMULTI:
+		return ether_ioctl(ifp, cmd, data);
+
 	default:
-		error = ether_ioctl(ifp, cmd, data);
-		if (error != 0)
-			return (error);
-		return (0);
+		device_printf(sc->sc_dev, "unknown ioctl %X\n", cmd);
+		return ether_ioctl(ifp, cmd, data);
 	}
 }
 
@@ -458,6 +494,7 @@ lre_rx_thread(void *arg)
 		buf = status & RSR_RECV_FIRST_MASK;
 		errs = GETREG(sc, RBAD_OFFSET);
 		length = GETREG(sc, RPLR_OFFSET+((buf&7)<<3)) & RPLR_LENGTH_MASK;
+		if (sc->sc_cap & IFCAP_RXCSUM) length -= 4;
 
 		if (0) device_printf(sc->sc_dev, "Receive interrupt loop %d, %d, %d\n", buf, errs, length);
 
