@@ -103,8 +103,11 @@ MK_GCC_BOOTSTRAP=	no
 # here since we will always have the right make, unlike in src/Makefile
 # Don't include bsd.linker.mk yet until XBINUTILS is handled (after src.opts.mk)
 _NO_INCLUDE_LINKERMK=	t
+# We also want the X_COMPILER* variables if we are using an external toolchain.
+_WANT_TOOLCHAIN_CROSS_VARS=	t
 .include "share/mk/bsd.compiler.mk"
 .undef _NO_INCLUDE_LINKERMK
+.undef _WANT_TOOLCHAIN_CROSS_VARS
 # src.opts.mk depends on COMPILER_FEATURES
 .include "share/mk/src.opts.mk"
 
@@ -205,7 +208,10 @@ X${BINUTIL}?=	${${BINUTIL}}
 MK_LLD_BOOTSTRAP=	no
 .endif
 
+# We also want the X_LINKER* variables if we are using an external toolchain.
+_WANT_TOOLCHAIN_CROSS_VARS=	t
 .include "share/mk/bsd.linker.mk"
+.undef _WANT_TOOLCHAIN_CROSS_VARS
 
 # Begin WITH_SYSTEM_COMPILER / WITH_SYSTEM_LD
 
@@ -903,40 +909,18 @@ _sanity_check: .PHONY .MAKE
 _cleanobj_fast_depend_hack: .PHONY
 # Syscall stubs rewritten in C and obsolete MD assembly implementations
 # Date      SVN Rev  Syscalls
-# 20170624  r320278  fstat fstatat fstatfs getdirentries getfsstat statfs
 # 20180404  r332048  sigreturn
 # 20180405  r332080  shmat
 # 20180406  r332119  setlogin
 # 20180411  r332443  exect
 # 20180525  r334224  vadvise
 # 20180604  r334626  brk sbrk
-.for f in brk exect fstat fstatat fstatfs getdirentries getfsstat sbrk setlogin shmat sigreturn statfs vadvise
+.for f in brk exect sbrk setlogin shmat sigreturn vadvise
 	@if [ -e "${OBJTOP}/lib/libc/.depend.${f}.o" ] && \
 	    egrep -qw '${f}\.[sS]' ${OBJTOP}/lib/libc/.depend.${f}.o; then \
 		echo "Removing stale dependencies for ${f} syscall wrappers"; \
 		rm -f ${OBJTOP}/lib/libc/.depend.${f}.* \
 		   ${LIBCOMPAT:D${LIBCOMPAT_OBJTOP}/lib/libc/.depend.${f}.*}; \
-	fi
-.endfor
-# 20170607 remove stale dependencies for utimens* wrappers removed in r319663
-.for f in futimens utimensat
-	@if [ -e "${OBJTOP}/lib/libc/.depend.${f}.o" ] && \
-	    egrep -q '/${f}.c' ${OBJTOP}/lib/libc/.depend.${f}.o; then \
-		echo "Removing stale dependencies for ${f} syscall wrappers"; \
-		rm -f ${OBJTOP}/lib/libc/.depend.${f}.* \
-		   ${LIBCOMPAT:D${LIBCOMPAT_OBJTOP}/lib/libc/.depend.${f}.*}; \
-	fi
-.endfor
-# 20170523 remove stale generated asm files for functions which are no longer
-# syscalls after r302092 (pipe) and r318736 (others)
-.for f in getdents lstat mknod pipe stat
-	@if [ -e "${OBJTOP}/lib/libc/${f}.s" ] || \
-	    [ -e "${OBJTOP}/lib/libc/${f}.S" ] ; then \
-		echo "Removing stale generated ${f} syscall files"; \
-		rm -f ${OBJTOP}/lib/libc/${f}.* \
-		    ${OBJTOP}/lib/libc/.depend.${f}.* \
-		    ${LIBCOMPAT:D${LIBCOMPAT_OBJTOP}/lib/libc/${f}.*} \
-		    ${LIBCOMPAT:D${LIBCOMPAT_OBJTOP}/lib/libc/.depend.${f}.*}; \
 	fi
 .endfor
 # 20181013  r339348  bcopy reimplemented as .c

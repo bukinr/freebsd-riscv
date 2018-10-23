@@ -645,6 +645,7 @@ contrib/zstd/lib/common/error_private.c		optional zstdio compile-with ${ZSTD_C}
 contrib/zstd/lib/common/xxhash.c		optional zstdio compile-with ${ZSTD_C}
 contrib/zstd/lib/compress/zstd_compress.c	optional zstdio compile-with ${ZSTD_C}
 contrib/zstd/lib/compress/fse_compress.c	optional zstdio compile-with ${ZSTD_C}
+contrib/zstd/lib/compress/hist.c		optional zstdio compile-with ${ZSTD_C}
 contrib/zstd/lib/compress/huf_compress.c	optional zstdio compile-with ${ZSTD_C}
 contrib/zstd/lib/compress/zstd_double_fast.c	optional zstdio compile-with ${ZSTD_C}
 contrib/zstd/lib/compress/zstd_fast.c		optional zstdio compile-with ${ZSTD_C}
@@ -2521,6 +2522,7 @@ dev/netmap/netmap_pipe.c	optional netmap
 dev/netmap/netmap_pt.c		optional netmap
 dev/netmap/netmap_vale.c	optional netmap
 dev/netmap/netmap_legacy.c	optional netmap
+dev/netmap/netmap_bdg.c		optional netmap
 # compile-with "${NORMAL_C} -Wconversion -Wextra"
 dev/nfsmb/nfsmb.c		optional nfsmb pci
 dev/nge/if_nge.c		optional nge
