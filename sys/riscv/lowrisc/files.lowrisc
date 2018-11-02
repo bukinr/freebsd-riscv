@@ -1,0 +1,2 @@
+# $FreeBSD$
+dev/lowrisc/ether/if_lre.c		standard
