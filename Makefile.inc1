@@ -962,6 +962,13 @@ _cleanobj_fast_depend_hack: .PHONY
 		   ${LIBCOMPAT:D${LIBCOMPAT_OBJTOP}/lib/libc/.depend.${f}.*}; \
 	fi
 .endfor
+# 20181115  r340463  bzero reimplemented as .c
+	@if [ -e "${OBJTOP}/lib/libc/.depend.bzero.o" ] && \
+	    egrep -qw 'bzero\.[sS]' ${OBJTOP}/lib/libc/.depend.bzero.o; then \
+		echo "Removing stale dependencies for bzero"; \
+		rm -f ${OBJTOP}/lib/libc/.depend.bzero.* \
+		   ${LIBCOMPAT:D${LIBCOMPAT_OBJTOP}/lib/libc/.depend.bzero.*}; \
+	fi
 # 20181009 track migration from ntp's embedded libevent to updated one
 	@if [ -e "${OBJTOP}/usr.sbin/ntp/libntpevent/.depend.bufferevent_openssl.o" ] && \
 	    egrep -q 'contrib/ntp/sntp/libevent/bufferevent_openssl.c' \
@@ -2208,6 +2215,8 @@ _basic_bootstrap_tools+=usr.bin/ldd
 _basic_bootstrap_tools+=usr.sbin/services_mkdb usr.sbin/pwd_mkdb
 # sysctl/chflags are required for installkernel:
 _basic_bootstrap_tools+=sbin/sysctl bin/chflags
+# mkfifo is used by sys/conf/newvers.sh
+_basic_bootstrap_tools+=usr.bin/mkfifo
 
 .if ${MK_AMD} != "no"
 # unifdef is only used by usr.sbin/amd/libamu/Makefile
@@ -2682,8 +2691,10 @@ _prereq_libs+= gnu/lib/libssp/libssp_nonshared
 # gnu/lib/csu, gnu/lib/libgcc, lib/csu and lib/libc must be built before
 # all shared libraries for ELF.
 #
-_startup_libs=	gnu/lib/csu
-_startup_libs+=	lib/csu
+_startup_libs=	lib/csu
+.if ${MK_BSD_CRTBEGIN} == "no"
+_startup_libs+=	gnu/lib/csu
+.endif
 _startup_libs+=	lib/libcompiler_rt
 _startup_libs+=	lib/libc
 _startup_libs+=	lib/libc_nonshared

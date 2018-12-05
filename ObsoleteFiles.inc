@@ -38,6 +38,8 @@
 #   xargs -n1 | sort | uniq -d;
 # done
 
+# 20181116: Rename test file.
+OLD_FILES+=usr/tests/sys/netinet/reuseport_lb
 # 20181112: Cleanup old libcap_dns.
 OLD_LIBS+=lib/casper/libcap_dns.so.1
 OLD_LIBS+=usr/lib32/libcap_dns.so.1
@@ -65,6 +67,8 @@ OLD_LIBS+=usr/lib32/libcap_pwd.so.0
 OLD_LIBS+=usr/lib32/libcap_random.so.0
 OLD_LIBS+=usr/lib32/libcap_dns.so.0
 OLD_LIBS+=usr/lib32/libcap_syslog.so.0
+# 20181012: rename of ixlv(4) to iavf(4)
+OLD_FILES+=usr/share/man/man4/ixlv.4.gz
 # 20181009: OpenSSL 1.1.1
 OLD_FILES+=usr/include/openssl/des_old.h
 OLD_FILES+=usr/include/openssl/dso.h
