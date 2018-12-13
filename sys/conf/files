@@ -1762,6 +1762,7 @@ dev/fdt/fdt_slicer.c		optional fdt cfi | fdt nand | fdt mx25l | fdt n25q
 dev/fdt/fdt_static_dtb.S	optional fdt fdt_dtb_static \
 	dependency	"fdt_dtb_file"
 dev/fdt/simplebus.c		optional fdt
+dev/fdt/simple_mfd.c		optional fdt
 dev/fe/if_fe.c			optional fe
 dev/fe/if_fe_pccard.c		optional fe pccard
 dev/filemon/filemon.c		optional filemon
@@ -1781,7 +1782,8 @@ dev/flash/cqspi.c		optional cqspi fdt xdma
 dev/flash/mx25l.c		optional mx25l
 dev/flash/n25q.c		optional n25q fdt
 dev/flash/qspi_if.m		optional cqspi fdt | n25q fdt
-dev/fxp/if_fxp.c		optional fxp
+dev/fxp/if_fxp.c		optional fxp \
+	compile-with "${NORMAL_C} ${NO_WARRAY_BOUNDS}"
 dev/fxp/inphy.c			optional fxp
 dev/gem/if_gem.c		optional gem
 dev/gem/if_gem_pci.c		optional gem pci
@@ -2745,6 +2747,11 @@ dev/puc/puc.c			optional puc
 dev/puc/puc_cfg.c		optional puc
 dev/puc/puc_pccard.c		optional puc pccard
 dev/puc/puc_pci.c		optional puc pci
+dev/pwm/pwmc.c			optional pwm
+dev/pwm/pwmbus.c		optional pwm
+dev/pwm/pwm_if.m		optional pwm
+dev/pwm/pwmbus_if.m		optional pwm
+dev/pwm/ofw_pwm.c		optional pwm fdt
 dev/quicc/quicc_core.c		optional quicc
 dev/ral/rt2560.c		optional ral
 dev/ral/rt2661.c		optional ral
@@ -4211,6 +4218,7 @@ netgraph/ng_base.c		optional netgraph
 netgraph/ng_bpf.c		optional netgraph_bpf
 netgraph/ng_bridge.c		optional netgraph_bridge
 netgraph/ng_car.c		optional netgraph_car
+netgraph/ng_checksum.c		optional netgraph_checksum
 netgraph/ng_cisco.c		optional netgraph_cisco
 netgraph/ng_deflate.c		optional netgraph_deflate
 netgraph/ng_device.c		optional netgraph_device
