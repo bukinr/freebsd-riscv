@@ -1551,18 +1551,6 @@ OLD_FILES+=usr/bin/cpp
 OLD_FILES+=usr/share/man/man1/cpp.1.gz
 .endif
 
-.if ${MK_CTM} == no
-OLD_FILES+=usr/sbin/ctm
-OLD_FILES+=usr/sbin/ctm_dequeue
-OLD_FILES+=usr/sbin/ctm_rmail
-OLD_FILES+=usr/sbin/ctm_smail
-OLD_FILES+=usr/share/man/man1/ctm.1.gz
-OLD_FILES+=usr/share/man/man1/ctm_dequeue.1.gz
-OLD_FILES+=usr/share/man/man1/ctm_rmail.1.gz
-OLD_FILES+=usr/share/man/man1/ctm_smail.1.gz
-OLD_FILES+=usr/share/man/man5/ctm.5.gz
-.endif
-
 .if ${MK_CUSE} == no
 OLD_FILES+=usr/include/fs/cuse/cuse_defs.h
 OLD_FILES+=usr/include/fs/cuse/cuse_ioctl.h
@@ -8523,13 +8511,6 @@ OLD_FILES+=usr/bin/tftp
 OLD_FILES+=usr/libexec/tftpd
 OLD_FILES+=usr/share/man/man1/tftp.1.gz
 OLD_FILES+=usr/share/man/man8/tftpd.8.gz
-.endif
-
-.if ${MK_TIMED} == no
-OLD_FILES+=usr/sbin/timed
-OLD_FILES+=usr/sbin/timedc
-OLD_FILES+=usr/share/man/man8/timed.8.gz
-OLD_FILES+=usr/share/man/man8/timedc.8.gz
 .endif
 
 .if ${MK_TOOLCHAIN} == no
