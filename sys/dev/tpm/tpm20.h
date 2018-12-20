@@ -124,22 +124,6 @@ int32_t tpm20_get_timeout(uint32_t command);
 int tpm20_init(struct tpm_sc *sc);
 void tpm20_release(struct tpm_sc *sc);
 
-d_open_t	tpm20_open;
-d_close_t	tpm20_close;
-d_read_t	tpm20_read;
-d_write_t	tpm20_write;
-d_ioctl_t	tpm20_ioctl;
-
-static struct cdevsw tpm_cdevsw = {
-	.d_version = D_VERSION,
-	.d_open = tpm20_open,
-	.d_close = tpm20_close,
-	.d_read = tpm20_read,
-	.d_write = tpm20_write,
-	.d_ioctl = tpm20_ioctl,
-	.d_name = "tpm20",
-};
-
 /* Small helper routines for io ops */
 static inline uint8_t
 RD1(struct tpm_sc *sc, bus_size_t off)
@@ -153,12 +137,14 @@ RD4(struct tpm_sc *sc, bus_size_t off)
 
 	return (bus_read_4(sc->mem_res, off));
 }
+#ifdef __amd64__
 static inline uint64_t
 RD8(struct tpm_sc *sc, bus_size_t off)
 {
 
 	return (bus_read_8(sc->mem_res, off));
 }
+#endif
 static inline void
 WR1(struct tpm_sc *sc, bus_size_t off, uint8_t val)
 {
