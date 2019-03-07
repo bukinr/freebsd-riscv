@@ -109,8 +109,6 @@ SUBDIR=	\
 	dcons_crom \
 	de \
 	${_dpms} \
-	${_drm} \
-	${_drm2} \
 	dummynet \
 	${_ed} \
 	${_efirt} \
@@ -406,6 +404,7 @@ SUBDIR=	\
 	${_x86bios} \
 	${_xe} \
 	xl \
+	xz \
 	zlib
 
 .if ${MK_AUTOFS} != "no" || defined(ALL_MODULES)
@@ -473,6 +472,10 @@ _ipfilter=	ipfilter
 SUBDIR+=	cfiscsi
 SUBDIR+=	iscsi
 SUBDIR+=	iscsi_initiator
+.endif
+
+.if !empty(OPT_FDT)
+SUBDIR+=	fdt
 .endif
 
 .if ${MACHINE_CPUARCH} == "aarch64" || ${MACHINE_CPUARCH} == "amd64" || \
@@ -582,12 +585,6 @@ _cpuctl=	cpuctl
 _cpufreq=	cpufreq
 _cs=		cs
 _dpms=		dpms
-.if ${MK_MODULE_DRM} != "no"
-_drm=		drm
-.endif
-.if ${MK_MODULE_DRM2} != "no"
-_drm2=		drm2
-.endif
 _ed=		ed
 _em=		em
 _ena=		ena
@@ -776,9 +773,6 @@ _cardbus=	cardbus
 _cbb=		cbb
 _cfi=		cfi
 _cpufreq=	cpufreq
-.if ${MK_MODULE_DRM} != "no"
-_drm=		drm
-.endif
 _exca=		exca
 _ffec=		ffec
 _nvd=		nvd
@@ -788,9 +782,6 @@ _wi=		wi
 .endif
 
 .if ${MACHINE_ARCH} == "powerpc64"
-.if ${MK_MODULE_DRM2} != "no"
-_drm2=		drm2
-.endif
 _ipmi=		ipmi
 .endif
 .if ${MACHINE_ARCH} == "powerpc64" || ${MACHINE_ARCH} == "powerpc"

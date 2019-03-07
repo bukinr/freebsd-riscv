@@ -31,12 +31,29 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 13.x IS SLOW:
 	disable the most expensive debugging functionality run
 	"ln -s 'abort:false,junk:false' /etc/malloc.conf".)
 
+20190304:
+	Clang, llvm, lld, lldb, compiler-rt and libc++ have been upgraded to
+	8.0.0.  Please see the 20141231 entry below for information about
+	prerequisites and upgrading, if you are not already using clang 3.5.0
+	or higher.
+
+20190219:
+	drm and drm2 have been removed from the tree. Please see
+	https://wiki.freebsd.org/Graphics for the latest information on
+	migrating to the drm ports.
+
 20190131:
 	Iflib is no longer unconditionally compiled into the kernel.  Drivers
 	using iflib and statically compiled into the kernel, now require
 	the 'device iflib' config option.  For the same drivers loaded as
 	modules on kernels not having 'device iflib', the iflib.ko module
 	is loaded automatically.
+
+20190125:
+	The IEEE80211_AMPDU_AGE and AH_SUPPORT_AR5416 kernel configuration
+	options no longer exist since r343219 and r343427 respectively;
+	nothing uses them, so they should be just removed from custom
+	kernel config files.
 
 20181230:
 	r342635 changes the way efibootmgr(8) works by requiring users to add
@@ -231,7 +248,7 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 13.x IS SLOW:
 20180719:
 	ARM64 now have efifb support, if you want to have serial console
 	on your arm64 board when an screen is connected and the bootloader
-	setup a frambuffer for us to use, just add :
+	setup a framebuffer for us to use, just add :
 	boot_serial=YES
 	boot_multicons=YES
 	in /boot/loader.conf
@@ -1936,7 +1953,7 @@ to fetch an UPDATING file from an older FreeBSD release.
 
 Copyright information:
 
-Copyright 1998-2009 M. Warner Losh.  All Rights Reserved.
+Copyright 1998-2009 M. Warner Losh.
 
 Redistribution, publication, translation and use, with or without
 modification, in full or in part, in any form or format of this

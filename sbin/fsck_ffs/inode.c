@@ -127,9 +127,9 @@ ckinode(union dinode *dp, struct inodesc *idesc)
 			ret = iblock(idesc, i + 1, remsize, BT_LEVEL1 + i);
 			if (ret & STOP)
 				return (ret);
-		} else {
+		} else if (remsize > 0) {
 			idesc->id_lbn += sizepb / sblock.fs_bsize;
-			if (idesc->id_type == DATA && remsize > 0) {
+			if (idesc->id_type == DATA) {
 				/* An empty block in a directory XXX */
 				getpathname(pathbuf, idesc->id_number,
 						idesc->id_number);
@@ -349,9 +349,11 @@ getnextinode(ino_t inumber, int rebuildcg)
 			lastinum += fullcnt;
 		}
 		/*
+		 * Flush old contents in case they have been updated.
 		 * If getblk encounters an error, it will already have zeroed
 		 * out the buffer, so we do not need to do so here.
 		 */
+		flush(fswritefd, &inobuf);
 		getblk(&inobuf, blk, size);
 		nextinop = inobuf.b_un.b_buf;
 	}
@@ -461,6 +463,10 @@ void
 freeinodebuf(void)
 {
 
+	/*
+	 * Flush old contents in case they have been updated.
+	 */
+	flush(fswritefd, &inobuf);
 	if (inobuf.b_un.b_buf != NULL)
 		free((char *)inobuf.b_un.b_buf);
 	inobuf.b_un.b_buf = NULL;

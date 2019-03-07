@@ -556,7 +556,7 @@ SYSCTL_INT(_hw_cxgbe, OID_AUTO, pcie_relaxed_ordering, CTLFLAG_RDTUN,
 
 static int t4_panic_on_fatal_err = 0;
 SYSCTL_INT(_hw_cxgbe, OID_AUTO, panic_on_fatal_err, CTLFLAG_RDTUN,
-    &t4_panic_on_fatal_err, 0, "panic on fatal firmware errors");
+    &t4_panic_on_fatal_err, 0, "panic on fatal errors");
 
 #ifdef TCP_OFFLOAD
 /*
@@ -608,6 +608,7 @@ static int cfg_itype_and_nqueues(struct adapter *, struct intrs_and_queues *);
 static int contact_firmware(struct adapter *);
 static int partition_resources(struct adapter *);
 static int get_params__pre_init(struct adapter *);
+static int set_params__pre_init(struct adapter *);
 static int get_params__post_init(struct adapter *);
 static int set_params__post_init(struct adapter *);
 static void t4_set_desc(struct adapter *);
@@ -648,7 +649,6 @@ static int sysctl_loadavg(SYSCTL_HANDLER_ARGS);
 static int sysctl_cctrl(SYSCTL_HANDLER_ARGS);
 static int sysctl_cim_ibq_obq(SYSCTL_HANDLER_ARGS);
 static int sysctl_cim_la(SYSCTL_HANDLER_ARGS);
-static int sysctl_cim_la_t6(SYSCTL_HANDLER_ARGS);
 static int sysctl_cim_ma_la(SYSCTL_HANDLER_ARGS);
 static int sysctl_cim_pif_la(SYSCTL_HANDLER_ARGS);
 static int sysctl_cim_qcfg(SYSCTL_HANDLER_ARGS);
@@ -1372,10 +1372,19 @@ done:
 static int
 t4_child_location_str(device_t bus, device_t dev, char *buf, size_t buflen)
 {
+	struct adapter *sc;
 	struct port_info *pi;
+	int i;
 
-	pi = device_get_softc(dev);
-	snprintf(buf, buflen, "port=%d", pi->port_id);
+	sc = device_get_softc(bus);
+	buf[0] = '\0';
+	for_each_port(sc, i) {
+		pi = sc->port[i];
+		if (pi != NULL && pi->dev == dev) {
+			snprintf(buf, buflen, "port=%d", pi->port_id);
+			break;
+		}
+	}
 	return (0);
 }
 
@@ -2563,6 +2572,16 @@ vcxgbe_detach(device_t dev)
 	return (0);
 }
 
+static struct callout fatal_callout;
+
+static void
+delayed_panic(void *arg)
+{
+	struct adapter *sc = arg;
+
+	panic("%s: panic on fatal error", device_get_nameunit(sc->dev));
+}
+
 void
 t4_fatal_err(struct adapter *sc, bool fw_error)
 {
@@ -2570,9 +2589,6 @@ t4_fatal_err(struct adapter *sc, bool fw_error)
 	t4_shutdown_adapter(sc);
 	log(LOG_ALERT, "%s: encountered fatal error, adapter stopped.\n",
 	    device_get_nameunit(sc->dev));
-	if (t4_panic_on_fatal_err)
-		panic("panic requested on fatal error");
-
 	if (fw_error) {
 		ASSERT_SYNCHRONIZED_OP(sc);
 		sc->flags |= ADAP_ERR;
@@ -2580,6 +2596,12 @@ t4_fatal_err(struct adapter *sc, bool fw_error)
 		ADAPTER_LOCK(sc);
 		sc->flags |= ADAP_ERR;
 		ADAPTER_UNLOCK(sc);
+	}
+
+	if (t4_panic_on_fatal_err) {
+		log(LOG_ALERT, "%s: panic on fatal error after 30s",
+		    device_get_nameunit(sc->dev));
+		callout_reset(&fatal_callout, hz * 30, delayed_panic, sc);
 	}
 }
 
@@ -3943,6 +3965,7 @@ apply_cfg_and_initialize(struct adapter *sc, char *cfg_file,
 	}
 
 	t4_tweak_chip_settings(sc);
+	set_params__pre_init(sc);
 
 	/* get basic stuff going */
 	rc = -t4_fw_initialize(sc, sc->mbox);
@@ -4065,6 +4088,35 @@ get_params__pre_init(struct adapter *sc)
 }
 
 /*
+ * Any params that need to be set before FW_INITIALIZE.
+ */
+static int
+set_params__pre_init(struct adapter *sc)
+{
+	int rc = 0;
+	uint32_t param, val;
+
+	if (chip_id(sc) >= CHELSIO_T6) {
+		param = FW_PARAM_DEV(HPFILTER_REGION_SUPPORT);
+		val = 1;
+		rc = -t4_set_params(sc, sc->mbox, sc->pf, 0, 1, &param, &val);
+		/* firmwares < 1.20.1.0 do not have this param. */
+		if (rc == FW_EINVAL && sc->params.fw_vers <
+		    (V_FW_HDR_FW_VER_MAJOR(1) | V_FW_HDR_FW_VER_MINOR(20) |
+		    V_FW_HDR_FW_VER_MICRO(1) | V_FW_HDR_FW_VER_BUILD(0))) {
+			rc = 0;
+		}
+		if (rc != 0) {
+			device_printf(sc->dev,
+			    "failed to enable high priority filters :%d.\n",
+			    rc);
+		}
+	}
+
+	return (rc);
+}
+
+/*
  * Retrieve various parameters that are of interest to the driver.  The device
  * has been initialized by the firmware at this point.
  */
@@ -4106,20 +4158,6 @@ get_params__post_init(struct adapter *sc)
 	sc->params.core_vdd = val[6];
 
 	if (chip_id(sc) >= CHELSIO_T6) {
-
-#ifdef INVARIANTS
-		if (sc->params.fw_vers >=
-		    (V_FW_HDR_FW_VER_MAJOR(1) | V_FW_HDR_FW_VER_MINOR(20) |
-		    V_FW_HDR_FW_VER_MICRO(1) | V_FW_HDR_FW_VER_BUILD(0))) {
-			/*
-			 * Note that the code to enable the region should run
-			 * before t4_fw_initialize and not here.  This is just a
-			 * reminder to add said code.
-			 */
-			device_printf(sc->dev,
-			    "hpfilter region not enabled.\n");
-		}
-#endif
 
 		sc->tids.tid_base = t4_read_reg(sc,
 		    A_LE_DB_ACTIVE_TABLE_START_INDEX);
@@ -5036,6 +5074,8 @@ cxgbe_init_synchronized(struct vi_info *vi)
 		callout_reset(&vi->tick, hz, vi_tick, vi);
 	else
 		callout_reset(&pi->tick, hz, cxgbe_tick, pi);
+	if (pi->link_cfg.link_ok)
+		t4_os_link_changed(pi);
 	PORT_UNLOCK(pi);
 done:
 	if (rc != 0)
@@ -6026,8 +6066,7 @@ t4_sysctls(struct adapter *sc)
 	    sysctl_cim_ibq_obq, "A", "CIM IBQ 5 (NCSI)");
 
 	SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "cim_la",
-	    CTLTYPE_STRING | CTLFLAG_RD, sc, 0,
-	    chip_id(sc) <= CHELSIO_T5 ? sysctl_cim_la : sysctl_cim_la_t6,
+	    CTLTYPE_STRING | CTLFLAG_RD, sc, 0, sysctl_cim_la,
 	    "A", "CIM logic analyzer");
 
 	SYSCTL_ADD_PROC(ctx, children, OID_AUTO, "cim_ma_la",
@@ -7249,35 +7288,10 @@ done:
 	return (rc);
 }
 
-static int
-sysctl_cim_la(SYSCTL_HANDLER_ARGS)
+static void
+sbuf_cim_la4(struct adapter *sc, struct sbuf *sb, uint32_t *buf, uint32_t cfg)
 {
-	struct adapter *sc = arg1;
-	u_int cfg;
-	struct sbuf *sb;
-	uint32_t *buf, *p;
-	int rc;
-
-	MPASS(chip_id(sc) <= CHELSIO_T5);
-
-	rc = -t4_cim_read(sc, A_UP_UP_DBG_LA_CFG, 1, &cfg);
-	if (rc != 0)
-		return (rc);
-
-	rc = sysctl_wire_old_buffer(req, 0);
-	if (rc != 0)
-		return (rc);
-
-	sb = sbuf_new_for_sysctl(NULL, NULL, 4096, req);
-	if (sb == NULL)
-		return (ENOMEM);
-
-	buf = malloc(sc->params.cim_la_size * sizeof(uint32_t), M_CXGBE,
-	    M_ZERO | M_WAITOK);
-
-	rc = -t4_cim_read_la(sc, buf, NULL);
-	if (rc != 0)
-		goto done;
+	uint32_t *p;
 
 	sbuf_printf(sb, "Status   Data      PC%s",
 	    cfg & F_UPDBGLACAPTPCONLY ? "" :
@@ -7302,43 +7316,12 @@ sysctl_cim_la(SYSCTL_HANDLER_ARGS)
 			    p[6], p[7]);
 		}
 	}
-
-	rc = sbuf_finish(sb);
-	sbuf_delete(sb);
-done:
-	free(buf, M_CXGBE);
-	return (rc);
 }
 
-static int
-sysctl_cim_la_t6(SYSCTL_HANDLER_ARGS)
+static void
+sbuf_cim_la6(struct adapter *sc, struct sbuf *sb, uint32_t *buf, uint32_t cfg)
 {
-	struct adapter *sc = arg1;
-	u_int cfg;
-	struct sbuf *sb;
-	uint32_t *buf, *p;
-	int rc;
-
-	MPASS(chip_id(sc) > CHELSIO_T5);
-
-	rc = -t4_cim_read(sc, A_UP_UP_DBG_LA_CFG, 1, &cfg);
-	if (rc != 0)
-		return (rc);
-
-	rc = sysctl_wire_old_buffer(req, 0);
-	if (rc != 0)
-		return (rc);
-
-	sb = sbuf_new_for_sysctl(NULL, NULL, 4096, req);
-	if (sb == NULL)
-		return (ENOMEM);
-
-	buf = malloc(sc->params.cim_la_size * sizeof(uint32_t), M_CXGBE,
-	    M_ZERO | M_WAITOK);
-
-	rc = -t4_cim_read_la(sc, buf, NULL);
-	if (rc != 0)
-		goto done;
+	uint32_t *p;
 
 	sbuf_printf(sb, "Status   Inst    Data      PC%s",
 	    cfg & F_UPDBGLACAPTPCONLY ? "" :
@@ -7365,12 +7348,76 @@ sysctl_cim_la_t6(SYSCTL_HANDLER_ARGS)
 			    p[2], p[1], p[0], p[5], p[4], p[3]);
 		}
 	}
+}
 
-	rc = sbuf_finish(sb);
-	sbuf_delete(sb);
+static int
+sbuf_cim_la(struct adapter *sc, struct sbuf *sb, int flags)
+{
+	uint32_t cfg, *buf;
+	int rc;
+
+	rc = -t4_cim_read(sc, A_UP_UP_DBG_LA_CFG, 1, &cfg);
+	if (rc != 0)
+		return (rc);
+
+	MPASS(flags == M_WAITOK || flags == M_NOWAIT);
+	buf = malloc(sc->params.cim_la_size * sizeof(uint32_t), M_CXGBE,
+	    M_ZERO | flags);
+	if (buf == NULL)
+		return (ENOMEM);
+
+	rc = -t4_cim_read_la(sc, buf, NULL);
+	if (rc != 0)
+		goto done;
+	if (chip_id(sc) < CHELSIO_T6)
+		sbuf_cim_la4(sc, sb, buf, cfg);
+	else
+		sbuf_cim_la6(sc, sb, buf, cfg);
+
 done:
 	free(buf, M_CXGBE);
 	return (rc);
+}
+
+static int
+sysctl_cim_la(SYSCTL_HANDLER_ARGS)
+{
+	struct adapter *sc = arg1;
+	struct sbuf *sb;
+	int rc;
+
+	rc = sysctl_wire_old_buffer(req, 0);
+	if (rc != 0)
+		return (rc);
+	sb = sbuf_new_for_sysctl(NULL, NULL, 4096, req);
+	if (sb == NULL)
+		return (ENOMEM);
+
+	rc = sbuf_cim_la(sc, sb, M_WAITOK);
+	if (rc == 0)
+		rc = sbuf_finish(sb);
+	sbuf_delete(sb);
+	return (rc);
+}
+
+bool
+t4_os_dump_cimla(struct adapter *sc, int arg, bool verbose)
+{
+	struct sbuf sb;
+	int rc;
+
+	if (sbuf_new(&sb, NULL, 4096, SBUF_AUTOEXTEND) != &sb)
+		return (false);
+	rc = sbuf_cim_la(sc, &sb, M_NOWAIT);
+	if (rc == 0) {
+		rc = sbuf_finish(&sb);
+		if (rc == 0) {
+			log(LOG_DEBUG, "%s: CIM LA dump follows.\n%s",
+		    		device_get_nameunit(sc->dev), sbuf_data(&sb));
+		}
+	}
+	sbuf_delete(&sb);
+	return (false);
 }
 
 static int
@@ -7625,19 +7672,18 @@ static const char * const devlog_facility_strings[] = {
 };
 
 static int
-sysctl_devlog(SYSCTL_HANDLER_ARGS)
+sbuf_devlog(struct adapter *sc, struct sbuf *sb, int flags)
 {
-	struct adapter *sc = arg1;
+	int i, j, rc, nentries, first = 0;
 	struct devlog_params *dparams = &sc->params.devlog;
 	struct fw_devlog_e *buf, *e;
-	int i, j, rc, nentries, first = 0;
-	struct sbuf *sb;
 	uint64_t ftstamp = UINT64_MAX;
 
 	if (dparams->addr == 0)
 		return (ENXIO);
 
-	buf = malloc(dparams->size, M_CXGBE, M_NOWAIT);
+	MPASS(flags == M_WAITOK || flags == M_NOWAIT);
+	buf = malloc(dparams->size, M_CXGBE, M_ZERO | flags);
 	if (buf == NULL)
 		return (ENOMEM);
 
@@ -7666,15 +7712,6 @@ sysctl_devlog(SYSCTL_HANDLER_ARGS)
 	if (buf[first].timestamp == 0)
 		goto done;	/* nothing in the log */
 
-	rc = sysctl_wire_old_buffer(req, 0);
-	if (rc != 0)
-		goto done;
-
-	sb = sbuf_new_for_sysctl(NULL, NULL, 4096, req);
-	if (sb == NULL) {
-		rc = ENOMEM;
-		goto done;
-	}
 	sbuf_printf(sb, "%10s  %15s  %8s  %8s  %s\n",
 	    "Seq#", "Tstamp", "Level", "Facility", "Message");
 
@@ -7697,12 +7734,49 @@ sysctl_devlog(SYSCTL_HANDLER_ARGS)
 		if (++i == nentries)
 			i = 0;
 	} while (i != first);
-
-	rc = sbuf_finish(sb);
-	sbuf_delete(sb);
 done:
 	free(buf, M_CXGBE);
 	return (rc);
+}
+
+static int
+sysctl_devlog(SYSCTL_HANDLER_ARGS)
+{
+	struct adapter *sc = arg1;
+	int rc;
+	struct sbuf *sb;
+
+	rc = sysctl_wire_old_buffer(req, 0);
+	if (rc != 0)
+		return (rc);
+	sb = sbuf_new_for_sysctl(NULL, NULL, 4096, req);
+	if (sb == NULL)
+		return (ENOMEM);
+
+	rc = sbuf_devlog(sc, sb, M_WAITOK);
+	if (rc == 0)
+		rc = sbuf_finish(sb);
+	sbuf_delete(sb);
+	return (rc);
+}
+
+void
+t4_os_dump_devlog(struct adapter *sc)
+{
+	int rc;
+	struct sbuf sb;
+
+	if (sbuf_new(&sb, NULL, 4096, SBUF_AUTOEXTEND) != &sb)
+		return;
+	rc = sbuf_devlog(sc, &sb, M_NOWAIT);
+	if (rc == 0) {
+		rc = sbuf_finish(&sb);
+		if (rc == 0) {
+			log(LOG_DEBUG, "%s: device log follows.\n%s",
+		    		device_get_nameunit(sc->dev), sbuf_data(&sb));
+		}
+	}
+	sbuf_delete(&sb);
 }
 
 static int
@@ -10652,6 +10726,7 @@ mod_event(module_t mod, int cmd, void *arg)
 			    do_smt_write_rpl);
 			sx_init(&t4_list_lock, "T4/T5 adapters");
 			SLIST_INIT(&t4_list);
+			callout_init(&fatal_callout, 1);
 #ifdef TCP_OFFLOAD
 			sx_init(&t4_uld_list_lock, "T4/T5 ULDs");
 			SLIST_INIT(&t4_uld_list);

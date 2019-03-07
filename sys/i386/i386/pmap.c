@@ -564,6 +564,8 @@ __CONCAT(PMTYPE, cold)(void)
 	/* Now enable paging */
 #ifdef PMAP_PAE_COMP
 	cr3 = (u_int)IdlePDPT;
+	if ((cpu_feature & CPUID_PAT) == 0)
+		wbinvd();
 #else
 	cr3 = (u_int)IdlePTD;
 #endif
@@ -2040,6 +2042,14 @@ __CONCAT(PMTYPE, pinit)(pmap_t pmap)
 	}
 
 	pmap_qenter((vm_offset_t)pmap->pm_pdir, pmap->pm_ptdpg, NPGPTD);
+#ifdef PMAP_PAE_COMP
+	if ((cpu_feature & CPUID_PAT) == 0) {
+		pmap_invalidate_cache_range(
+		    trunc_page((vm_offset_t)pmap->pm_pdpt),
+		    round_page((vm_offset_t)pmap->pm_pdpt +
+		    NPGPTD * sizeof(pdpt_entry_t)));
+	}
+#endif
 
 	for (i = 0; i < NPGPTD; i++)
 		if ((pmap->pm_ptdpg[i]->flags & PG_ZERO) == 0)
@@ -3247,7 +3257,7 @@ retry:
 	if ((prot & VM_PROT_WRITE) == 0)
 		newpde &= ~(PG_RW | PG_M);
 #ifdef PMAP_PAE_COMP
-	if ((prot & VM_PROT_EXECUTE) == 0)
+	if ((prot & VM_PROT_EXECUTE) == 0 && !i386_read_exec)
 		newpde |= pg_nx;
 #endif
 	if (newpde != oldpde) {
@@ -3389,7 +3399,7 @@ retry:
 				pbits &= ~(PG_RW | PG_M);
 			}
 #ifdef PMAP_PAE_COMP
-			if ((prot & VM_PROT_EXECUTE) == 0)
+			if ((prot & VM_PROT_EXECUTE) == 0 && !i386_read_exec)
 				pbits |= pg_nx;
 #endif
 
@@ -3604,7 +3614,7 @@ __CONCAT(PMTYPE, enter)(pmap_t pmap, vm_offset_t va, vm_page_t m,
 	KASSERT((newpte & (PG_M | PG_RW)) != PG_M,
 	    ("pmap_enter: flags includes VM_PROT_WRITE but prot doesn't"));
 #ifdef PMAP_PAE_COMP
-	if ((prot & VM_PROT_EXECUTE) == 0)
+	if ((prot & VM_PROT_EXECUTE) == 0 && !i386_read_exec)
 		newpte |= pg_nx;
 #endif
 	if ((flags & PMAP_ENTER_WIRED) != 0)
@@ -3801,7 +3811,7 @@ validate:
 		if ((origpte & PG_A) != 0)
 			pmap_invalidate_page_int(pmap, va);
 	} else
-		pte_store(pte, newpte);
+		pte_store_zero(pte, newpte);
 
 unchanged:
 
@@ -3841,7 +3851,7 @@ pmap_enter_4mpage(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot)
 	if ((m->oflags & VPO_UNMANAGED) == 0)
 		newpde |= PG_MANAGED;
 #ifdef PMAP_PAE_COMP
-	if ((prot & VM_PROT_EXECUTE) == 0)
+	if ((prot & VM_PROT_EXECUTE) == 0 && !i386_read_exec)
 		newpde |= pg_nx;
 #endif
 	if (pmap != kernel_pmap)
@@ -4099,12 +4109,12 @@ pmap_enter_quick_locked(pmap_t pmap, vm_offset_t va, vm_page_t m,
 	if ((m->oflags & VPO_UNMANAGED) == 0)
 		newpte |= PG_MANAGED;
 #ifdef PMAP_PAE_COMP
-	if ((prot & VM_PROT_EXECUTE) == 0)
+	if ((prot & VM_PROT_EXECUTE) == 0 && !i386_read_exec)
 		newpte |= pg_nx;
 #endif
 	if (pmap != kernel_pmap)
 		newpte |= PG_U;
-	pte_store(pte, newpte);
+	pte_store_zero(pte, newpte);
 	sched_unpin();
 	return (mpte);
 }

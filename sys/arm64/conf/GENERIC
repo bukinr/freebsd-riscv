@@ -94,8 +94,8 @@ options 	USB_DEBUG		# enable debug msgs
 options 	VERBOSE_SYSINIT=0	# Support debug.verbose_sysinit, off by default
 
 # Kernel Sanitizers
-options 	COVERAGE		# Generic kernel coverage. Used by KCOV
-options 	KCOV			# Kernel Coverage Sanitizer
+#options 	COVERAGE		# Generic kernel coverage. Used by KCOV
+#options 	KCOV			# Kernel Coverage Sanitizer
 # Warning: KUBSAN can result in a kernel too large for loader to load
 #options 	KUBSAN			# Kernel Undefined Behavior Sanitizer
 
@@ -196,7 +196,6 @@ device		ohci			# OHCI USB interface
 device		ehci			# EHCI USB interface (USB 2.0)
 device		ehci_mv			# Marvell EHCI USB interface
 device		xhci			# XHCI PCI->USB interface (USB 3.0)
-device		xhci_mv			# Marvell XHCI USB interface
 device		usb			# USB Bus (required)
 device		ukbd			# Keyboard
 device		umass			# Disks/Mass storage - Requires scbus and da
@@ -213,6 +212,8 @@ device		gpioled
 device		fdt_pinctrl
 device		mv_gpio		# Marvell GPIO controller
 device		mvebu_pinctrl	# Marvell Pinmux Controller
+device		rk_gpio		# RockChip GPIO Controller
+device		rk_pinctrl	# RockChip Pinmux Controller
 
 # I2C
 device		aw_rsb		# Allwinner Reduced Serial Bus

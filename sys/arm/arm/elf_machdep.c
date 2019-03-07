@@ -70,7 +70,6 @@ struct sysentvec elf32_freebsd_sysvec = {
 	.sv_coredump	= __elfN(coredump),
 	.sv_imgact_try	= NULL,
 	.sv_minsigstksz	= MINSIGSTKSZ,
-	.sv_pagesize	= PAGE_SIZE,
 	.sv_minuser	= VM_MIN_ADDRESS,
 	.sv_maxuser	= VM_MAXUSER_ADDRESS,
 	.sv_usrstack	= USRSTACK,
@@ -82,9 +81,9 @@ struct sysentvec elf32_freebsd_sysvec = {
 	.sv_maxssiz	= NULL,
 	.sv_flags	=
 #if __ARM_ARCH >= 6
-			  SV_SHP | SV_TIMEKEEP |
+			  SV_ASLR | SV_SHP | SV_TIMEKEEP |
 #endif
-			  SV_ABI_FREEBSD | SV_ILP32,
+			  SV_ABI_FREEBSD | SV_ILP32 | SV_ASLR,
 	.sv_set_syscall_retval = cpu_set_syscall_retval,
 	.sv_fetch_syscall_args = cpu_fetch_syscall_args,
 	.sv_syscallnames = syscallnames,

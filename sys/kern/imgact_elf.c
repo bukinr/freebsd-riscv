@@ -90,10 +90,9 @@ static int __elfN(check_header)(const Elf_Ehdr *hdr);
 static Elf_Brandinfo *__elfN(get_brandinfo)(struct image_params *imgp,
     const char *interp, int interp_name_len, int32_t *osrel, uint32_t *fctl0);
 static int __elfN(load_file)(struct proc *p, const char *file, u_long *addr,
-    u_long *entry, size_t pagesize);
+    u_long *entry);
 static int __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
-    caddr_t vmaddr, size_t memsz, size_t filsz, vm_prot_t prot,
-    size_t pagesize);
+    caddr_t vmaddr, size_t memsz, size_t filsz, vm_prot_t prot);
 static int __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp);
 static bool __elfN(freebsd_trans_osrel)(const Elf_Note *note,
     int32_t *osrel);
@@ -130,13 +129,32 @@ SYSCTL_INT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO,
     nxstack, CTLFLAG_RW, &__elfN(nxstack), 0,
     __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": enable non-executable stack");
 
-#if __ELF_WORD_SIZE == 32
-#if defined(__amd64__)
+#if __ELF_WORD_SIZE == 32 && (defined(__amd64__) || defined(__i386__))
 int i386_read_exec = 0;
 SYSCTL_INT(_kern_elf32, OID_AUTO, read_exec, CTLFLAG_RW, &i386_read_exec, 0,
     "enable execution from readable segments");
 #endif
-#endif
+
+SYSCTL_NODE(__CONCAT(_kern_elf, __ELF_WORD_SIZE), OID_AUTO, aslr, CTLFLAG_RW, 0,
+    "");
+#define	ASLR_NODE_OID	__CONCAT(__CONCAT(_kern_elf, __ELF_WORD_SIZE), _aslr)
+
+static int __elfN(aslr_enabled) = 0;
+SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, enable, CTLFLAG_RWTUN,
+    &__elfN(aslr_enabled), 0,
+    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
+    ": enable address map randomization");
+
+static int __elfN(pie_aslr_enabled) = 0;
+SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, pie_enable, CTLFLAG_RWTUN,
+    &__elfN(pie_aslr_enabled), 0,
+    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE))
+    ": enable address map randomization for PIE binaries");
+
+static int __elfN(aslr_honor_sbrk) = 1;
+SYSCTL_INT(ASLR_NODE_OID, OID_AUTO, honor_sbrk, CTLFLAG_RW,
+    &__elfN(aslr_honor_sbrk), 0,
+    __XSTRING(__CONCAT(ELF, __ELF_WORD_SIZE)) ": assume sbrk is used");
 
 static Elf_Brandinfo *elf_brand_list[MAX_BRANDS];
 
@@ -522,8 +540,7 @@ __elfN(map_insert)(struct image_params *imgp, vm_map_t map, vm_object_t object,
 
 static int
 __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
-    caddr_t vmaddr, size_t memsz, size_t filsz, vm_prot_t prot,
-    size_t pagesize)
+    caddr_t vmaddr, size_t memsz, size_t filsz, vm_prot_t prot)
 {
 	struct sf_buf *sf;
 	size_t map_len;
@@ -551,8 +568,8 @@ __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
 
 	object = imgp->object;
 	map = &imgp->proc->p_vmspace->vm_map;
-	map_addr = trunc_page_ps((vm_offset_t)vmaddr, pagesize);
-	file_addr = trunc_page_ps(offset, pagesize);
+	map_addr = trunc_page_ps((vm_offset_t)vmaddr, PAGE_SIZE);
+	file_addr = trunc_page_ps(offset, PAGE_SIZE);
 
 	/*
 	 * We have two choices.  We can either clear the data in the last page
@@ -563,9 +580,9 @@ __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
 	if (filsz == 0)
 		map_len = 0;
 	else if (memsz > filsz)
-		map_len = trunc_page_ps(offset + filsz, pagesize) - file_addr;
+		map_len = trunc_page_ps(offset + filsz, PAGE_SIZE) - file_addr;
 	else
-		map_len = round_page_ps(offset + filsz, pagesize) - file_addr;
+		map_len = round_page_ps(offset + filsz, PAGE_SIZE) - file_addr;
 
 	if (map_len != 0) {
 		/* cow flags: don't dump readonly sections in core */
@@ -595,9 +612,9 @@ __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
 	 * to try and save a page, but it's a pain in the behind to implement.
 	 */
 	copy_len = filsz == 0 ? 0 : (offset + filsz) - trunc_page_ps(offset +
-	    filsz, pagesize);
-	map_addr = trunc_page_ps((vm_offset_t)vmaddr + filsz, pagesize);
-	map_len = round_page_ps((vm_offset_t)vmaddr + memsz, pagesize) -
+	    filsz, PAGE_SIZE);
+	map_addr = trunc_page_ps((vm_offset_t)vmaddr + filsz, PAGE_SIZE);
+	map_len = round_page_ps((vm_offset_t)vmaddr + memsz, PAGE_SIZE) -
 	    map_addr;
 
 	/* This had damn well better be true! */
@@ -614,7 +631,7 @@ __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
 			return (EIO);
 
 		/* send the page fragment to user space */
-		off = trunc_page_ps(offset + filsz, pagesize) -
+		off = trunc_page_ps(offset + filsz, PAGE_SIZE) -
 		    trunc_page(offset + filsz);
 		error = copyout((caddr_t)sf_buf_kva(sf) + off,
 		    (caddr_t)map_addr, copy_len);
@@ -648,7 +665,7 @@ __elfN(load_section)(struct image_params *imgp, vm_ooffset_t offset,
  */
 static int
 __elfN(load_file)(struct proc *p, const char *file, u_long *addr,
-	u_long *entry, size_t pagesize)
+	u_long *entry)
 {
 	struct {
 		struct nameidata nd;
@@ -747,7 +764,7 @@ __elfN(load_file)(struct proc *p, const char *file, u_long *addr,
 			prot = __elfN(trans_prot)(phdr[i].p_flags);
 			error = __elfN(load_section)(imgp, phdr[i].p_offset,
 			    (caddr_t)(uintptr_t)phdr[i].p_vaddr + rbase,
-			    phdr[i].p_memsz, phdr[i].p_filesz, prot, pagesize);
+			    phdr[i].p_memsz, phdr[i].p_filesz, prot);
 			if (error != 0)
 				goto fail;
 			/*
@@ -775,6 +792,36 @@ fail:
 	return (error);
 }
 
+static u_long
+__CONCAT(rnd_, __elfN(base))(vm_map_t map __unused, u_long minv, u_long maxv,
+    u_int align)
+{
+	u_long rbase, res;
+
+	MPASS(vm_map_min(map) <= minv);
+	MPASS(maxv <= vm_map_max(map));
+	MPASS(minv < maxv);
+	MPASS(minv + align < maxv);
+	arc4rand(&rbase, sizeof(rbase), 0);
+	res = roundup(minv, (u_long)align) + rbase % (maxv - minv);
+	res &= ~((u_long)align - 1);
+	if (res >= maxv)
+		res -= align;
+	KASSERT(res >= minv,
+	    ("res %#lx < minv %#lx, maxv %#lx rbase %#lx",
+	    res, minv, maxv, rbase));
+	KASSERT(res < maxv,
+	    ("res %#lx > maxv %#lx, minv %#lx rbase %#lx",
+	    res, maxv, minv, rbase));
+	return (res);
+}
+
+/*
+ * Impossible et_dyn_addr initial value indicating that the real base
+ * must be calculated later with some randomization applied.
+ */
+#define	ET_DYN_ADDR_RAND	1
+
 static int
 __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 {
@@ -783,6 +830,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	const Elf_Phdr *phdr;
 	Elf_Auxargs *elf_auxargs;
 	struct vmspace *vmspace;
+	vm_map_t map;
 	const char *err_str, *newinterp;
 	char *interp, *interp_buf, *path;
 	Elf_Brandinfo *brand_info;
@@ -790,6 +838,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	vm_prot_t prot;
 	u_long text_size, data_size, total_size, text_addr, data_addr;
 	u_long seg_size, seg_addr, addr, baddr, et_dyn_addr, entry, proghdr;
+	u_long maxalign, mapsz, maxv, maxv1;
 	uint32_t fctl0;
 	int32_t osrel;
 	int error, i, n, interp_name_len, have_interp;
@@ -833,12 +882,17 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	err_str = newinterp = NULL;
 	interp = interp_buf = NULL;
 	td = curthread;
+	maxalign = PAGE_SIZE;
+	mapsz = 0;
 
 	for (i = 0; i < hdr->e_phnum; i++) {
 		switch (phdr[i].p_type) {
 		case PT_LOAD:
 			if (n == 0)
 				baddr = phdr[i].p_vaddr;
+			if (phdr[i].p_align > maxalign)
+				maxalign = phdr[i].p_align;
+			mapsz += phdr[i].p_memsz;
 			n++;
 			break;
 		case PT_INTERP:
@@ -899,6 +953,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		error = ENOEXEC;
 		goto ret;
 	}
+	sv = brand_info->sysvec;
 	et_dyn_addr = 0;
 	if (hdr->e_type == ET_DYN) {
 		if ((brand_info->flags & BI_CAN_EXEC_DYN) == 0) {
@@ -910,10 +965,18 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		 * Honour the base load address from the dso if it is
 		 * non-zero for some reason.
 		 */
-		if (baddr == 0)
-			et_dyn_addr = ET_DYN_LOAD_ADDR;
+		if (baddr == 0) {
+			if ((sv->sv_flags & SV_ASLR) == 0 ||
+			    (fctl0 & NT_FREEBSD_FCTL_ASLR_DISABLE) != 0)
+				et_dyn_addr = ET_DYN_LOAD_ADDR;
+			else if ((__elfN(pie_aslr_enabled) &&
+			    (imgp->proc->p_flag2 & P2_ASLR_DISABLE) == 0) ||
+			    (imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0)
+				et_dyn_addr = ET_DYN_ADDR_RAND;
+			else
+				et_dyn_addr = ET_DYN_LOAD_ADDR;
+		}
 	}
-	sv = brand_info->sysvec;
 	if (interp != NULL && brand_info->interp_newpath != NULL)
 		newinterp = brand_info->interp_newpath;
 
@@ -930,8 +993,53 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	 */
 	VOP_UNLOCK(imgp->vp, 0);
 
+	/*
+	 * Decide whether to enable randomization of user mappings.
+	 * First, reset user preferences for the setid binaries.
+	 * Then, account for the support of the randomization by the
+	 * ABI, by user preferences, and make special treatment for
+	 * PIE binaries.
+	 */
+	if (imgp->credential_setid) {
+		PROC_LOCK(imgp->proc);
+		imgp->proc->p_flag2 &= ~(P2_ASLR_ENABLE | P2_ASLR_DISABLE);
+		PROC_UNLOCK(imgp->proc);
+	}
+	if ((sv->sv_flags & SV_ASLR) == 0 ||
+	    (imgp->proc->p_flag2 & P2_ASLR_DISABLE) != 0 ||
+	    (fctl0 & NT_FREEBSD_FCTL_ASLR_DISABLE) != 0) {
+		KASSERT(et_dyn_addr != ET_DYN_ADDR_RAND,
+		    ("et_dyn_addr == RAND and !ASLR"));
+	} else if ((imgp->proc->p_flag2 & P2_ASLR_ENABLE) != 0 ||
+	    (__elfN(aslr_enabled) && hdr->e_type == ET_EXEC) ||
+	    et_dyn_addr == ET_DYN_ADDR_RAND) {
+		imgp->map_flags |= MAP_ASLR;
+		/*
+		 * If user does not care about sbrk, utilize the bss
+		 * grow region for mappings as well.  We can select
+		 * the base for the image anywere and still not suffer
+		 * from the fragmentation.
+		 */
+		if (!__elfN(aslr_honor_sbrk) ||
+		    (imgp->proc->p_flag2 & P2_ASLR_IGNSTART) != 0)
+			imgp->map_flags |= MAP_ASLR_IGNSTART;
+	}
+
 	error = exec_new_vmspace(imgp, sv);
+	vmspace = imgp->proc->p_vmspace;
+	map = &vmspace->vm_map;
+
 	imgp->proc->p_sysent = sv;
+
+	maxv = vm_map_max(map) - lim_max(td, RLIMIT_STACK);
+	if (et_dyn_addr == ET_DYN_ADDR_RAND) {
+		KASSERT((map->flags & MAP_ASLR) != 0,
+		    ("ET_DYN_ADDR_RAND but !MAP_ASLR"));
+		et_dyn_addr = __CONCAT(rnd_, __elfN(base))(map,
+		    vm_map_min(map) + mapsz + lim_max(td, RLIMIT_DATA),
+		    /* reserve half of the address space to interpreter */
+		    maxv / 2, 1UL << flsl(maxalign));
+	}
 
 	vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
 	if (error != 0)
@@ -945,8 +1053,7 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 			prot = __elfN(trans_prot)(phdr[i].p_flags);
 			error = __elfN(load_section)(imgp, phdr[i].p_offset,
 			    (caddr_t)(uintptr_t)phdr[i].p_vaddr + et_dyn_addr,
-			    phdr[i].p_memsz, phdr[i].p_filesz, prot,
-			    sv->sv_pagesize);
+			    phdr[i].p_memsz, phdr[i].p_filesz, prot);
 			if (error != 0)
 				goto ret;
 
@@ -1024,7 +1131,6 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		goto ret;
 	}
 
-	vmspace = imgp->proc->p_vmspace;
 	vmspace->vm_tsize = text_size >> PAGE_SHIFT;
 	vmspace->vm_taddr = (caddr_t)(uintptr_t)text_addr;
 	vmspace->vm_dsize = data_size >> PAGE_SHIFT;
@@ -1038,6 +1144,14 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	 */
 	addr = round_page((vm_offset_t)vmspace->vm_daddr + lim_max(td,
 	    RLIMIT_DATA));
+	if ((map->flags & MAP_ASLR) != 0) {
+		maxv1 = maxv / 2 + addr / 2;
+		MPASS(maxv1 >= addr);	/* No overflow */
+		map->anon_loc = __CONCAT(rnd_, __elfN(base))(map, addr, maxv1,
+		    MAXPAGESIZES > 1 ? pagesizes[1] : pagesizes[0]);
+	} else {
+		map->anon_loc = addr;
+	}
 	PROC_UNLOCK(imgp->proc);
 
 	imgp->entry_addr = entry;
@@ -1045,13 +1159,20 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 	if (interp != NULL) {
 		have_interp = FALSE;
 		VOP_UNLOCK(imgp->vp, 0);
+		if ((map->flags & MAP_ASLR) != 0) {
+			/* Assume that interpeter fits into 1/4 of AS */
+			maxv1 = maxv / 2 + addr / 2;
+			MPASS(maxv1 >= addr);	/* No overflow */
+			addr = __CONCAT(rnd_, __elfN(base))(map, addr,
+			    maxv1, PAGE_SIZE);
+		}
 		if (brand_info->emul_path != NULL &&
 		    brand_info->emul_path[0] != '\0') {
 			path = malloc(MAXPATHLEN, M_TEMP, M_WAITOK);
 			snprintf(path, MAXPATHLEN, "%s%s",
 			    brand_info->emul_path, interp);
 			error = __elfN(load_file)(imgp->proc, path, &addr,
-			    &imgp->entry_addr, sv->sv_pagesize);
+			    &imgp->entry_addr);
 			free(path, M_TEMP);
 			if (error == 0)
 				have_interp = TRUE;
@@ -1060,13 +1181,13 @@ __CONCAT(exec_, __elfN(imgact))(struct image_params *imgp)
 		    (brand_info->interp_path == NULL ||
 		    strcmp(interp, brand_info->interp_path) == 0)) {
 			error = __elfN(load_file)(imgp->proc, newinterp, &addr,
-			    &imgp->entry_addr, sv->sv_pagesize);
+			    &imgp->entry_addr);
 			if (error == 0)
 				have_interp = TRUE;
 		}
 		if (!have_interp) {
 			error = __elfN(load_file)(imgp->proc, interp, &addr,
-			    &imgp->entry_addr, sv->sv_pagesize);
+			    &imgp->entry_addr);
 		}
 		vn_lock(imgp->vp, LK_EXCLUSIVE | LK_RETRY);
 		if (error != 0) {
@@ -2516,11 +2637,9 @@ __elfN(trans_prot)(Elf_Word flags)
 		prot |= VM_PROT_WRITE;
 	if (flags & PF_R)
 		prot |= VM_PROT_READ;
-#if __ELF_WORD_SIZE == 32
-#if defined(__amd64__)
+#if __ELF_WORD_SIZE == 32 && (defined(__amd64__) || defined(__i386__))
 	if (i386_read_exec && (flags & PF_R))
 		prot |= VM_PROT_EXECUTE;
-#endif
 #endif
 	return (prot);
 }
