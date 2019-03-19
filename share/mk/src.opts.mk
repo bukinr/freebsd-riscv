@@ -108,6 +108,7 @@ __DEFAULT_YES_OPTIONS = \
     GDB \
     GNU_DIFF \
     GNU_GREP \
+    GOOGLETEST \
     GPIO \
     HAST \
     HTML \
@@ -398,6 +399,12 @@ BROKEN_OPTIONS+=NVME
 BROKEN_OPTIONS+=BSD_CRTBEGIN
 .endif
 
+.if ${COMPILER_FEATURES:Mc++11} && (${__T} == "amd64" || ${__T} == "i386")
+__DEFAULT_YES_OPTIONS+=OPENMP
+.else
+__DEFAULT_NO_OPTIONS+=OPENMP
+.endif
+
 .include <bsd.mkopt.mk>
 
 #
@@ -427,6 +434,7 @@ MK_${var}:=	no
 # Order is somewhat important.
 #
 .if !${COMPILER_FEATURES:Mc++11}
+MK_GOOGLETEST:=	no
 MK_LLVM_LIBUNWIND:=	no
 .endif
 
@@ -505,6 +513,10 @@ MK_FREEBSD_UPDATE:=	no
 
 .if ${MK_TESTS} == "no"
 MK_DTRACE_TESTS:= no
+.endif
+
+.if ${MK_TESTS_SUPPORT} == "no"
+MK_GOOGLETEST:=	no
 .endif
 
 .if ${MK_ZONEINFO} == "no"
