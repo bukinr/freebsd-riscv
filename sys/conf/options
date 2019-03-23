@@ -253,7 +253,7 @@ CD9660		opt_dontuse.h
 EXT2FS		opt_dontuse.h
 FDESCFS		opt_dontuse.h
 FFS		opt_dontuse.h
-FUSE		opt_dontuse.h
+FUSEFS		opt_dontuse.h
 MSDOSFS		opt_dontuse.h
 NANDFS		opt_dontuse.h
 NULLFS		opt_dontuse.h
@@ -982,6 +982,9 @@ RANDOM_LOADABLE	opt_global.h
 # the uma slab allocator.
 RANDOM_ENABLE_UMA	opt_global.h
 RANDOM_ENABLE_ETHER	opt_global.h
+
+# This options turns TPM into entropy source.
+TPM_HARVEST	opt_tpm.h
 
 # BHND(4) driver
 BHND_LOGLEVEL	opt_global.h
