@@ -8,6 +8,8 @@ crypto/des/des_enc.c		optional	crypto | ipsec | ipsec_support | netsmb
 dev/uart/uart_cpu_fdt.c		optional	uart fdt
 dev/uart/uart_dev_lowrisc.c	optional	uart_lowrisc
 dev/xilinx/axi_quad_spi.c	optional	xilinx_spi
+dev/xilinx/if_axi.c		optional	axi
+dev/xilinx/if_axi_if.m		optional	axi
 kern/kern_clocksource.c		standard
 kern/msi_if.m			standard
 kern/pic_if.m			standard
@@ -27,6 +29,7 @@ libkern/memset.c		standard
 riscv/riscv/autoconf.c		standard
 riscv/riscv/bus_machdep.c	standard
 riscv/riscv/bus_space_asm.S	standard
+riscv/riscv/busdma_bounce.c	standard
 riscv/riscv/busdma_machdep.c	standard
 riscv/riscv/clock.c		standard
 riscv/riscv/copyinout.S		standard
