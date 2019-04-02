@@ -208,6 +208,12 @@ plic_attach(device_t dev)
 		return (ENXIO);
 	}
 
+	if (sc->ndev >= PLIC_MAX_IRQS) {
+		device_printf(dev,
+		    "Error: invalid ndev (%d)\n", sc->ndev);
+		return (ENXIO);
+	}
+
 	/* Request memory resources */
 	rid = 0;
 	sc->intc_res = bus_alloc_resource_any(dev, SYS_RES_MEMORY, &rid,
