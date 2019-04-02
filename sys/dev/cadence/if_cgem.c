@@ -944,7 +944,7 @@ cgem_filter_intr(void *arg)
 	sc->istatus = RD4(sc, CGEM_INTR_STAT);
 	WR4(sc, CGEM_INTR_STAT, sc->istatus);
 
-	/* Disable interrupts */
+	/* Disable interrupts. */
 	WR4(sc, CGEM_INTR_DIS, CGEM_INTR_ALL);
 
 	return (FILTER_SCHEDULE_THREAD);
@@ -1763,7 +1763,7 @@ cgem_attach(device_t dev)
 	ether_ifattach(ifp, eaddr);
 
 	err = bus_setup_intr(dev, sc->irq_res, INTR_TYPE_NET | INTR_MPSAFE |
-			     INTR_EXCL, cgem_filter_intr, cgem_intr, sc, &sc->intrhand);
+	    INTR_EXCL, cgem_filter_intr, cgem_intr, sc, &sc->intrhand);
 	if (err) {
 		device_printf(dev, "could not set interrupt handler.\n");
 		ether_ifdetach(ifp);
