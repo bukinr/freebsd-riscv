@@ -940,12 +940,12 @@ cgem_filter_intr(void *arg)
 
 	sc = (struct cgem_softc *)arg;
 
+	/* Disable interrupts. */
+	WR4(sc, CGEM_INTR_DIS, CGEM_INTR_ALL);
+
 	/* Read interrupt status and immediately clear the bits. */
 	sc->istatus = RD4(sc, CGEM_INTR_STAT);
 	WR4(sc, CGEM_INTR_STAT, sc->istatus);
-
-	/* Disable interrupts. */
-	WR4(sc, CGEM_INTR_DIS, CGEM_INTR_ALL);
 
 	return (FILTER_SCHEDULE_THREAD);
 }
