@@ -98,6 +98,12 @@ __FBSDID("$FreeBSD$");
 #define CGEM_CKSUM_ASSIST	(CSUM_IP | CSUM_TCP | CSUM_UDP | \
 				 CSUM_TCP_IPV6 | CSUM_UDP_IPV6)
 
+static struct ofw_compat_data compat_data[] = {
+	{ "cadence,gem",	1 },
+	{ "cdns,macb",		1 },
+	{ NULL,			0 },
+};
+
 struct cgem_softc {
 	if_t			ifp;
 	struct mtx		sc_mtx;
@@ -112,6 +118,7 @@ struct cgem_softc {
 	uint32_t		net_ctl_shadow;
 	int			ref_clk_num;
 	u_char			eaddr[6];
+	uint32_t		istatus;
 
 	bus_dma_tag_t		desc_dma_tag;
 	bus_dma_tag_t		mbuf_dma_tag;
@@ -926,48 +933,58 @@ cgem_tick(void *arg)
 	callout_reset(&sc->tick_ch, hz, cgem_tick, sc);
 }
 
+static int
+cgem_filter_intr(void *arg)
+{
+	struct cgem_softc *sc;
+
+	sc = (struct cgem_softc *)arg;
+
+	/* Read interrupt status and immediately clear the bits. */
+	sc->istatus = RD4(sc, CGEM_INTR_STAT);
+	WR4(sc, CGEM_INTR_STAT, sc->istatus);
+
+	/* Disable interrupts */
+	WR4(sc, CGEM_INTR_DIS, CGEM_INTR_ALL);
+
+	return (FILTER_SCHEDULE_THREAD);
+}
+
 /* Interrupt handler. */
 static void
 cgem_intr(void *arg)
 {
 	struct cgem_softc *sc = (struct cgem_softc *)arg;
 	if_t ifp = sc->ifp;
-	uint32_t istatus;
 
 	CGEM_LOCK(sc);
 
-	if ((if_getdrvflags(ifp) & IFF_DRV_RUNNING) == 0) {
-		CGEM_UNLOCK(sc);
-		return;
-	}
-
-	/* Read interrupt status and immediately clear the bits. */
-	istatus = RD4(sc, CGEM_INTR_STAT);
-	WR4(sc, CGEM_INTR_STAT, istatus);
+	if ((if_getdrvflags(ifp) & IFF_DRV_RUNNING) == 0)
+		goto finish;
 
 	/* Packets received. */
-	if ((istatus & CGEM_INTR_RX_COMPLETE) != 0)
+	if ((sc->istatus & CGEM_INTR_RX_COMPLETE) != 0)
 		cgem_recv(sc);
 
 	/* Free up any completed transmit buffers. */
 	cgem_clean_tx(sc);
 
 	/* Hresp not ok.  Something is very bad with DMA.  Try to clear. */
-	if ((istatus & CGEM_INTR_HRESP_NOT_OK) != 0) {
+	if ((sc->istatus & CGEM_INTR_HRESP_NOT_OK) != 0) {
 		device_printf(sc->dev, "cgem_intr: hresp not okay! "
 			      "rx_status=0x%x\n", RD4(sc, CGEM_RX_STAT));
 		WR4(sc, CGEM_RX_STAT, CGEM_RX_STAT_HRESP_NOT_OK);
 	}
 
 	/* Receiver overrun. */
-	if ((istatus & CGEM_INTR_RX_OVERRUN) != 0) {
+	if ((sc->istatus & CGEM_INTR_RX_OVERRUN) != 0) {
 		/* Clear status bit. */
 		WR4(sc, CGEM_RX_STAT, CGEM_RX_STAT_OVERRUN);
 		sc->rxoverruns++;
 	}
 
 	/* Receiver ran out of bufs. */
-	if ((istatus & CGEM_INTR_RX_USED_READ) != 0) {
+	if ((sc->istatus & CGEM_INTR_RX_USED_READ) != 0) {
 		WR4(sc, CGEM_NET_CTRL, sc->net_ctl_shadow |
 		    CGEM_NET_CTRL_FLUSH_DPRAM_PKT);
 		cgem_fill_rqueue(sc);
@@ -978,7 +995,14 @@ cgem_intr(void *arg)
 	if (!if_sendq_empty(ifp))
 		cgem_start_locked(ifp);
 
+finish:
 	CGEM_UNLOCK(sc);
+
+	/* Restore interrupts. */
+	WR4(sc, CGEM_INTR_EN,
+	    CGEM_INTR_RX_COMPLETE | CGEM_INTR_RX_OVERRUN |
+	    CGEM_INTR_TX_USED_READ | CGEM_INTR_RX_USED_READ |
+	    CGEM_INTR_HRESP_NOT_OK);
 }
 
 /* Reset hardware. */
@@ -1635,7 +1659,7 @@ cgem_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (!ofw_bus_is_compatible(dev, "cadence,gem"))
+	if (ofw_bus_search_compatible(dev, compat_data)->ocd_data == 0)
 		return (ENXIO);
 
 	device_set_desc(dev, "Cadence CGEM Gigabit Ethernet Interface");
@@ -1739,7 +1763,7 @@ cgem_attach(device_t dev)
 	ether_ifattach(ifp, eaddr);
 
 	err = bus_setup_intr(dev, sc->irq_res, INTR_TYPE_NET | INTR_MPSAFE |
-			     INTR_EXCL, NULL, cgem_intr, sc, &sc->intrhand);
+			     INTR_EXCL, cgem_filter_intr, cgem_intr, sc, &sc->intrhand);
 	if (err) {
 		device_printf(dev, "could not set interrupt handler.\n");
 		ether_ifdetach(ifp);
