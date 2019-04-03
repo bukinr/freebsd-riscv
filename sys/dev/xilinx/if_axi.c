@@ -1098,10 +1098,10 @@ axi_probe(device_t dev)
 	if (!ofw_bus_status_okay(dev))
 		return (ENXIO);
 
-	if (!ofw_bus_is_compatible(dev, "snps,dwmac"))
+	if (!ofw_bus_is_compatible(dev, "xlnx,axi-ethernet-1.00.a"))
 		return (ENXIO);
 
-	device_set_desc(dev, "Gigabit Ethernet Controller");
+	device_set_desc(dev, "Xilinx AXI Ethernet");
 	return (BUS_PROBE_DEFAULT);
 }
 
@@ -1139,6 +1139,9 @@ axi_attach(device_t dev)
 	/* Memory interface */
 	sc->bst = rman_get_bustag(sc->res[0]);
 	sc->bsh = rman_get_bushandle(sc->res[0]);
+
+	printf("ID: %x\n", READ4(sc, AXI_IDENT));
+	return (0);
 
 	/* Read MAC before reset */
 	if (axi_get_hwaddr(sc, macaddr)) {
@@ -1240,62 +1243,74 @@ axi_attach(device_t dev)
 }
 
 static int
-axi_miibus_read_reg(device_t dev, int phy, int reg)
+mdio_wait(struct axi_softc *sc)
 {
-#if 0
-	struct axi_softc *sc;
-	uint16_t mii;
-	size_t cnt;
-	int rv = 0;
+	uint32_t reg;
+	int timeout;
 
-	sc = device_get_softc(dev);
+	timeout = 200;
 
-	mii = ((phy & GMII_ADDRESS_PA_MASK) << GMII_ADDRESS_PA_SHIFT)
-	    | ((reg & GMII_ADDRESS_GR_MASK) << GMII_ADDRESS_GR_SHIFT)
-	    | (sc->mii_clk << GMII_ADDRESS_CR_SHIFT)
-	    | GMII_ADDRESS_GB; /* Busy flag */
-
-	WRITE4(sc, GMII_ADDRESS, mii);
-
-	for (cnt = 0; cnt < 1000; cnt++) {
-		if (!(READ4(sc, GMII_ADDRESS) & GMII_ADDRESS_GB)) {
-			rv = READ4(sc, GMII_DATA);
+	do {
+		reg = READ4(sc, AXI_MDIO_CTRL);
+		if (reg & MDIO_CTRL_READY)
 			break;
-		}
-		DELAY(10);
-	}
+		DELAY(1);
+	} while (timeout--);
 
-	return rv;
-#endif
+	if (timeout <= 0) {
+		printf("Failed to get MDIO ready\n");
+		return (1);
+	}
 
 	return (0);
 }
 
 static int
-axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
+axi_miibus_read_reg(device_t dev, int phy, int reg)
 {
-#if 0
 	struct axi_softc *sc;
-	uint16_t mii;
-	size_t cnt;
+	uint32_t mii;
+	int rv;
 
 	sc = device_get_softc(dev);
 
-	mii = ((phy & GMII_ADDRESS_PA_MASK) << GMII_ADDRESS_PA_SHIFT)
-	    | ((reg & GMII_ADDRESS_GR_MASK) << GMII_ADDRESS_GR_SHIFT)
-	    | (sc->mii_clk << GMII_ADDRESS_CR_SHIFT)
-	    | GMII_ADDRESS_GB | GMII_ADDRESS_GW;
+	if (mdio_wait(sc))
+		return (0);
 
-	WRITE4(sc, GMII_DATA, val);
-	WRITE4(sc, GMII_ADDRESS, mii);
+	mii = MDIO_CTRL_TX_OP_READ | MDIO_CTRL_INITIATE;
+	mii |= (reg << MDIO_TX_REGAD_S);
+	mii |= (phy << MDIO_TX_PHYAD_S);
 
-	for (cnt = 0; cnt < 1000; cnt++) {
-		if (!(READ4(sc, GMII_ADDRESS) & GMII_ADDRESS_GB)) {
-			break;
-                }
-		DELAY(10);
-	}
-#endif
+	WRITE4(sc, AXI_MDIO_CTRL, mii);
+
+	if (mdio_wait(sc))
+		return (0);
+
+	rv = READ4(sc, AXI_MDIO_READ);
+
+	return (rv);
+}
+
+static int
+axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
+{
+	struct axi_softc *sc;
+	uint32_t mii;
+
+	sc = device_get_softc(dev);
+
+	if (mdio_wait(sc))
+		return (1);
+
+	mii = MDIO_CTRL_TX_OP_WRITE | MDIO_CTRL_INITIATE;
+	mii |= (reg << MDIO_TX_REGAD_S);
+	mii |= (phy << MDIO_TX_PHYAD_S);
+
+	WRITE4(sc, AXI_MDIO_WRITE, val);
+	WRITE4(sc, AXI_MDIO_CTRL, mii);
+
+	if (mdio_wait(sc))
+		return (1);
 
 	return (0);
 }
@@ -1313,6 +1328,8 @@ axi_miibus_statchg(device_t dev)
 	 * Called by the MII bus driver when the PHY establishes
 	 * link to set the MAC interface registers.
 	 */
+
+	printf("%s\n", __func__);
 
 	sc = device_get_softc(dev);
 

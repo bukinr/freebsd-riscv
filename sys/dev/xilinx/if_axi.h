@@ -54,6 +54,16 @@
 #define	AXI_ABILITY	0x004FC /* Ability register RO */
 #define	AXI_MDIO_SETUP	0x00500 /* MDIO Setup register RW */
 #define	AXI_MDIO_CTRL	0x00504 /* MDIO Control RW */
+#define	 MDIO_TX_REGAD_S	16 /* This controls the register address being accessed. */
+#define	 MDIO_TX_REGAD_M	(0x1f << MDIO_TX_REGAD_S)
+#define	 MDIO_TX_PHYAD_S	24 /* This controls the PHY address being accessed. */
+#define	 MDIO_TX_PHYAD_M	(0x1f << MDIO_TX_PHYAD_S)
+#define	 MDIO_CTRL_TX_OP_S	14 /* Type of access performed. */
+#define	 MDIO_CTRL_TX_OP_M	(0x3 << MDIO_CTRL_TX_OP_S)
+#define	 MDIO_CTRL_TX_OP_READ	(0x2 << MDIO_CTRL_TX_OP_S)
+#define	 MDIO_CTRL_TX_OP_WRITE	(0x1 << MDIO_CTRL_TX_OP_S)
+#define	 MDIO_CTRL_INITIATE	(1 << 11) /* Start an MDIO transfer. */
+#define	 MDIO_CTRL_READY	(1 << 7) /* MDIO is ready for a new xfer */
 #define	AXI_MDIO_WRITE	0x00508 /* MDIO Write Data RW */
 #define	AXI_MDIO_READ	0x0050C /* MDIO Read Data RO */
 #define	AXI_INT_STATUS	0x00600 /* Interrupt Status Register RW */
