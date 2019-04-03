@@ -53,6 +53,8 @@
 #define	AXI_IDENT	0x004F8 /* Identification register RO */
 #define	AXI_ABILITY	0x004FC /* Ability register RO */
 #define	AXI_MDIO_SETUP	0x00500 /* MDIO Setup register RW */
+#define	 MDIO_SETUP_ENABLE	(1 << 6) /* MDIO Enable */
+#define	 MDIO_SETUP_CLK_DIV_S	0 /* Clock Divide */
 #define	AXI_MDIO_CTRL	0x00504 /* MDIO Control RW */
 #define	 MDIO_TX_REGAD_S	16 /* This controls the register address being accessed. */
 #define	 MDIO_TX_REGAD_M	(0x1f << MDIO_TX_REGAD_S)

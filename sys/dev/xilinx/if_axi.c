@@ -74,6 +74,8 @@ __FBSDID("$FreeBSD$");
 #define	WATCHDOG_TIMEOUT_SECS	5
 #define	STATS_HARVEST_INTERVAL	2
 
+#define	MDIO_CLK_DIV_DEFAULT	29
+
 #define	DWC_LOCK(sc)			mtx_lock(&(sc)->mtx)
 #define	DWC_UNLOCK(sc)			mtx_unlock(&(sc)->mtx)
 #define	DWC_ASSERT_LOCKED(sc)		mtx_assert(&(sc)->mtx, MA_OWNED)
@@ -541,6 +543,8 @@ static int
 axi_media_change_locked(struct axi_softc *sc)
 {
 
+	printf("%s\n", __func__);
+
 	return (mii_mediachg(sc->mii_softc));
 }
 
@@ -849,7 +853,7 @@ axi_intr(void *arg)
 #endif
 }
 
-static int
+static int __unused
 setup_dma(struct axi_softc *sc)
 {
 	struct mbuf *m;
@@ -1011,7 +1015,7 @@ out:
 	return (0);
 }
 
-static int
+static int __unused
 axi_get_hwaddr(struct axi_softc *sc, uint8_t *hwaddr)
 {
 	uint32_t hi, lo, rnd;
@@ -1054,7 +1058,7 @@ axi_get_hwaddr(struct axi_softc *sc, uint8_t *hwaddr)
 
 #define	GPIO_ACTIVE_LOW 1
 
-static int
+static int __unused
 axi_reset(device_t dev)
 {
 
@@ -1141,8 +1145,14 @@ axi_attach(device_t dev)
 	sc->bsh = rman_get_bushandle(sc->res[0]);
 
 	printf("ID: %x\n", READ4(sc, AXI_IDENT));
-	return (0);
 
+	uint32_t reg;
+
+	reg = (MDIO_CLK_DIV_DEFAULT << MDIO_SETUP_CLK_DIV_S);
+	reg |= MDIO_SETUP_ENABLE;
+	WRITE4(sc, AXI_MDIO_SETUP, reg);
+
+#if 0
 	/* Read MAC before reset */
 	if (axi_get_hwaddr(sc, macaddr)) {
 		device_printf(sc->dev, "can't get mac\n");
@@ -1155,7 +1165,6 @@ axi_attach(device_t dev)
 		return (ENXIO);
 	}
 
-#if 0
 	/* Reset */
 	reg = READ4(sc, BUS_MODE);
 	reg |= (BUS_MODE_SWR);
@@ -1185,13 +1194,11 @@ axi_attach(device_t dev)
 	reg = READ4(sc, OPERATION_MODE);
 	reg &= ~(MODE_ST | MODE_SR);
 	WRITE4(sc, OPERATION_MODE, reg);
-#endif
 
 	if (setup_dma(sc))
 	        return (ENXIO);
 
 	/* Setup addresses */
-#if 0
 	WRITE4(sc, RX_DESCR_LIST_ADDR, sc->rxdesc_ring_paddr);
 	WRITE4(sc, TX_DESCR_LIST_ADDR, sc->txdesc_ring_paddr);
 #endif
