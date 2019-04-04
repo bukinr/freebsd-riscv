@@ -1233,7 +1233,7 @@ axi_attach(device_t dev)
 
 	/* Attach the mii driver. */
 	error = mii_attach(dev, &sc->miibus, ifp, axi_media_change,
-	    axi_media_status, BMSR_DEFCAPMASK, MII_PHY_ANY,
+	    axi_media_status, BMSR_DEFCAPMASK, 3, //MII_PHY_ANY,
 	    MII_OFFSET_ANY, 0);
 
 	if (error != 0) {
@@ -1279,6 +1279,8 @@ axi_miibus_read_reg(device_t dev, int phy, int reg)
 	uint32_t mii;
 	int rv;
 
+	//printf("%s: phy %d reg %x\n", __func__, phy, reg);
+
 	sc = device_get_softc(dev);
 
 	if (mdio_wait(sc))
@@ -1294,6 +1296,7 @@ axi_miibus_read_reg(device_t dev, int phy, int reg)
 		return (0);
 
 	rv = READ4(sc, AXI_MDIO_READ);
+	//printf("%s: phy %d reg %x, rv %x\n", __func__, phy, reg, rv);
 
 	return (rv);
 }
@@ -1305,6 +1308,8 @@ axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
 	uint32_t mii;
 
 	sc = device_get_softc(dev);
+
+	//printf("%s: phy %d reg %x val %x\n", __func__, phy, reg, val);
 
 	if (mdio_wait(sc))
 		return (1);
@@ -1319,6 +1324,8 @@ axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
 	if (mdio_wait(sc))
 		return (1);
 
+	//printf("%s: phy %d reg %x val %x, success\n", __func__, phy, reg, val);
+
 	return (0);
 }
 
@@ -1327,9 +1334,7 @@ axi_miibus_statchg(device_t dev)
 {
 	struct axi_softc *sc;
 	struct mii_data *mii;
-#if 0
 	uint32_t reg;
-#endif
 
 	/*
 	 * Called by the MII bus driver when the PHY establishes
@@ -1349,26 +1354,20 @@ axi_miibus_statchg(device_t dev)
 	else
 		sc->link_is_up = false;
 
-#if 0
-	reg = READ4(sc, MAC_CONFIGURATION);
-#endif
+	printf("%s: IFM_SUBTYPE(mii->mii_media_active) %d\n",
+	    __func__, IFM_SUBTYPE(mii->mii_media_active));
+	printf("%s: options %x\n",
+	    __func__, IFM_OPTIONS(mii->mii_media_active));
 	switch (IFM_SUBTYPE(mii->mii_media_active)) {
 	case IFM_1000_T:
 	case IFM_1000_SX:
-#if 0
-		reg &= ~(CONF_FES | CONF_PS);
-#endif
+		reg = SPEED_1000;
 		break;
 	case IFM_100_TX:
-#if 0
-		reg |= (CONF_FES | CONF_PS);
-#endif
+		reg = SPEED_100;
 		break;
 	case IFM_10_T:
-#if 0
-		reg &= ~(CONF_FES);
-		reg |= (CONF_PS);
-#endif
+		reg = SPEED_10;
 		break;
 	case IFM_NONE:
 		sc->link_is_up = false;
@@ -1379,6 +1378,10 @@ axi_miibus_statchg(device_t dev)
 		    IFM_SUBTYPE(mii->mii_media_active));
 		return;
 	}
+
+	WRITE4(sc, AXI_SPEED, reg);
+	DELAY(1);
+
 #if 0
 	if ((IFM_OPTIONS(mii->mii_media_active) & IFM_FDX) != 0)
 		reg |= (CONF_DM);

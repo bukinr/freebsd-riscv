@@ -47,6 +47,11 @@
 #define	AXI_RCW1	0x00404 /* Receive Configuration Word 1 Register RW */
 #define	AXI_TC		0x00408 /* Transmitter Configuration register RW */
 #define	AXI_FCC		0x0040C /* Flow Control Configuration register RW */
+#define	AXI_SPEED	0x00410 /* MAC Speed Configuration Word RW */
+#define	 SPEED_CONF_S	30
+#define	 SPEED_10	(0 << SPEED_CONF_S)
+#define	 SPEED_100	(1 << SPEED_CONF_S)
+#define	 SPEED_1000	(2 << SPEED_CONF_S)
 #define	AXI_RX_MAXFRAME	0x00414 /* RX Max Frame Configuration RW */
 #define	AXI_TX_MAXFRAME	0x00418 /* TX Max Frame Configuration RW */
 #define	AXI_TX_TIMESTMP	0x0041C /* TX timestamp adjust control register RW */
