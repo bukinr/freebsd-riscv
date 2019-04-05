@@ -1139,6 +1139,20 @@ axi_attach(device_t dev)
 	sc = device_get_softc(dev);
 	sc->dev = dev;
 	sc->rx_idx = 0;
+
+	/* Get xDMA controller */   
+	sc->xdma_tx = xdma_ofw_get(sc->dev, "tx");
+	if (sc->xdma_tx == NULL) {
+		device_printf(dev, "Could not find DMA controller.\n");
+		return (ENXIO);
+	}
+
+	sc->xdma_rx = xdma_ofw_get(sc->dev, "rx");
+	if (sc->xdma_rx == NULL) {
+		device_printf(dev, "Could not find DMA controller.\n");
+		return (ENXIO);
+	}
+
 #if 0
 	sc->txcount = TX_DESC_COUNT;
 	sc->mii_clk = IF_DWC_MII_CLK(dev);

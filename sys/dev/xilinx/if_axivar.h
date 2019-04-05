@@ -41,6 +41,8 @@
 #ifndef	__IF_DWCVAR_H__
 #define	__IF_DWCVAR_H__
 
+#include <dev/xdma/xdma.h>
+
 /*
  * Driver data and defines.
  */
@@ -74,6 +76,9 @@ struct axi_softc {
 	boolean_t		is_detaching;
 	int			tx_watchdog_count;
 	int			stats_harvest_count;
+
+	xdma_controller_t       *xdma_tx;
+	xdma_controller_t       *xdma_rx;
 
 	/* RX */
 	bus_dma_tag_t		rxdesc_tag;
