@@ -108,4 +108,23 @@
 #define	DMAWFP		0x30
 #define	DMAWMB		0x13
 
+struct axidma_desc {
+	uint32_t next;
+	uint32_t reserved1;
+	uint32_t phys;
+	uint32_t reserved2;
+	uint32_t reserved3;
+	uint32_t reserved4;
+	uint32_t control;
+	uint32_t status;
+	uint32_t app0;
+	uint32_t app1;
+	uint32_t app2;
+	uint32_t app3;
+	uint32_t app4;
+	uint32_t sw_id_offset;
+	uint32_t reserved5;
+	uint32_t reserved6;
+};
+
 #endif /* !_DEV_XDMA_CONTROLLER_PL330_H_ */
