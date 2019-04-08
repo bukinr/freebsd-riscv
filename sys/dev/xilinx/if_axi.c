@@ -104,6 +104,11 @@ __FBSDID("$FreeBSD$");
 
 #define	DDESC_CNTL_CHAINED		(1U << 24)
 
+#define	RX_QUEUE_SIZE		4096
+#define	TX_QUEUE_SIZE		4096
+#define	NUM_RX_MBUF		512
+#define	BUFRING_SIZE		8192
+
 /*
  * A hardware buffer descriptor.  Rx and Tx buffers have the same descriptor
  * layout, but the bits in the fields have different meanings.
@@ -218,6 +223,7 @@ axi_setup_txdesc(struct axi_softc *sc, int idx, bus_addr_t paddr,
 	return (0);
 }
 
+#if 0
 static int
 axi_setup_txbuf(struct axi_softc *sc, int idx, struct mbuf **mp)
 {
@@ -246,7 +252,45 @@ axi_setup_txbuf(struct axi_softc *sc, int idx, struct mbuf **mp)
 
 	return (0);
 }
+#endif
 
+static int
+axi_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
+{
+	xdma_transfer_status_t st;
+	struct axi_softc *sc;
+	struct ifnet *ifp;
+	struct mbuf *m;
+	int err;
+
+	sc = arg;
+
+	DWC_LOCK(sc);
+
+	ifp = sc->ifp;
+
+	for (;;) {
+		err = xdma_dequeue_mbuf(sc->xchan_tx, &m, &st);
+		if (err != 0) {
+			break;
+		}
+
+		if (st.error != 0) {
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+		}
+
+		m_freem(m);
+		sc->txcount--;
+	}
+
+	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
+
+	DWC_UNLOCK(sc);
+
+	return (0);
+}
+
+#if 0
 static void
 axi_txstart_locked(struct axi_softc *sc)
 {
@@ -256,14 +300,15 @@ axi_txstart_locked(struct axi_softc *sc)
 
 	DWC_ASSERT_LOCKED(sc);
 
+	printf("%s\n", __func__);
+
 	if (!sc->link_is_up)
 		return;
 
 	ifp = sc->ifp;
 
-	if (ifp->if_drv_flags & IFF_DRV_OACTIVE) {
+	if (ifp->if_drv_flags & IFF_DRV_OACTIVE)
 		return;
-	}
 
 	enqueued = 0;
 
@@ -301,6 +346,103 @@ axi_txstart(struct ifnet *ifp)
 	DWC_LOCK(sc);
 	axi_txstart_locked(sc);
 	DWC_UNLOCK(sc);
+}
+#endif
+
+static void
+axi_qflush(struct ifnet *ifp)
+{
+	struct atse_softc *sc;
+
+	sc = ifp->if_softc;
+
+	printf("%s\n", __func__);
+}
+
+static int
+axi_transmit_locked(struct ifnet *ifp)
+{
+	struct axi_softc *sc;
+	struct mbuf *m;
+	struct buf_ring *br;
+	int error;
+	int enq;
+
+	printf("%s\n", __func__);
+
+	sc = ifp->if_softc;
+	br = sc->br;
+
+	enq = 0;
+
+	while ((m = drbr_peek(ifp, br)) != NULL) {
+		error = xdma_enqueue_mbuf(sc->xchan_tx,
+		    &m, 0, 4, 4, XDMA_MEM_TO_DEV);
+		if (error != 0) {
+			/* No space in request queue available yet. */
+			drbr_putback(ifp, br, m);
+			break;
+		}
+
+		drbr_advance(ifp, br);
+
+		sc->txcount++;
+		enq++;
+
+		/* If anyone is interested give them a copy. */
+		ETHER_BPF_MTAP(ifp, m);
+        }
+
+	if (enq > 0)
+		xdma_queue_submit(sc->xchan_tx);
+
+	return (0);
+}
+
+static int
+axi_transmit(struct ifnet *ifp, struct mbuf *m)
+{
+	struct axi_softc *sc;
+	struct buf_ring *br;
+	int error;
+
+	printf("%s\n", __func__);
+
+	sc = ifp->if_softc;
+	br = sc->br;
+
+	DWC_LOCK(sc);
+
+	mtx_lock(&sc->br_mtx);
+
+	if ((ifp->if_drv_flags & (IFF_DRV_RUNNING | IFF_DRV_OACTIVE)) !=
+	    IFF_DRV_RUNNING) {
+		error = drbr_enqueue(ifp, sc->br, m);
+		mtx_unlock(&sc->br_mtx);
+		DWC_UNLOCK(sc);
+		return (error);
+	}
+
+	//if ((sc->atse_flags & DWC_FLAGS_LINK) == 0) {
+	if (!sc->link_is_up) {
+		error = drbr_enqueue(ifp, sc->br, m);
+		mtx_unlock(&sc->br_mtx);
+		DWC_UNLOCK(sc);
+		return (error);
+	}
+
+	error = drbr_enqueue(ifp, br, m);
+	if (error) {
+		mtx_unlock(&sc->br_mtx);
+		DWC_UNLOCK(sc);
+		return (error);
+	}
+	error = axi_transmit_locked(ifp);
+
+	mtx_unlock(&sc->br_mtx);
+	DWC_UNLOCK(sc);
+
+	return (error);
 }
 
 static void
@@ -400,7 +542,7 @@ axi_tick(void *arg)
 	ifp = sc->ifp;
 
 	if (!(ifp->if_drv_flags & IFF_DRV_RUNNING))
-	    return;
+		return;
 
 	/*
 	 * Typical tx watchdog.  If this fires it indicates that we enqueued
@@ -420,7 +562,7 @@ axi_tick(void *arg)
 	link_was_up = sc->link_is_up;
 	mii_tick(sc->mii_softc);
 	if (sc->link_is_up && !link_was_up)
-		axi_txstart_locked(sc);
+		axi_transmit_locked(sc->ifp);
 
 	/* Schedule another check one second from now. */
 	callout_reset(&sc->axi_callout, hz, axi_tick, sc);
@@ -429,17 +571,17 @@ axi_tick(void *arg)
 static void
 axi_init_locked(struct axi_softc *sc)
 {
-#if 0
-	struct ifnet *ifp = sc->ifp;
-	uint32_t reg;
+	struct ifnet *ifp;
 
 	DWC_ASSERT_LOCKED(sc);
 
+	ifp = sc->ifp;
 	if (ifp->if_drv_flags & IFF_DRV_RUNNING)
 		return;
 
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 
+#if 0
 	axi_setup_rxfilter(sc);
 
 	/* Initializa DMA and enable transmitters */
@@ -1153,6 +1295,40 @@ axi_attach(device_t dev)
 		return (ENXIO);
 	}
 
+	int caps;
+	caps = 0;
+	/* Alloc xDMA virtual channel. */
+	sc->xchan_tx = xdma_channel_alloc(sc->xdma_tx, caps);
+	if (sc->xchan_tx == NULL) {
+		device_printf(dev, "Can't alloc virtual DMA channel.\n");
+		return (ENXIO);
+	}
+
+	/* Setup interrupt handler. */
+	error = xdma_setup_intr(sc->xchan_tx,
+	    axi_xdma_tx_intr, sc, &sc->ih_tx);
+	if (error) {
+		device_printf(sc->dev,
+		    "Can't setup xDMA interrupt handler.\n");
+		return (ENXIO);
+	}
+
+	xdma_prep_sg(sc->xchan_tx,
+	    TX_QUEUE_SIZE,	/* xchan requests queue size */
+	    MCLBYTES,	/* maxsegsize */
+	    8,		/* maxnsegs */
+	    16,		/* alignment */
+	    0,		/* boundary */
+	    BUS_SPACE_MAXADDR_32BIT,
+	    BUS_SPACE_MAXADDR);
+
+
+	mtx_init(&sc->br_mtx, "buf ring mtx", NULL, MTX_DEF);
+	sc->br = buf_ring_alloc(BUFRING_SIZE, M_DEVBUF,
+	    M_NOWAIT, &sc->br_mtx);
+	if (sc->br == NULL)
+		return (ENOMEM);
+
 #if 0
 	sc->txcount = TX_DESC_COUNT;
 	sc->mii_clk = IF_DWC_MII_CLK(dev);
@@ -1250,13 +1426,15 @@ axi_attach(device_t dev)
 
 	/* Set up the ethernet interface. */
 	sc->ifp = ifp = if_alloc(IFT_ETHER);
+	/* if ifp == NULL */
 
 	ifp->if_softc = sc;
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
 	ifp->if_capenable = ifp->if_capabilities;
-	ifp->if_start = axi_txstart;
+	ifp->if_transmit = axi_transmit;
+	ifp->if_qflush = axi_qflush;
 	ifp->if_ioctl = axi_ioctl;
 	ifp->if_init = axi_init;
 	IFQ_SET_MAXLEN(&ifp->if_snd, TX_DESC_COUNT - 1);
@@ -1275,6 +1453,12 @@ axi_attach(device_t dev)
 	sc->mii_softc = device_get_softc(sc->miibus);
 
 	/* All ready to run, attach the ethernet interface. */
+	macaddr[0] = 0x00;
+	macaddr[1] = 0x0a;
+	macaddr[2] = 0x35;
+	macaddr[3] = 0x04;
+	macaddr[4] = 0xdb;
+	macaddr[5] = 0x5a;
 	ether_ifattach(ifp, macaddr);
 	sc->is_attached = true;
 
@@ -1386,6 +1570,7 @@ axi_miibus_statchg(device_t dev)
 	else
 		sc->link_is_up = false;
 
+	printf("link_is_up %d\n", sc->link_is_up);
 	printf("%s: IFM_SUBTYPE(mii->mii_media_active) %d\n",
 	    __func__, IFM_SUBTYPE(mii->mii_media_active));
 	printf("%s: options %x\n",
