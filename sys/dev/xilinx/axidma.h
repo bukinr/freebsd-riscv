@@ -29,84 +29,26 @@
 #ifndef _DEV_XDMA_CONTROLLER_PL330_H_
 #define _DEV_XDMA_CONTROLLER_PL330_H_
 
-/* pl330 registers */
-#define	DSR		0x000 /* DMA Manager Status */
-#define	DPC		0x004 /* DMA Program Counter */
-#define	INTEN		0x020 /* Interrupt Enable */
-#define	INT_EVENT_RIS	0x024 /* Event-Interrupt Raw Status */
-#define	INTMIS		0x028 /* Interrupt Status */
-#define	INTCLR		0x02C /* Interrupt Clear */
-#define	FSRD		0x030 /* Fault Status DMA Manager */
-#define	FSRC		0x034 /* Fault Status DMA Channel */
-#define	FTRD		0x038 /* Fault Type DMA Manager */
-#define	FTR(n)		(0x040 + 0x04 * (n)) /* Fault type for DMA channel n */
-#define	CSR(n)		(0x100 + 0x08 * (n)) /* Channel status for DMA channel n */
-#define	CPC(n)		(0x104 + 0x08 * (n)) /* Channel PC for DMA channel n */
-#define	SAR(n)		(0x400 + 0x20 * (n)) /* Source address for DMA channel n */
-#define	DAR(n)		(0x404 + 0x20 * (n)) /* Destination address for DMA channel n */
-#define	CCR(n)		(0x408 + 0x20 * (n)) /* Channel control for DMA channel n */
-#define	 CCR_DST_BURST_SIZE_S	15
-#define	 CCR_DST_BURST_SIZE_1	(0 << CCR_DST_BURST_SIZE_S)
-#define	 CCR_DST_BURST_SIZE_2	(1 << CCR_DST_BURST_SIZE_S)
-#define	 CCR_DST_BURST_SIZE_4	(2 << CCR_DST_BURST_SIZE_S)
-#define	 CCR_SRC_BURST_SIZE_S	1
-#define	 CCR_SRC_BURST_SIZE_1	(0 << CCR_SRC_BURST_SIZE_S)
-#define	 CCR_SRC_BURST_SIZE_2	(1 << CCR_SRC_BURST_SIZE_S)
-#define	 CCR_SRC_BURST_SIZE_4	(2 << CCR_SRC_BURST_SIZE_S)
-#define	 CCR_DST_INC		(1 << 14)
-#define	 CCR_SRC_INC		(1 << 0)
-#define	 CCR_DST_PROT_CTRL_S	22
-#define	 CCR_DST_PROT_PRIV	(1 << CCR_DST_PROT_CTRL_S)
-#define	LC0(n)		(0x40C + 0x20 * (n)) /* Loop counter 0 for DMA channel n */
-#define	LC1(n)		(0x410 + 0x20 * (n)) /* Loop counter 1 for DMA channel n */
+#define	MM2S_DMACR		0x00 /* MM2S DMA Control register */
+#define	 DMACR_RS		(1 << 0) /* Run / Stop. */
+#define	MM2S_DMASR		0x04 /* MM2S DMA Status register */
+#define	 DMACR_HALTED		(1 << 0) /* Halted. */
+#define	MM2S_CURDESC		0x08 /* MM2S Current Descriptor Pointer. Lower 32 bits of the address. */
+#define	MM2S_CURDESC_MSB	0x0C /* MM2S Current Descriptor Pointer. Upper 32 bits of address. */
+#define	MM2S_TAILDESC		0x10 /* MM2S Tail Descriptor Pointer. Lower 32 bits. */
+#define	MM2S_TAILDESC_MSB	0x14 /* MM2S Tail Descriptor Pointer. Upper 32 bits of address. */
+#define	SG_CTL			0x2C /* Scatter/Gather User and Cache */
+#define	S2MM_DMACR		0x30 /* S2MM DMA Control register */
+#define	S2MM_DMASR		0x34 /* S2MM DMA Status register */
+#define	S2MM_CURDESC		0x38 /* S2MM Current Descriptor Pointer. Lower 32 address bits */
+#define	S2MM_CURDESC_MSB	0x3C /* S2MM Current Descriptor Pointer. Upper 32 address bits. */
+#define	S2MM_TAILDESC		0x40 /* S2MM Tail Descriptor Pointer. Lower 32 address bits. */
+#define	S2MM_TAILDESC_MSB	0x44 /* S2MM Tail Descriptor Pointer. Upper 32 address bits. */
 
-#define	DBGSTATUS	0xD00 /* Debug Status */
-#define	DBGCMD		0xD04 /* Debug Command */
-#define	DBGINST0	0xD08 /* Debug Instruction-0 */
-#define	DBGINST1	0xD0C /* Debug Instruction-1 */
-#define	CR0		0xE00 /* Configuration Register 0 */
-#define	CR1		0xE04 /* Configuration Register 1 */
-#define	CR2		0xE08 /* Configuration Register 2 */
-#define	CR3		0xE0C /* Configuration Register 3 */
-#define	CR4		0xE10 /* Configuration Register 4 */
-#define	CRD		0xE14 /* DMA Configuration */
-#define	WD		0xE80 /* Watchdog Register */
-
-#define	R_SAR	0
-#define	R_CCR	1
-#define	R_DAR	2
-
-/*
- * 0xFE0- 0xFEC  periph_id_n RO  Configuration-dependent Peripheral Identification Registers
- * 0xFF0- 0xFFC  pcell_id_n RO   Configuration-dependent Component Identification Registers
- */
-
-/* pl330 ISA */
-#define	DMAADDH		0x54
-#define	DMAADNH		0x5c
-#define	DMAEND		0x00
-#define	DMAFLUSHP	0x35
-#define	DMAGO		0xa0
-#define	DMAKILL		0x01
-#define	DMALD		0x04
-#define	DMALDP		0x25
-#define	DMALP		0x20
-#define	DMALPEND	0x28
-#define	DMALPEND_NF	(1 << 4) /* DMALP started the loop */
-/*
- * TODO: documentation miss opcode for infinite loop
- * #define	DMALPFE		0
- */
-#define	DMAMOV		0xbc
-#define	DMANOP		0x18
-#define	DMARMB		0x12
-#define	DMASEV		0x34
-#define	DMAST		0x08
-#define	DMASTP		0x29
-#define	DMASTZ		0x0c
-#define	DMAWFE		0x36
-#define	DMAWFP		0x30
-#define	DMAWMB		0x13
+#define	READ4(_sc, _reg)	\
+	bus_space_read_4(_sc->bst, _sc->bsh, _reg)
+#define	WRITE4(_sc, _reg, _val)	\
+	bus_space_write_4(_sc->bst, _sc->bsh, _reg, _val)
 
 struct axidma_desc {
 	uint32_t next;
@@ -116,15 +58,17 @@ struct axidma_desc {
 	uint32_t reserved3;
 	uint32_t reserved4;
 	uint32_t control;
+#define	CONTROL_TXSOF	(1 << 27) /* Start of Frame. */
+#define	CONTROL_TXEOF	(1 << 26) /* End of Frame. */
 	uint32_t status;
 	uint32_t app0;
 	uint32_t app1;
 	uint32_t app2;
 	uint32_t app3;
 	uint32_t app4;
-	uint32_t sw_id_offset;
-	uint32_t reserved5;
-	uint32_t reserved6;
+	//uint32_t sw_id_offset;
+	//uint32_t reserved5;
+	//uint32_t reserved6;
 };
 
 #endif /* !_DEV_XDMA_CONTROLLER_PL330_H_ */

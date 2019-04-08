@@ -475,10 +475,13 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	uint32_t len;
 	uint32_t tmp;
 	int i;
+	int tail;
 
 	sc = device_get_softc(dev);
 
 	chan = (struct axidma_channel *)xchan->chan;
+
+	tail = chan->idx_head;
 
 	for (i = 0; i < sg_n; i++) {
 		src_addr_lo = (uint32_t)sg[i].src_addr;
@@ -493,6 +496,7 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 			desc->phys = src_addr_lo;
 		else
 			desc->phys = dst_addr_lo;
+		dprintf("%s: desc->phys %x\n", __func__, desc->phys);
 		desc->control = len;
 #if 0
 		desc->read_lo = htole32(src_addr_lo);
@@ -503,25 +507,10 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 		desc->reserved = 0;
 		desc->control = 0;
 #endif
-
-		if (sg[i].direction == XDMA_MEM_TO_DEV) {
-#if 0
-			if (sg[i].first == 1)
-				desc->control |= htole32(CONTROL_GEN_SOP);
-
-			if (sg[i].last == 1) {
-				desc->control |= htole32(CONTROL_GEN_EOP);
-				desc->control |= htole32(CONTROL_TC_IRQ_EN |
-				    CONTROL_ET_IRQ_EN | CONTROL_ERR_M);
-			}
-#endif
-		} else {
-#if 0
-			desc->control |= htole32(CONTROL_END_ON_EOP | (1 << 13));
-			desc->control |= htole32(CONTROL_TC_IRQ_EN |
-			    CONTROL_ET_IRQ_EN | CONTROL_ERR_M);
-#endif
-		}
+		if (sg[i].first == 1)
+			desc->control |= CONTROL_TXSOF;
+		if (sg[i].last == 1)
+			desc->control |= CONTROL_TXEOF;
 
 		tmp = chan->idx_head;
 
@@ -535,6 +524,18 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 		bus_dmamap_sync(chan->dma_tag, chan->dma_map[tmp],
 		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 	}
+
+	uint32_t reg;
+	uint32_t addr;
+	addr = chan->descs_phys[tail].ds_addr;
+
+	WRITE4(sc, MM2S_CURDESC, addr);
+
+	reg = READ4(sc, MM2S_DMACR);
+	reg |= DMACR_RS;
+	WRITE4(sc, MM2S_DMACR, reg);
+
+	WRITE4(sc, MM2S_TAILDESC, addr);
 
 	return (0);
 }
@@ -576,6 +577,7 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 	}
 
 	addr = chan->descs_phys[0].ds_addr;
+	WRITE4(sc, MM2S_CURDESC, addr);
 #if 0
 	WRITE4_DESC(sc, PF_NEXT_LO, addr);
 	WRITE4_DESC(sc, PF_NEXT_HI, 0);
