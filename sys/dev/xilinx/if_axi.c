@@ -1462,6 +1462,10 @@ axi_attach(device_t dev)
 	ether_ifattach(ifp, macaddr);
 	sc->is_attached = true;
 
+	/* Enable the transmitter */
+	printf("%s: axi_tc %x\n", __func__, READ4(sc, AXI_TC));
+	WRITE4(sc, AXI_TC, TC_TX);
+
 	return (0);
 }
 

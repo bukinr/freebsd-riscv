@@ -46,6 +46,7 @@
 #define	AXI_RCW0	0x00400 /* Receive Configuration Word 0 Register RW */
 #define	AXI_RCW1	0x00404 /* Receive Configuration Word 1 Register RW */
 #define	AXI_TC		0x00408 /* Transmitter Configuration register RW */
+#define	 TC_TX		(1 << 28) /* Transmit Enable */
 #define	AXI_FCC		0x0040C /* Flow Control Configuration register RW */
 #define	AXI_SPEED	0x00410 /* MAC Speed Configuration Word RW */
 #define	 SPEED_CONF_S	30
