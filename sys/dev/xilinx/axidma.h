@@ -29,21 +29,19 @@
 #ifndef _DEV_XDMA_CONTROLLER_PL330_H_
 #define _DEV_XDMA_CONTROLLER_PL330_H_
 
-#define	MM2S_DMACR		0x00 /* MM2S DMA Control register */
+#define	AXI_DMACR		0x00 /* MM2S DMA Control register */
 #define	 DMACR_RS		(1 << 0) /* Run / Stop. */
-#define	MM2S_DMASR		0x04 /* MM2S DMA Status register */
+#define	 DMACR_RESET		(1 << 2) /* Soft reset the AXI DMA core. */
+#define	 DMACR_IOC_IRQEN	(1 << 12) /* Interrupt on Complete (IOC) Interrupt Enable. */
+#define	 DMACR_DLY_IRQEN	(1 << 13) /* Interrupt on Delay Timer Interrupt Enable. */
+#define	 DMACR_ERR_IRQEN	(1 << 14) /* Interrupt on Error Interrupt Enable. */
+#define	AXI_DMASR		0x04 /* MM2S DMA Status register */
 #define	 DMACR_HALTED		(1 << 0) /* Halted. */
-#define	MM2S_CURDESC		0x08 /* MM2S Current Descriptor Pointer. Lower 32 bits of the address. */
-#define	MM2S_CURDESC_MSB	0x0C /* MM2S Current Descriptor Pointer. Upper 32 bits of address. */
-#define	MM2S_TAILDESC		0x10 /* MM2S Tail Descriptor Pointer. Lower 32 bits. */
-#define	MM2S_TAILDESC_MSB	0x14 /* MM2S Tail Descriptor Pointer. Upper 32 bits of address. */
+#define	AXI_CURDESC		0x08 /* MM2S Current Descriptor Pointer. Lower 32 bits of the address. */
+#define	AXI_CURDESC_MSB		0x0C /* MM2S Current Descriptor Pointer. Upper 32 bits of address. */
+#define	AXI_TAILDESC		0x10 /* MM2S Tail Descriptor Pointer. Lower 32 bits. */
+#define	AXI_TAILDESC_MSB	0x14 /* MM2S Tail Descriptor Pointer. Upper 32 bits of address. */
 #define	SG_CTL			0x2C /* Scatter/Gather User and Cache */
-#define	S2MM_DMACR		0x30 /* S2MM DMA Control register */
-#define	S2MM_DMASR		0x34 /* S2MM DMA Status register */
-#define	S2MM_CURDESC		0x38 /* S2MM Current Descriptor Pointer. Lower 32 address bits */
-#define	S2MM_CURDESC_MSB	0x3C /* S2MM Current Descriptor Pointer. Upper 32 address bits. */
-#define	S2MM_TAILDESC		0x40 /* S2MM Tail Descriptor Pointer. Lower 32 address bits. */
-#define	S2MM_TAILDESC_MSB	0x44 /* S2MM Tail Descriptor Pointer. Upper 32 address bits. */
 
 #define	READ4(_sc, _reg)	\
 	bus_space_read_4(_sc->bst, _sc->bsh, _reg)
@@ -66,9 +64,9 @@ struct axidma_desc {
 	uint32_t app2;
 	uint32_t app3;
 	uint32_t app4;
-	//uint32_t sw_id_offset;
-	//uint32_t reserved5;
-	//uint32_t reserved6;
+	uint32_t sw_id_offset;
+	uint32_t reserved5;
+	uint32_t reserved6;
 };
 
 #endif /* !_DEV_XDMA_CONTROLLER_PL330_H_ */
