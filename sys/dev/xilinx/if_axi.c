@@ -104,10 +104,46 @@ __FBSDID("$FreeBSD$");
 
 #define	DDESC_CNTL_CHAINED		(1U << 24)
 
-#define	RX_QUEUE_SIZE		4096
-#define	TX_QUEUE_SIZE		4096
+#define	RX_QUEUE_SIZE		32
+#define	TX_QUEUE_SIZE		32
 #define	NUM_RX_MBUF		512
 #define	BUFRING_SIZE		8192
+
+
+/* */
+#define WRITE_TI_EREG(sc, reg, data) {			\
+	PHY_WRITE3(sc, XAE_TI_PHY_CR, XAE_TI_PHY_DEVAD);	\
+	PHY_WRITE3(sc, XAE_TI_PHY_AR, reg);		\
+	PHY_WRITE3(sc, XAE_TI_PHY_CR, XAE_TI_PHY_DEVAD | XAE_TI_PHY_DEVAD_EN);\
+	PHY_WRITE3(sc, XAE_TI_PHY_AR, data);		\
+}
+
+#define XAE_TI_QUIRK_RETRIES 20
+#define XAE_TI_PHY_BMCR      0x00
+#define XAE_TI_PHY_PHYCR     0x10
+#define XAE_TI_PHY_CFG2      0x14
+#define XAE_TI_PHY_CR        0x0D
+#define XAE_TI_PHY_AR        0x0E
+// Reg > 0x1F should use WRITE_TI_REG function
+#define XAE_TI_PHY_CFG4      0x31
+#define XAE_TI_PHY_SGMIICTL1 0xD3
+
+#define XAE_TI_PHY_DEVAD     0x1F
+#define XAE_TI_PHY_DEVAD_EN  0x4000
+#define XAE_TI_PHY_SGMII_6W  0x4000
+#define XAE_TI_PHY_SGMII_EN  0x0800
+#define XAE_TI_PHY_CFG2_DEF  0x29C7
+// IMPORTANT: Special reserved bits 8:7 MUST be '10' for workaround
+#define XAE_TI_PHY_SGMII_TMR 0x0160
+#define XAE_TI_PHY_CONFIG    0x1140
+#define XAE_TI_PHY_RESET     0x8000
+
+#define XAE_PHY_CTRL         0x00
+#define XAE_PHY_STATUS       0x01
+#define XAE_PHY_CONFIG       0x1140
+#define XAE_PHY_RST_AUTONEG  0x0200
+#define XAE_PHY_AUTONEG_DONE 0x20
+
 
 /*
  * A hardware buffer descriptor.  Rx and Tx buffers have the same descriptor
@@ -183,7 +219,6 @@ inline static uint32_t
 axi_setup_txdesc(struct axi_softc *sc, int idx, bus_addr_t paddr,
     uint32_t len)
 {
-#if 0
 	uint32_t flags;
 	uint32_t nidx;
 
@@ -194,16 +229,20 @@ axi_setup_txdesc(struct axi_softc *sc, int idx, bus_addr_t paddr,
 		flags = 0;
 		--sc->txcount;
 	} else {
+#if 0
 		if (sc->mactype == DWC_GMAC_ALT_DESC)
 			flags = DDESC_CNTL_TXCHAIN | DDESC_CNTL_TXFIRST
 			    | DDESC_CNTL_TXLAST | DDESC_CNTL_TXINT;
 		else
 			flags = DDESC_TDES0_TXCHAIN | DDESC_TDES0_TXFIRST
 			    | DDESC_TDES0_TXLAST | DDESC_TDES0_TXINT;
+#endif
 		++sc->txcount;
 	}
 
 	sc->txdesc_ring[idx].addr = (uint32_t)(paddr);
+
+#if 0
 	if (sc->mactype == DWC_GMAC_ALT_DESC) {
 		sc->txdesc_ring[idx].tdes0 = 0;
 		sc->txdesc_ring[idx].tdes1 = flags | len;
@@ -217,10 +256,9 @@ axi_setup_txdesc(struct axi_softc *sc, int idx, bus_addr_t paddr,
 		sc->txdesc_ring[idx].tdes0 |= DDESC_TDES0_OWN;
 		wmb();
 	}
+#endif
 
 	return (nidx);
-#endif
-	return (0);
 }
 
 #if 0
@@ -975,6 +1013,9 @@ axi_rxfinish_locked(struct axi_softc *sc)
 static void
 axi_intr(void *arg)
 {
+
+	printf("%s\n", __func__);
+
 #if 0
 	struct axi_softc *sc;
 	uint32_t reg;
@@ -1256,6 +1297,121 @@ axi_clock_init(device_t dev)
 #endif
 
 static int
+mdio_wait(struct axi_softc *sc)
+{
+	uint32_t reg;
+	int timeout;
+
+	timeout = 200;
+
+	do {
+		reg = READ4(sc, AXI_MDIO_CTRL);
+		if (reg & MDIO_CTRL_READY)
+			break;
+		DELAY(1);
+	} while (timeout--);
+
+	if (timeout <= 0) {
+		printf("Failed to get MDIO ready\n");
+		return (1);
+	}
+
+	return (0);
+}
+
+#define	PHY_READ1(sc, _r)	axi_miibus_read_reg(sc->dev, 1, _r)
+#define	PHY_WRITE1(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 1, _r, _v)
+#define	PHY_READ3(sc, _r)	axi_miibus_read_reg(sc->dev, 3, _r)
+#define	PHY_WRITE3(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 3, _r, _v)
+
+
+static int
+axi_miibus_read_reg(device_t dev, int phy, int reg)
+{
+	struct axi_softc *sc;
+	uint32_t mii;
+	int rv;
+
+	//printf("%s: phy %d reg %x\n", __func__, phy, reg);
+
+	sc = device_get_softc(dev);
+
+	if (mdio_wait(sc))
+		return (0);
+
+	mii = MDIO_CTRL_TX_OP_READ | MDIO_CTRL_INITIATE;
+	mii |= (reg << MDIO_TX_REGAD_S);
+	mii |= (phy << MDIO_TX_PHYAD_S);
+
+	WRITE4(sc, AXI_MDIO_CTRL, mii);
+
+	if (mdio_wait(sc))
+		return (0);
+
+	rv = READ4(sc, AXI_MDIO_READ);
+	//printf("%s: phy %d reg %x, rv %x\n", __func__, phy, reg, rv);
+
+	return (rv);
+}
+
+static int
+axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
+{
+	struct axi_softc *sc;
+	uint32_t mii;
+
+	sc = device_get_softc(dev);
+
+	//printf("%s: phy %d reg %x val %x\n", __func__, phy, reg, val);
+
+	if (mdio_wait(sc))
+		return (1);
+
+	mii = MDIO_CTRL_TX_OP_WRITE | MDIO_CTRL_INITIATE;
+	mii |= (reg << MDIO_TX_REGAD_S);
+	mii |= (phy << MDIO_TX_PHYAD_S);
+
+	WRITE4(sc, AXI_MDIO_WRITE, val);
+	WRITE4(sc, AXI_MDIO_CTRL, mii);
+
+	if (mdio_wait(sc))
+		return (1);
+
+	//printf("%s: phy %d reg %x val %x, success\n", __func__, phy, reg, val);
+
+	return (0);
+}
+
+static void
+fixup(struct axi_softc *sc)
+{
+	device_t dev;
+
+	dev = sc->dev;
+
+	printf("%s: XAE_PHY_CTRL1 %x\n", __func__, PHY_READ1(sc, XAE_PHY_CTRL));
+	printf("%s: XAE_PHY_CTRL3 %x\n", __func__, PHY_READ3(sc, XAE_PHY_CTRL));
+
+	do {
+		WRITE_TI_EREG(sc, XAE_TI_PHY_SGMIICTL1,  XAE_TI_PHY_SGMII_6W);
+		PHY_WRITE3(sc, XAE_TI_PHY_PHYCR,  XAE_TI_PHY_SGMII_EN);
+		PHY_WRITE3(sc, XAE_TI_PHY_CFG2, XAE_TI_PHY_CFG2_DEF);
+		WRITE_TI_EREG(sc, XAE_TI_PHY_CFG4, XAE_TI_PHY_SGMII_TMR);
+		PHY_WRITE3(sc, XAE_TI_PHY_BMCR,
+		    XAE_TI_PHY_CONFIG | XAE_TI_PHY_RESET);
+	} while (PHY_READ1(sc, XAE_PHY_CTRL) == 0x0ffff);
+
+	printf("%s: XAE_PHY_CTRL1 %x\n", __func__, PHY_READ1(sc, XAE_PHY_CTRL));
+	printf("%s: XAE_PHY_CTRL3 %x\n", __func__, PHY_READ3(sc, XAE_PHY_CTRL));
+
+	do {
+		PHY_WRITE1(sc, XAE_PHY_CTRL,
+		    XAE_PHY_CONFIG | XAE_PHY_RST_AUTONEG);
+		DELAY(40000);
+	} while ((PHY_READ1(sc, XAE_PHY_STATUS) & XAE_PHY_AUTONEG_DONE) == 0);
+}
+
+static int
 axi_probe(device_t dev)
 {
 
@@ -1354,11 +1510,6 @@ axi_attach(device_t dev)
 
 	printf("ID: %x\n", READ4(sc, AXI_IDENT));
 
-	uint32_t reg;
-
-	reg = (MDIO_CLK_DIV_DEFAULT << MDIO_SETUP_CLK_DIV_S);
-	reg |= MDIO_SETUP_ENABLE;
-	WRITE4(sc, AXI_MDIO_SETUP, reg);
 
 #if 0
 	/* Read MAC before reset */
@@ -1441,6 +1592,11 @@ axi_attach(device_t dev)
 	ifp->if_snd.ifq_drv_maxlen = TX_DESC_COUNT - 1;
 	IFQ_SET_READY(&ifp->if_snd);
 
+	uint32_t reg;
+	reg = (MDIO_CLK_DIV_DEFAULT << MDIO_SETUP_CLK_DIV_S);
+	reg |= MDIO_SETUP_ENABLE;
+	WRITE4(sc, AXI_MDIO_SETUP, reg);
+
 	/* Attach the mii driver. */
 	error = mii_attach(dev, &sc->miibus, ifp, axi_media_change,
 	    axi_media_status, BMSR_DEFCAPMASK, 3, //MII_PHY_ANY,
@@ -1462,89 +1618,28 @@ axi_attach(device_t dev)
 	ether_ifattach(ifp, macaddr);
 	sc->is_attached = true;
 
+#if 0
+#define MII_BMCR                0x00    /* Basic mode control register */
+#define BMCR_ISOLATE            0x0400  /* Isolate data paths from MII */
+
+	reg = PHY_READ3(sc, MII_BMCR);
+	if (reg & BMCR_ISOLATE) {
+		printf("isolate: %x\n", reg);
+		reg &= ~BMCR_ISOLATE;
+	} else
+		printf("non isolate: %x\n", reg);
+	PHY_WRITE3(sc, MII_BMCR, reg);
+#endif
+
+	PHY_WRITE1(sc, 0x0, 0x1340);
+	DELAY(10000);
+	fixup(sc);
+
+	sfence_vma();
+
 	/* Enable the transmitter */
 	printf("%s: axi_tc %x\n", __func__, READ4(sc, AXI_TC));
 	WRITE4(sc, AXI_TC, TC_TX);
-
-	return (0);
-}
-
-static int
-mdio_wait(struct axi_softc *sc)
-{
-	uint32_t reg;
-	int timeout;
-
-	timeout = 200;
-
-	do {
-		reg = READ4(sc, AXI_MDIO_CTRL);
-		if (reg & MDIO_CTRL_READY)
-			break;
-		DELAY(1);
-	} while (timeout--);
-
-	if (timeout <= 0) {
-		printf("Failed to get MDIO ready\n");
-		return (1);
-	}
-
-	return (0);
-}
-
-static int
-axi_miibus_read_reg(device_t dev, int phy, int reg)
-{
-	struct axi_softc *sc;
-	uint32_t mii;
-	int rv;
-
-	//printf("%s: phy %d reg %x\n", __func__, phy, reg);
-
-	sc = device_get_softc(dev);
-
-	if (mdio_wait(sc))
-		return (0);
-
-	mii = MDIO_CTRL_TX_OP_READ | MDIO_CTRL_INITIATE;
-	mii |= (reg << MDIO_TX_REGAD_S);
-	mii |= (phy << MDIO_TX_PHYAD_S);
-
-	WRITE4(sc, AXI_MDIO_CTRL, mii);
-
-	if (mdio_wait(sc))
-		return (0);
-
-	rv = READ4(sc, AXI_MDIO_READ);
-	//printf("%s: phy %d reg %x, rv %x\n", __func__, phy, reg, rv);
-
-	return (rv);
-}
-
-static int
-axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
-{
-	struct axi_softc *sc;
-	uint32_t mii;
-
-	sc = device_get_softc(dev);
-
-	//printf("%s: phy %d reg %x val %x\n", __func__, phy, reg, val);
-
-	if (mdio_wait(sc))
-		return (1);
-
-	mii = MDIO_CTRL_TX_OP_WRITE | MDIO_CTRL_INITIATE;
-	mii |= (reg << MDIO_TX_REGAD_S);
-	mii |= (phy << MDIO_TX_PHYAD_S);
-
-	WRITE4(sc, AXI_MDIO_WRITE, val);
-	WRITE4(sc, AXI_MDIO_CTRL, mii);
-
-	if (mdio_wait(sc))
-		return (1);
-
-	//printf("%s: phy %d reg %x val %x, success\n", __func__, phy, reg, val);
 
 	return (0);
 }
@@ -1600,10 +1695,11 @@ axi_miibus_statchg(device_t dev)
 		return;
 	}
 
-	WRITE4(sc, AXI_SPEED, reg);
+	//WRITE4(sc, AXI_SPEED, reg);
 	DELAY(1);
 
 #if 0
+	axi_miibus_write_reg(dev, 0x3, 0x0, 0x1340);
 	if ((IFM_OPTIONS(mii->mii_media_active) & IFM_FDX) != 0)
 		reg |= (CONF_DM);
 	else
