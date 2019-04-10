@@ -47,6 +47,10 @@
 	bus_space_read_4(_sc->bst, _sc->bsh, _reg)
 #define	WRITE4(_sc, _reg, _val)	\
 	bus_space_write_4(_sc->bst, _sc->bsh, _reg, _val)
+#define	READ8(_sc, _reg)	\
+	bus_space_read_8(_sc->bst, _sc->bsh, _reg)
+#define	WRITE8(_sc, _reg, _val)	\
+	bus_space_write_8(_sc->bst, _sc->bsh, _reg, _val)
 
 struct axidma_desc {
 	uint32_t next;

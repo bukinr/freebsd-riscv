@@ -1478,7 +1478,6 @@ axi_attach(device_t dev)
 	    BUS_SPACE_MAXADDR_32BIT,
 	    BUS_SPACE_MAXADDR);
 
-
 	mtx_init(&sc->br_mtx, "buf ring mtx", NULL, MTX_DEF);
 	sc->br = buf_ring_alloc(BUFRING_SIZE, M_DEVBUF,
 	    M_NOWAIT, &sc->br_mtx);
@@ -1597,6 +1596,28 @@ axi_attach(device_t dev)
 	reg |= MDIO_SETUP_ENABLE;
 	WRITE4(sc, AXI_MDIO_SETUP, reg);
 
+	if (mdio_wait(sc))
+		return (ENXIO);
+
+	axi_miibus_write_reg(dev, 0x1, 0x0, 0x1340);
+
+	macaddr[0] = 0x00;
+	macaddr[1] = 0x0a;
+	macaddr[2] = 0x35;
+	macaddr[3] = 0x04;
+	macaddr[4] = 0xdb;
+	macaddr[5] = 0x5a;
+
+	reg = macaddr[0] | (macaddr[1] << 8);
+	reg |= (macaddr[2] << 16) | (macaddr[3] << 24);
+	WRITE4(sc, AXI_UAWL, reg);
+	reg = macaddr[4] | (macaddr[5] << 8);
+	WRITE4(sc, AXI_UAWU, reg);
+
+	/* Enable the transmitter */
+	printf("%s: axi_tc %x\n", __func__, READ4(sc, AXI_TC));
+	WRITE4(sc, AXI_TC, TC_TX);
+
 	/* Attach the mii driver. */
 	error = mii_attach(dev, &sc->miibus, ifp, axi_media_change,
 	    axi_media_status, BMSR_DEFCAPMASK, 3, //MII_PHY_ANY,
@@ -1608,13 +1629,9 @@ axi_attach(device_t dev)
 	}
 	sc->mii_softc = device_get_softc(sc->miibus);
 
+	fixup(sc);
+
 	/* All ready to run, attach the ethernet interface. */
-	macaddr[0] = 0x00;
-	macaddr[1] = 0x0a;
-	macaddr[2] = 0x35;
-	macaddr[3] = 0x04;
-	macaddr[4] = 0xdb;
-	macaddr[5] = 0x5a;
 	ether_ifattach(ifp, macaddr);
 	sc->is_attached = true;
 
@@ -1631,15 +1648,10 @@ axi_attach(device_t dev)
 	PHY_WRITE3(sc, MII_BMCR, reg);
 #endif
 
-	PHY_WRITE1(sc, 0x0, 0x1340);
+	//PHY_WRITE1(sc, 0x0, 0x1340);
 	DELAY(10000);
-	fixup(sc);
 
 	sfence_vma();
-
-	/* Enable the transmitter */
-	printf("%s: axi_tc %x\n", __func__, READ4(sc, AXI_TC));
-	WRITE4(sc, AXI_TC, TC_TX);
 
 	return (0);
 }
@@ -1695,11 +1707,10 @@ axi_miibus_statchg(device_t dev)
 		return;
 	}
 
-	//WRITE4(sc, AXI_SPEED, reg);
+	WRITE4(sc, AXI_SPEED, reg);
 	DELAY(1);
 
 #if 0
-	axi_miibus_write_reg(dev, 0x3, 0x0, 0x1340);
 	if ((IFM_OPTIONS(mii->mii_media_active) & IFM_FDX) != 0)
 		reg |= (CONF_DM);
 	else
