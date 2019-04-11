@@ -133,7 +133,14 @@ axidma_next_desc(struct axidma_channel *chan, uint32_t curidx)
 }
 
 static void
-axidma_intr(void *arg)
+axidma_intr_rx(void *arg)
+{
+
+	printf("%s\n", __func__);
+}
+
+static void
+axidma_intr_tx(void *arg)
 {
 	xdma_transfer_status_t status;
 	struct xdma_transfer_status st;
@@ -142,12 +149,20 @@ axidma_intr(void *arg)
 	struct xdma_channel *xchan;
 	struct axidma_softc *sc;
 	uint32_t tot_copied;
+	int pending;
+
+	printf("%s\n", __func__);
 
 	sc = arg;
 	chan = &sc->channels[0];
 	xchan = chan->xchan;
 
-	printf("%s: sr %x\n", __func__, READ4(sc, AXI_DMASR));
+	pending = READ4(sc, AXI_DMASR);
+	WRITE4(sc, AXI_DMASR, pending);
+
+	printf("%s: AXI_DMASR %x\n", __func__, READ4(sc, AXI_DMASR));
+	printf("%s: AXI_CURDESC %x\n", __func__, READ4(sc, AXI_CURDESC));
+	printf("%s: AXI_TAILDESC %x\n", __func__, READ4(sc, AXI_TAILDESC));
 
 #if 0
 	dprintf("%s(%d): status 0x%08x next_descr 0x%08x, control 0x%08x\n",
@@ -159,21 +174,29 @@ axidma_intr(void *arg)
 
 	tot_copied = 0;
 
+
 	while (chan->idx_tail != chan->idx_head) {
 		dprintf("%s: idx_tail %d idx_head %d\n", __func__,
 		    chan->idx_tail, chan->idx_head);
+#if 0
 		bus_dmamap_sync(chan->dma_tag, chan->dma_map[chan->idx_tail],
 		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
+#endif
 
 		desc = chan->descs[chan->idx_tail];
-#if 0
-		if ((le32toh(desc->control) & CONTROL_OWN) != 0)
+		printf("%s: desc%d status %x (transferred %d)\n", __func__,
+		    chan->idx_tail, desc->status,
+		    (desc->status & BD_STATUS_TRANSFERRED_M));
+		if ((desc->status & BD_STATUS_CMPLT) == 0)
 			break;
-
-		tot_copied += le32toh(desc->transferred);
-		st.error = 0;
-		st.transferred = le32toh(desc->transferred);
+#if 0
+		if ((le32toh(desc->control) & BD_CONTROL_OWN) != 0)
+			break;
 #endif
+
+		tot_copied += desc->control & BD_CONTROL_LEN_M;
+		st.error = 0;
+		st.transferred = desc->control & BD_CONTROL_LEN_M;
 		xchan_seg_done(xchan, &st);
 
 		chan->idx_tail = axidma_next_desc(chan, chan->idx_tail);
@@ -257,7 +280,7 @@ axidma_attach(device_t dev)
 
 	/* Setup interrupt handler */
 	err = bus_setup_intr(dev, sc->res[1], INTR_TYPE_MISC | INTR_MPSAFE,
-	    NULL, axidma_intr, sc, &sc->ih);
+	    NULL, axidma_intr_tx, sc, &sc->ih);
 	if (err) {
 		device_printf(dev, "Unable to alloc interrupt resource.\n");
 		return (ENXIO);
@@ -265,7 +288,7 @@ axidma_attach(device_t dev)
 
 	/* Setup interrupt handler */
 	err = bus_setup_intr(dev, sc->res[2], INTR_TYPE_MISC | INTR_MPSAFE,
-	    NULL, axidma_intr, sc, &sc->ih2);
+	    NULL, axidma_intr_rx, sc, &sc->ih2);
 	if (err) {
 		device_printf(dev, "Unable to alloc interrupt resource.\n");
 		return (ENXIO);
@@ -521,6 +544,10 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 
 	tail = chan->idx_head;
 
+	tmp = 0;
+	if (sg_n == 0)
+		panic("here");
+
 	for (i = 0; i < sg_n; i++) {
 		src_addr_lo = (uint32_t)sg[i].src_addr;
 		dst_addr_lo = (uint32_t)sg[i].dst_addr;
@@ -535,11 +562,12 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 		else
 			desc->phys = dst_addr_lo;
 		dprintf("%s: desc->phys %x\n", __func__, desc->phys);
+		desc->status = 0;
 		desc->control = len;
 		if (sg[i].first == 1)
-			desc->control |= CONTROL_TXSOF;
+			desc->control |= BD_CONTROL_TXSOF;
 		if (sg[i].last == 1)
-			desc->control |= CONTROL_TXEOF;
+			desc->control |= BD_CONTROL_TXEOF;
 		dprintf("%s: desc->control %x\n", __func__, desc->control);
 
 		tmp = chan->idx_head;
@@ -548,73 +576,28 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 		chan->idx_head = axidma_next_desc(chan, chan->idx_head);
 
 #if 0
-		desc->control |= htole32(CONTROL_OWN | CONTROL_GO);
+		desc->control |= (CONTROL_OWN | CONTROL_GO);
 
 		bus_dmamap_sync(chan->dma_tag, chan->dma_map[tmp],
 		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
 #endif
 	}
 
-	uint32_t reg;
 	uint32_t addr;
-	addr = chan->descs_phys[tmp].ds_addr;
 
-	//WRITE8(sc, AXI_CURDESC, addr);
-
-	reg = READ4(sc, AXI_DMACR);
-	reg = 0;
-	reg |= DMACR_IOC_IRQEN | DMACR_DLY_IRQEN | DMACR_ERR_IRQEN;
-	WRITE4(sc, AXI_DMACR, reg);
-
-	reg |= DMACR_RS;
-	WRITE4(sc, AXI_DMACR, reg);
-
-	DELAY(10000);
 	printf("%s: _curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	DELAY(10000);
 	printf("%s: _curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-
 	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
 
 	sfence_vma();
+	addr = chan->descs_phys[tail].ds_addr;
+	addr = chan->descs_phys[chan->idx_head].ds_addr;
+	addr = chan->descs_phys[tmp].ds_addr;
 	WRITE8(sc, AXI_TAILDESC, addr);
-	sfence_vma();
 
 	printf("%s: taildesc %x %x\n",
 	    __func__, addr, READ8(sc, AXI_TAILDESC));
-
-	DELAY(10000);
 	printf("%s: curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	DELAY(10000);
-	printf("%s: curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	DELAY(10000);
-	printf("%s: curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	DELAY(10000);
-	printf("%s: curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	DELAY(10000);
-	printf("%s: curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	DELAY(10000);
-	printf("%s: curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	DELAY(10000);
-	printf("%s: curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
 	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
 
 	return (0);
@@ -646,11 +629,14 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 
 	for (i = 0; i < chan->descs_num; i++) {
 		desc = chan->descs[i];
+		bzero(desc, sizeof(struct axidma_desc));
 
 		if (i == (chan->descs_num - 1))
-			desc->next = htole32(chan->descs_phys[0].ds_addr);
+			desc->next = chan->descs_phys[0].ds_addr;
 		else
-			desc->next = htole32(chan->descs_phys[i+1].ds_addr);
+			desc->next = chan->descs_phys[i+1].ds_addr;
+		desc->status = 0;
+		desc->control = 0;
 
 		dprintf("%s(%d): desc %d vaddr %lx next paddr %x\n", __func__,
 		    device_get_unit(dev), i, (uint64_t)desc, le32toh(desc->next));
@@ -659,15 +645,13 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 	addr = chan->descs_phys[0].ds_addr;
 	printf("%s: curdesc %x\n", __func__, addr);
 	WRITE8(sc, AXI_CURDESC, addr);
-#if 0
-	WRITE4_DESC(sc, PF_NEXT_LO, addr);
-	WRITE4_DESC(sc, PF_NEXT_HI, 0);
-	WRITE4_DESC(sc, PF_POLL_FREQ, 1000);
 
-	reg = (PF_CONTROL_GIEM | PF_CONTROL_DESC_POLL_EN);
-	reg |= PF_CONTROL_RUN;
-	WRITE4_DESC(sc, PF_CONTROL, reg);
-#endif
+	uint32_t reg;
+	reg = READ4(sc, AXI_DMACR);
+	reg |= DMACR_IOC_IRQEN | DMACR_DLY_IRQEN | DMACR_ERR_IRQEN;
+	WRITE4(sc, AXI_DMACR, reg);
+	reg |= DMACR_RS;
+	WRITE4(sc, AXI_DMACR, reg);
 
 	return (0);
 }

@@ -60,17 +60,25 @@ struct axidma_desc {
 	uint32_t reserved3;
 	uint32_t reserved4;
 	uint32_t control;
-#define	CONTROL_TXSOF	(1 << 27) /* Start of Frame. */
-#define	CONTROL_TXEOF	(1 << 26) /* End of Frame. */
+#define	BD_CONTROL_TXSOF	(1 << 27) /* Start of Frame. */
+#define	BD_CONTROL_TXEOF	(1 << 26) /* End of Frame. */
+#define	BD_CONTROL_LEN_S	0	/* Buffer Length. */
+#define	BD_CONTROL_LEN_M	(0x3ffffff << BD_CONTROL_LEN_S)
 	uint32_t status;
+#define	BD_STATUS_CMPLT		(1 << 31)
+#define	BD_STATUS_TRANSFERRED_S	0
+#define	BD_STATUS_TRANSFERRED_M	(0x7fffff << BD_STATUS_TRANSFERRED_S)
 	uint32_t app0;
 	uint32_t app1;
 	uint32_t app2;
 	uint32_t app3;
 	uint32_t app4;
-	uint32_t sw_id_offset;
-	uint32_t reserved5;
-	uint32_t reserved6;
+	uint64_t sw_id_offset;
+	uint64_t ptp_tx_skb;
+	uint32_t ptp_tx_ts_tag;
+	uint64_t tx_skb;
+	uint32_t tx_desc_mapping;
+	uint32_t reserved[9];
 };
 
 #endif /* !_DEV_XDMA_CONTROLLER_PL330_H_ */
