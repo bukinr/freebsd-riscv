@@ -38,9 +38,16 @@ __FBSDID("$FreeBSD$");
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
+#include <sys/rwlock.h>
 #include <sys/sx.h>
 
 #include <machine/bus.h>
+
+#include <vm/vm.h>
+#include <vm/vm_extern.h>
+#include <vm/vm_object.h>
+#include <vm/vm_page.h>
+#include <vm/vm_pager.h>
 
 #ifdef FDT
 #include <dev/fdt/fdt_common.h>
@@ -63,12 +70,33 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 {
 	xdma_controller_t *xdma;
 	struct xdma_request *xr;
+	vmem_addr_t addr;
 	int i;
 
 	xdma = xchan->xdma;
 
+	printf("%s: xchan->xr_num %d\n", __func__, xchan->xr_num);
+
+	int size;
 	for (i = 0; i < xchan->xr_num; i++) {
+		size = PAGE_SIZE;
+		printf("%s: xchan->maxsegsize %d\n",
+		    __func__, xchan->maxsegsize);
 		xr = &xchan->xr_mem[i];
+		printf("%s: vmem_alloc\n", __func__);
+		if (vmem_alloc(xchan->vmem, size, //xchan->maxsegsize,
+		    M_FIRSTFIT, &addr)) {
+			device_printf(xdma->dev,
+			     "%s: Can't allocate memory\n", __func__);
+			return (-1);
+		}
+		xr->buf.paddr = addr;
+		printf("%s: kva_alloc\n", __func__);
+		xr->buf.vaddr = kva_alloc(size);
+		printf("%s: pmap_kenter_device\n", __func__);
+		pmap_kenter_device(xr->buf.vaddr, size, addr);
+
+#if 0
 		xr->buf.cbuf = contigmalloc(xchan->maxsegsize,
 		    M_XDMA, 0, 0, ~0, PAGE_SIZE, 0);
 		if (xr->buf.cbuf == NULL) {
@@ -77,6 +105,7 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 			    " physical memory\n", __func__);
 			return (-1);
 		}
+#endif
 	}
 
 	return (0);
@@ -179,7 +208,7 @@ xchan_bufs_free(xdma_channel_t *xchan)
 	} else {
 		for (i = 0; i < xchan->xr_num; i++) {
 			xr = &xchan->xr_mem[i];
-			contigfree(xr->buf.cbuf, xchan->maxsegsize, M_XDMA);
+			//contigfree(xr->buf.cbuf, xchan->maxsegsize, M_XDMA);
 		}
 	}
 
@@ -443,8 +472,13 @@ _xdma_load_data(xdma_channel_t *xchan, struct xdma_request *xr,
 	switch (xr->req_type) {
 	case XR_TYPE_MBUF:
 		if (xr->direction == XDMA_MEM_TO_DEV) {
-			m_copydata(m, 0, m->m_pkthdr.len, xr->buf.cbuf);
-			seg[0].ds_addr = (bus_addr_t)xr->buf.cbuf;
+			printf("%s: copying mbuf to %x\n", __func__, xr->buf.paddr);
+
+			//m_copydata(m, 0, m->m_pkthdr.len, xr->buf.cbuf);
+			//seg[0].ds_addr = (bus_addr_t)xr->buf.cbuf;
+			m_copydata(m, 0, m->m_pkthdr.len,
+			    (void *)xr->buf.vaddr);
+			seg[0].ds_addr = (bus_addr_t)xr->buf.paddr;
 			seg[0].ds_len = m->m_pkthdr.len;
 		} else {
 			seg[0].ds_addr = mtod(m, bus_addr_t);

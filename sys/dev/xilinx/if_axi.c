@@ -1438,6 +1438,9 @@ axi_attach(device_t dev)
 	sc->dev = dev;
 	sc->rx_idx = 0;
 
+	vmem_t *vmem;
+	vmem = xdma_get_memory(dev);
+
 	/* Get xDMA controller */   
 	sc->xdma_tx = xdma_ofw_get(sc->dev, "tx");
 	if (sc->xdma_tx == NULL) {
@@ -1459,6 +1462,7 @@ axi_attach(device_t dev)
 		device_printf(dev, "Can't alloc virtual DMA channel.\n");
 		return (ENXIO);
 	}
+	sc->xchan_tx->vmem = vmem;
 
 	/* Setup interrupt handler. */
 	error = xdma_setup_intr(sc->xchan_tx,

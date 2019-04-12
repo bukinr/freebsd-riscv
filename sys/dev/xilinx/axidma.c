@@ -43,13 +43,18 @@ __FBSDID("$FreeBSD$");
 #include <sys/mutex.h>
 #include <sys/resource.h>
 #include <sys/rman.h>
+#include <sys/rwlock.h>
+#include <sys/sx.h>
 
 #include <machine/bus.h>
 //#include <machine/fdt.h>
 //#include <machine/cache.h>
 
 #include <vm/vm.h>
-#include <vm/pmap.h>
+#include <vm/vm_extern.h>
+#include <vm/vm_object.h>
+#include <vm/vm_page.h>
+#include <vm/vm_pager.h>
 
 #ifdef FDT
 #include <dev/fdt/fdt_common.h>
@@ -362,12 +367,15 @@ axidma_desc_free(struct axidma_softc *sc, struct axidma_channel *chan)
 }
 
 static int
-axidma_desc_alloc(struct axidma_softc *sc, struct axidma_channel *chan,
+axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
     uint32_t desc_size, uint32_t align)
 {
+	struct axidma_channel *chan;
 	int nsegments;
 	int err;
 	int i;
+
+	chan = (struct axidma_channel *)xchan->chan;
 
 	nsegments = chan->descs_num;
 
@@ -407,8 +415,24 @@ axidma_desc_alloc(struct axidma_softc *sc, struct axidma_channel *chan,
 	chan->descs_phys = malloc(nsegments * sizeof(bus_dma_segment_t),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
 
+	int size;
+	vm_offset_t paddr;
+	vm_offset_t vaddr;
+	size = desc_size * nsegments;
+	if (vmem_alloc(xchan->vmem, size, M_FIRSTFIT, &paddr)) {
+		printf("failed to alloc memory\n");
+	}
+	vaddr = kva_alloc(size);
+	pmap_kenter_device(vaddr, size, paddr);
+
+	for (i = 0; i < nsegments; i++) {
+		chan->descs[i] = (struct axidma_desc *)((uint64_t)vaddr + desc_size * i);
+		chan->descs_phys[i].ds_addr = paddr + desc_size * i;
+		chan->descs_phys[i].ds_len = desc_size;
+	}
+	return (0);
+
 	bus_size_t psize;
-	bus_space_handle_t vaddr;
 
 	psize = desc_size * nsegments;
 	bus_space_map(&memmap_bus, 0x80000000, psize, 0, &vaddr);
@@ -472,7 +496,7 @@ axidma_channel_alloc(device_t dev, struct xdma_channel *xchan)
 		if (chan->used == 0) {
 			chan->xchan = xchan;
 			xchan->chan = (void *)chan;
-			xchan->caps |= XCHAN_CAP_BUSDMA;
+			//xchan->caps |= XCHAN_CAP_BUSDMA;
 			chan->index = i;
 			chan->sc = sc;
 			chan->used = 1;
@@ -620,7 +644,7 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 
 	chan = (struct axidma_channel *)xchan->chan;
 
-	ret = axidma_desc_alloc(sc, chan, sizeof(struct axidma_desc), 16);
+	ret = axidma_desc_alloc(sc, xchan, sizeof(struct axidma_desc), 16);
 	if (ret != 0) {
 		device_printf(sc->dev,
 		    "%s: Can't allocate descriptors.\n", __func__);

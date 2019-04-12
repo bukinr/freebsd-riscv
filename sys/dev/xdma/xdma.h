@@ -34,6 +34,7 @@
 #define _DEV_XDMA_XDMA_H_
 
 #include <sys/proc.h>
+#include <sys/vmem.h>
 
 enum xdma_direction {
 	XDMA_MEM_TO_MEM,
@@ -73,6 +74,7 @@ struct xdma_controller {
 	device_t dev;		/* DMA consumer device_t. */
 	device_t dma_dev;	/* A real DMA device_t. */
 	void *data;		/* OFW MD part. */
+	vmem_t *vmem;
 
 	/* List of virtual channels allocated. */
 	TAILQ_HEAD(xdma_channel_list, xdma_channel)	channels;
@@ -84,7 +86,8 @@ struct xchan_buf {
 	bus_dmamap_t			map;
 	uint32_t			nsegs;
 	uint32_t			nsegs_left;
-	void				*cbuf;
+	vm_offset_t			vaddr;
+	vm_offset_t			paddr;
 };
 
 struct xdma_request {
@@ -134,6 +137,7 @@ struct xdma_channel {
 
 	/* A real hardware driver channel. */
 	void				*chan;
+	vmem_t				*vmem;
 
 	/* Interrupt handlers. */
 	TAILQ_HEAD(, xdma_intr_handler)	ie_handlers;
@@ -207,6 +211,7 @@ static MALLOC_DEFINE(M_XDMA, "xdma", "xDMA framework");
 /* xDMA controller ops */
 xdma_controller_t *xdma_ofw_get(device_t dev, const char *prop);
 int xdma_put(xdma_controller_t *xdma);
+vmem_t * xdma_get_memory(device_t dev);
 
 /* xDMA channel ops */
 xdma_channel_t * xdma_channel_alloc(xdma_controller_t *, uint32_t caps);

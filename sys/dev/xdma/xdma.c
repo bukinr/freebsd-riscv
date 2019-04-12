@@ -303,6 +303,93 @@ xdma_ofw_md_data(xdma_controller_t *xdma, pcell_t *cells, int ncells)
 	return (ret);
 }
 
+#define FDT_REG_CELLS   4
+#define FDT_RANGES_SIZE 48
+
+static int
+xdma_memory(vmem_t *vmem, phandle_t memory)
+{
+	pcell_t reg[FDT_REG_CELLS * FDT_MEM_REGIONS];
+	pcell_t *regp;
+	int addr_cells, size_cells;
+	int i, reg_len, rv, tuple_size, tuples;
+
+	if ((rv = fdt_addrsize_cells(OF_parent(memory), &addr_cells,
+	    &size_cells)) != 0)
+		goto out;
+
+	if (addr_cells > 2) {
+		rv = ERANGE;
+		goto out;
+	}
+
+	tuple_size = sizeof(pcell_t) * (addr_cells + size_cells);
+	reg_len = OF_getproplen(memory, "reg");
+	if (reg_len <= 0 || reg_len > sizeof(reg)) {
+		rv = ERANGE;
+		goto out;
+	}
+
+	if (OF_getprop(memory, "reg", reg, reg_len) <= 0) {
+		rv = ENXIO;
+		goto out;
+	}
+
+	tuples = reg_len / tuple_size;
+	regp = (pcell_t *)&reg;
+	for (i = 0; i < tuples; i++) {
+
+		uint64_t mem_start;
+		uint64_t mem_size;
+
+		rv = fdt_data_to_res(regp, addr_cells, size_cells,
+		    &mem_start, &mem_size);
+		printf("memory %x %x\n", mem_start, mem_size);
+		vmem_add(vmem, mem_start, mem_size, 0);
+
+		if (rv != 0)
+			goto out;
+
+		regp += addr_cells + size_cells;
+	}
+
+out:
+
+	return (0);
+}
+
+vmem_t *
+xdma_get_memory(device_t dev)
+{
+	phandle_t mem_node, node;
+	pcell_t mem_handle;
+	vmem_t *vmem;
+
+	node = ofw_bus_get_node(dev);
+	if (node <= 0)
+		device_printf(dev,
+		    "%s called on not ofw based device.\n", __func__);
+
+	/* Get reserved memory */
+	if (OF_hasprop(node, "memory-region")) {
+		vmem = vmem_create("xDMA", 0, 0, PAGE_SIZE,
+		    PAGE_SIZE, M_FIRSTFIT | M_WAITOK);
+		if (vmem == NULL)
+			return (NULL);
+
+		if (OF_getencprop(node, "memory-region", (void *)&mem_handle,
+		    sizeof(mem_handle)) <= 0)
+			panic("eee");
+
+		mem_node = OF_node_from_xref(mem_handle);
+		xdma_memory(vmem, mem_node);
+
+		return (vmem);
+	}
+
+	return (NULL);
+}
+
 /*
  * Allocate xdma controller.
  */
