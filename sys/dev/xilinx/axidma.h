@@ -29,19 +29,19 @@
 #ifndef _DEV_XDMA_CONTROLLER_PL330_H_
 #define _DEV_XDMA_CONTROLLER_PL330_H_
 
-#define	AXI_DMACR		0x00 /* MM2S DMA Control register */
+#define	AXI_DMACR(n)		(0x00 + 0x30 * (n)) /* DMA Control register */
 #define	 DMACR_RS		(1 << 0) /* Run / Stop. */
 #define	 DMACR_RESET		(1 << 2) /* Soft reset the AXI DMA core. */
 #define	 DMACR_IOC_IRQEN	(1 << 12) /* Interrupt on Complete (IOC) Interrupt Enable. */
 #define	 DMACR_DLY_IRQEN	(1 << 13) /* Interrupt on Delay Timer Interrupt Enable. */
 #define	 DMACR_ERR_IRQEN	(1 << 14) /* Interrupt on Error Interrupt Enable. */
-#define	AXI_DMASR		0x04 /* MM2S DMA Status register */
+#define	AXI_DMASR(n)		(0x04 + 0x30 * (n)) /* DMA Status register */
 #define	 DMACR_HALTED		(1 << 0) /* Halted. */
-#define	AXI_CURDESC		0x08 /* MM2S Current Descriptor Pointer. Lower 32 bits of the address. */
-#define	AXI_CURDESC_MSB		0x0C /* MM2S Current Descriptor Pointer. Upper 32 bits of address. */
-#define	AXI_TAILDESC		0x10 /* MM2S Tail Descriptor Pointer. Lower 32 bits. */
-#define	AXI_TAILDESC_MSB	0x14 /* MM2S Tail Descriptor Pointer. Upper 32 bits of address. */
-#define	SG_CTL			0x2C /* Scatter/Gather User and Cache */
+#define	AXI_CURDESC(n)		(0x08 + 0x30 * (n)) /* Current Descriptor Pointer. Lower 32 bits of the address. */
+#define	AXI_CURDESC_MSB(n)	(0x0C + 0x30 * (n)) /* Current Descriptor Pointer. Upper 32 bits of address. */
+#define	AXI_TAILDESC(n)		(0x10 + 0x30 * (n)) /* Tail Descriptor Pointer. Lower 32 bits. */
+#define	AXI_TAILDESC_MSB(n)	(0x14 + 0x30 * (n)) /* Tail Descriptor Pointer. Upper 32 bits of address. */
+#define	AXI_SG_CTL		0x2C /* Scatter/Gather User and Cache */
 
 #define	READ4(_sc, _reg)	\
 	bus_space_read_4(_sc->bst, _sc->bsh, _reg)

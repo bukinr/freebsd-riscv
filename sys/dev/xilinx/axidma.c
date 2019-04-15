@@ -76,9 +76,13 @@ __FBSDID("$FreeBSD$");
 #define dprintf(fmt, ...)
 #endif
 
-#define	AXIDMA_NCHANNELS	1
+#define	AXIDMA_NCHANNELS	2
 
 extern struct bus_space memmap_bus;
+
+struct axidma_fdt_data {
+	int id;
+};
 
 struct axidma_channel {
 	struct axidma_softc	*sc;
@@ -147,7 +151,9 @@ axidma_intr_rx(void *arg)
 static void
 axidma_intr_tx(void *arg)
 {
+	xdma_controller_t *xdma;
 	xdma_transfer_status_t status;
+	struct axidma_fdt_data *data;
 	struct xdma_transfer_status st;
 	struct axidma_desc *desc;
 	struct axidma_channel *chan;
@@ -161,13 +167,18 @@ axidma_intr_tx(void *arg)
 	sc = arg;
 	chan = &sc->channels[0];
 	xchan = chan->xchan;
+	xdma = xchan->xdma;
+	data = xdma->data;
 
-	pending = READ4(sc, AXI_DMASR);
-	WRITE4(sc, AXI_DMASR, pending);
+	pending = READ4(sc, AXI_DMASR(data->id));
+	WRITE4(sc, AXI_DMASR(data->id), pending);
 
-	printf("%s: AXI_DMASR %x\n", __func__, READ4(sc, AXI_DMASR));
-	printf("%s: AXI_CURDESC %x\n", __func__, READ4(sc, AXI_CURDESC));
-	printf("%s: AXI_TAILDESC %x\n", __func__, READ4(sc, AXI_TAILDESC));
+	printf("%s: AXI_DMASR %x\n", __func__,
+	    READ4(sc, AXI_DMASR(data->id)));
+	printf("%s: AXI_CURDESC %x\n", __func__,
+	    READ4(sc, AXI_CURDESC(data->id)));
+	printf("%s: AXI_TAILDESC %x\n", __func__,
+	    READ4(sc, AXI_TAILDESC(data->id)));
 
 #if 0
 	dprintf("%s(%d): status 0x%08x next_descr 0x%08x, control 0x%08x\n",
@@ -219,20 +230,22 @@ axidma_intr_tx(void *arg)
 }
 
 static int
-axidma_reset(struct axidma_softc *sc)
+axidma_reset(struct axidma_softc *sc, int chan_id)
 {
 	int timeout;
 
+#if 0
 	dprintf("%s: read status: %x\n", __func__, READ4(sc, 0x00));
 	dprintf("%s: read control: %x\n", __func__, READ4(sc, 0x04));
 	dprintf("%s: read 1: %x\n", __func__, READ4(sc, 0x08));
 	dprintf("%s: read 2: %x\n", __func__, READ4(sc, 0x0C));
+#endif
 
-	WRITE4(sc, AXI_DMACR, DMACR_RESET);
+	WRITE4(sc, AXI_DMACR(chan_id), DMACR_RESET);
 
 	timeout = 100;
 	do {
-		if ((READ4(sc, AXI_DMACR) & DMACR_RESET) == 0)
+		if ((READ4(sc, AXI_DMACR(chan_id)) & DMACR_RESET) == 0)
 			break;
 	} while (timeout--);
 
@@ -242,7 +255,7 @@ axidma_reset(struct axidma_softc *sc)
 		return (-1);
 
 	dprintf("%s: read control after reset: %x\n",
-	    __func__, READ4(sc, AXI_DMACR));
+	    __func__, READ4(sc, AXI_DMACR(chan_id)));
 
 	return (0);
 }
@@ -303,7 +316,7 @@ axidma_attach(device_t dev)
 	xref = OF_xref_from_node(node);
 	OF_device_register_xref(xref, dev);
 
-	if (axidma_reset(sc) != 0)
+	if (axidma_reset(sc, 0) != 0)
 		return (-1);
 
 #if 0
@@ -550,6 +563,8 @@ static int
 axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
     struct xdma_sglist *sg, uint32_t sg_n)
 {
+	xdma_controller_t *xdma;
+	struct axidma_fdt_data *data;
 	struct axidma_channel *chan;
 	struct axidma_desc *desc;
 	struct axidma_softc *sc;
@@ -565,6 +580,8 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	sc = device_get_softc(dev);
 
 	chan = (struct axidma_channel *)xchan->chan;
+	xdma = xchan->xdma;
+	data = xdma->data;
 
 	tail = chan->idx_head;
 
@@ -609,20 +626,25 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 
 	uint32_t addr;
 
-	printf("%s: _curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	printf("%s: _curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
+	printf("%s: _curdesc %x\n", __func__,
+	    READ8(sc, AXI_CURDESC(data->id)));
+	printf("%s: _curdesc %x\n", __func__,
+	    READ8(sc, AXI_CURDESC(data->id)));
+	printf("%s: status %x\n", __func__,
+	    READ4(sc, AXI_DMASR(data->id)));
 
 	sfence_vma();
 	addr = chan->descs_phys[tail].ds_addr;
 	addr = chan->descs_phys[chan->idx_head].ds_addr;
 	addr = chan->descs_phys[tmp].ds_addr;
-	WRITE8(sc, AXI_TAILDESC, addr);
+	WRITE8(sc, AXI_TAILDESC(data->id), addr);
 
 	printf("%s: taildesc %x %x\n",
-	    __func__, addr, READ8(sc, AXI_TAILDESC));
-	printf("%s: curdesc %x\n", __func__, READ8(sc, AXI_CURDESC));
-	printf("%s: status %x\n", __func__, READ4(sc, AXI_DMASR));
+	    __func__, addr, READ8(sc, AXI_TAILDESC(data->id)));
+	printf("%s: curdesc %x\n", __func__,
+	    READ8(sc, AXI_CURDESC(data->id)));
+	printf("%s: status %x\n",
+	    __func__, READ4(sc, AXI_DMASR(data->id)));
 
 	return (0);
 }
@@ -630,6 +652,8 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 static int
 axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 {
+	xdma_controller_t *xdma;
+	struct axidma_fdt_data *data;
 	struct axidma_channel *chan;
 	struct axidma_desc *desc;
 	struct axidma_softc *sc;
@@ -643,6 +667,8 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 	dprintf("%s(%d)\n", __func__, device_get_unit(dev));
 
 	chan = (struct axidma_channel *)xchan->chan;
+	xdma = xchan->xdma;
+	data = xdma->data;
 
 	ret = axidma_desc_alloc(sc, xchan, sizeof(struct axidma_desc), 16);
 	if (ret != 0) {
@@ -668,14 +694,14 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 
 	addr = chan->descs_phys[0].ds_addr;
 	printf("%s: curdesc %x\n", __func__, addr);
-	WRITE8(sc, AXI_CURDESC, addr);
+	WRITE8(sc, AXI_CURDESC(data->id), addr);
 
 	uint32_t reg;
-	reg = READ4(sc, AXI_DMACR);
+	reg = READ4(sc, AXI_DMACR(data->id));
 	reg |= DMACR_IOC_IRQEN | DMACR_DLY_IRQEN | DMACR_ERR_IRQEN;
-	WRITE4(sc, AXI_DMACR, reg);
+	WRITE4(sc, AXI_DMACR(data->id), reg);
 	reg |= DMACR_RS;
-	WRITE4(sc, AXI_DMACR, reg);
+	WRITE4(sc, AXI_DMACR(data->id), reg);
 
 	return (0);
 }
@@ -705,6 +731,18 @@ axidma_channel_control(device_t dev, xdma_channel_t *xchan, int cmd)
 static int
 axidma_ofw_md_data(device_t dev, pcell_t *cells, int ncells, void **ptr)
 {
+	struct axidma_fdt_data *data;
+
+	if (ncells != 1)
+		return (-1);
+
+	data = malloc(sizeof(struct axidma_fdt_data),
+	    M_DEVBUF, (M_WAITOK | M_ZERO));
+	data->id = cells[0];
+
+	printf("%s: id %d\n", __func__, data->id);
+
+	*ptr = data;
 
 	return (0);
 }
