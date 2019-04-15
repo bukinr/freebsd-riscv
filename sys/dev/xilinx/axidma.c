@@ -182,7 +182,7 @@ axidma_intr_tx(void *arg)
 
 #if 0
 	dprintf("%s(%d): status 0x%08x next_descr 0x%08x, control 0x%08x\n",
-	    __func__, device_get_unit(sc->dev),
+	    __func__, data->id,
 		READ4_DESC(sc, PF_STATUS),
 		READ4_DESC(sc, PF_NEXT_LO),
 		READ4_DESC(sc, PF_CONTROL));
@@ -594,22 +594,24 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 		dst_addr_lo = (uint32_t)sg[i].dst_addr;
 		len = (uint32_t)sg[i].len;
 
-		dprintf("%s: src %x dst %x len %d\n", __func__,
-		    src_addr_lo, dst_addr_lo, len);
+		dprintf("%s(%d): src %x dst %x len %d\n", __func__,
+		    data->id, src_addr_lo, dst_addr_lo, len);
 
 		desc = chan->descs[chan->idx_head];
 		if (sg[i].direction == XDMA_MEM_TO_DEV)
 			desc->phys = src_addr_lo;
 		else
 			desc->phys = dst_addr_lo;
-		dprintf("%s: desc->phys %x\n", __func__, desc->phys);
+		dprintf("%s(%d): desc->phys %x\n",
+		    __func__, data->id, desc->phys);
 		desc->status = 0;
 		desc->control = len;
 		if (sg[i].first == 1)
 			desc->control |= BD_CONTROL_TXSOF;
 		if (sg[i].last == 1)
 			desc->control |= BD_CONTROL_TXEOF;
-		dprintf("%s: desc->control %x\n", __func__, desc->control);
+		dprintf("%s(%d): desc->control %x\n",
+		    __func__, data->id, desc->control);
 
 		tmp = chan->idx_head;
 
@@ -626,11 +628,11 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 
 	uint32_t addr;
 
-	printf("%s: _curdesc %x\n", __func__,
+	printf("%s(%d): _curdesc %x\n", __func__, data->id,
 	    READ8(sc, AXI_CURDESC(data->id)));
-	printf("%s: _curdesc %x\n", __func__,
+	printf("%s(%d): _curdesc %x\n", __func__, data->id,
 	    READ8(sc, AXI_CURDESC(data->id)));
-	printf("%s: status %x\n", __func__,
+	printf("%s(%d): status %x\n", __func__, data->id,
 	    READ4(sc, AXI_DMASR(data->id)));
 
 	sfence_vma();
@@ -639,12 +641,12 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	addr = chan->descs_phys[tmp].ds_addr;
 	WRITE8(sc, AXI_TAILDESC(data->id), addr);
 
-	printf("%s: taildesc %x %x\n",
-	    __func__, addr, READ8(sc, AXI_TAILDESC(data->id)));
-	printf("%s: curdesc %x\n", __func__,
+	printf("%s(%d): taildesc %x %x\n", __func__,
+	    data->id, addr, READ8(sc, AXI_TAILDESC(data->id)));
+	printf("%s(%d): curdesc %x\n", __func__, data->id,
 	    READ8(sc, AXI_CURDESC(data->id)));
-	printf("%s: status %x\n",
-	    __func__, READ4(sc, AXI_DMASR(data->id)));
+	printf("%s(%d): status %x\n", __func__,
+	    data->id, READ4(sc, AXI_DMASR(data->id)));
 
 	return (0);
 }
@@ -664,11 +666,11 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 
 	sc = device_get_softc(dev);
 
-	dprintf("%s(%d)\n", __func__, device_get_unit(dev));
-
 	chan = (struct axidma_channel *)xchan->chan;
 	xdma = xchan->xdma;
 	data = xdma->data;
+
+	dprintf("%s(%d)\n", __func__, data->id);
 
 	ret = axidma_desc_alloc(sc, xchan, sizeof(struct axidma_desc), 16);
 	if (ret != 0) {
@@ -689,11 +691,11 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 		desc->control = 0;
 
 		dprintf("%s(%d): desc %d vaddr %lx next paddr %x\n", __func__,
-		    device_get_unit(dev), i, (uint64_t)desc, le32toh(desc->next));
+		    data->id, i, (uint64_t)desc, le32toh(desc->next));
 	}
 
 	addr = chan->descs_phys[0].ds_addr;
-	printf("%s: curdesc %x\n", __func__, addr);
+	printf("%s(%d): curdesc %x\n", __func__, data->id, addr);
 	WRITE8(sc, AXI_CURDESC(data->id), addr);
 
 	uint32_t reg;
