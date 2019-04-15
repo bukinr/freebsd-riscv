@@ -76,8 +76,8 @@ __FBSDID("$FreeBSD$");
 
 #define	MDIO_CLK_DIV_DEFAULT	29
 
-#define	DWC_LOCK(sc)			mtx_lock(&(sc)->mtx)
-#define	DWC_UNLOCK(sc)			mtx_unlock(&(sc)->mtx)
+#define	AXI_LOCK(sc)			mtx_lock(&(sc)->mtx)
+#define	AXI_UNLOCK(sc)			mtx_unlock(&(sc)->mtx)
 #define	DWC_ASSERT_LOCKED(sc)		mtx_assert(&(sc)->mtx, MA_OWNED)
 #define	DWC_ASSERT_UNLOCKED(sc)		mtx_assert(&(sc)->mtx, MA_NOTOWNED)
 
@@ -104,9 +104,9 @@ __FBSDID("$FreeBSD$");
 
 #define	DDESC_CNTL_CHAINED		(1U << 24)
 
-#define	RX_QUEUE_SIZE		32
-#define	TX_QUEUE_SIZE		32
-#define	NUM_RX_MBUF		512
+#define	RX_QUEUE_SIZE		64
+#define	TX_QUEUE_SIZE		64
+#define	NUM_RX_MBUF		16
 #define	BUFRING_SIZE		8192
 
 
@@ -206,6 +206,28 @@ next_txidx(struct axi_softc *sc, uint32_t curidx)
 	return ((curidx + 1) % TX_DESC_COUNT);
 }
 
+static int
+axi_rx_enqueue(struct axi_softc *sc, uint32_t n)
+{
+	struct mbuf *m;
+	int i;
+
+	for (i = 0; i < n; i++) {
+		m = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR);
+		if (m == NULL) {
+			device_printf(sc->dev,
+			    "%s: Can't alloc rx mbuf\n", __func__);
+			return (-1);
+		}
+
+		m->m_pkthdr.len = m->m_len = m->m_ext.ext_size;
+		xdma_enqueue_mbuf(sc->xchan_rx, &m, 0, 4, 4, XDMA_DEV_TO_MEM);
+	}
+
+	return (0);
+}
+
+
 static void
 axi_get1paddr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 {
@@ -303,7 +325,7 @@ axi_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
 
 	sc = arg;
 
-	DWC_LOCK(sc);
+	AXI_LOCK(sc);
 
 	ifp = sc->ifp;
 
@@ -323,7 +345,52 @@ axi_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
 
 	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
 
-	DWC_UNLOCK(sc);
+	AXI_UNLOCK(sc);
+
+	return (0);
+}
+
+static int
+axi_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
+{
+	xdma_transfer_status_t st;
+	struct axi_softc *sc;
+	struct ifnet *ifp;
+	struct mbuf *m;
+	int err;
+	uint32_t cnt_processed;
+
+	sc = arg;
+
+	AXI_LOCK(sc);
+
+	ifp = sc->ifp;
+
+	cnt_processed = 0;
+	for (;;) {
+		err = xdma_dequeue_mbuf(sc->xchan_rx, &m, &st);
+		if (err != 0) {
+			break;
+		}
+		cnt_processed++;
+
+		if (st.error != 0) {
+			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
+			m_freem(m);
+			continue;
+		}
+
+		m->m_pkthdr.len = m->m_len = st.transferred;
+		m->m_pkthdr.rcvif = ifp;
+		m_adj(m, ETHER_ALIGN);
+		AXI_UNLOCK(sc);
+		(*ifp->if_input)(ifp, m);
+		AXI_LOCK(sc);
+	}
+
+	axi_rx_enqueue(sc, cnt_processed);
+
+	AXI_UNLOCK(sc);
 
 	return (0);
 }
@@ -381,16 +448,16 @@ axi_txstart(struct ifnet *ifp)
 {
 	struct axi_softc *sc = ifp->if_softc;
 
-	DWC_LOCK(sc);
+	AXI_LOCK(sc);
 	axi_txstart_locked(sc);
-	DWC_UNLOCK(sc);
+	AXI_UNLOCK(sc);
 }
 #endif
 
 static void
 axi_qflush(struct ifnet *ifp)
 {
-	struct atse_softc *sc;
+	struct axi_softc *sc;
 
 	sc = ifp->if_softc;
 
@@ -449,7 +516,7 @@ axi_transmit(struct ifnet *ifp, struct mbuf *m)
 	sc = ifp->if_softc;
 	br = sc->br;
 
-	DWC_LOCK(sc);
+	AXI_LOCK(sc);
 
 	mtx_lock(&sc->br_mtx);
 
@@ -457,7 +524,7 @@ axi_transmit(struct ifnet *ifp, struct mbuf *m)
 	    IFF_DRV_RUNNING) {
 		error = drbr_enqueue(ifp, sc->br, m);
 		mtx_unlock(&sc->br_mtx);
-		DWC_UNLOCK(sc);
+		AXI_UNLOCK(sc);
 		return (error);
 	}
 
@@ -465,20 +532,20 @@ axi_transmit(struct ifnet *ifp, struct mbuf *m)
 	if (!sc->link_is_up) {
 		error = drbr_enqueue(ifp, sc->br, m);
 		mtx_unlock(&sc->br_mtx);
-		DWC_UNLOCK(sc);
+		AXI_UNLOCK(sc);
 		return (error);
 	}
 
 	error = drbr_enqueue(ifp, br, m);
 	if (error) {
 		mtx_unlock(&sc->br_mtx);
-		DWC_UNLOCK(sc);
+		AXI_UNLOCK(sc);
 		return (error);
 	}
 	error = axi_transmit_locked(ifp);
 
 	mtx_unlock(&sc->br_mtx);
-	DWC_UNLOCK(sc);
+	AXI_UNLOCK(sc);
 
 	return (error);
 }
@@ -656,9 +723,9 @@ axi_init(void *if_softc)
 {
 	struct axi_softc *sc = if_softc;
 
-	DWC_LOCK(sc);
+	AXI_LOCK(sc);
 	axi_init_locked(sc);
-	DWC_UNLOCK(sc);
+	AXI_UNLOCK(sc);
 }
 
 inline static uint32_t
@@ -730,11 +797,11 @@ axi_media_status(struct ifnet * ifp, struct ifmediareq *ifmr)
 
 	sc = ifp->if_softc;
 	mii = sc->mii_softc;
-	DWC_LOCK(sc);
+	AXI_LOCK(sc);
 	mii_pollstat(mii);
 	ifmr->ifm_active = mii->mii_media_active;
 	ifmr->ifm_status = mii->mii_media_status;
-	DWC_UNLOCK(sc);
+	AXI_UNLOCK(sc);
 }
 
 static int
@@ -754,9 +821,9 @@ axi_media_change(struct ifnet * ifp)
 
 	sc = ifp->if_softc;
 
-	DWC_LOCK(sc);
+	AXI_LOCK(sc);
 	error = axi_media_change_locked(sc);
-	DWC_UNLOCK(sc);
+	AXI_UNLOCK(sc);
 	return (error);
 }
 
@@ -878,7 +945,7 @@ axi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	error = 0;
 	switch (cmd) {
 	case SIOCSIFFLAGS:
-		DWC_LOCK(sc);
+		AXI_LOCK(sc);
 		if (ifp->if_flags & IFF_UP) {
 			if (ifp->if_drv_flags & IFF_DRV_RUNNING) {
 				if ((ifp->if_flags ^ sc->if_flags) &
@@ -893,14 +960,14 @@ axi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 				axi_stop_locked(sc);
 		}
 		sc->if_flags = ifp->if_flags;
-		DWC_UNLOCK(sc);
+		AXI_UNLOCK(sc);
 		break;
 	case SIOCADDMULTI:
 	case SIOCDELMULTI:
 		if (ifp->if_drv_flags & IFF_DRV_RUNNING) {
-			DWC_LOCK(sc);
+			AXI_LOCK(sc);
 			axi_setup_rxfilter(sc);
-			DWC_UNLOCK(sc);
+			AXI_UNLOCK(sc);
 		}
 		break;
 	case SIOCSIFMEDIA:
@@ -989,9 +1056,9 @@ axi_rxfinish_locked(struct axi_softc *sc)
 			/* Remove trailing FCS */
 			m_adj(m, -ETHER_CRC_LEN);
 
-			DWC_UNLOCK(sc);
+			AXI_UNLOCK(sc);
 			(*ifp->if_input)(ifp, m);
-			DWC_LOCK(sc);
+			AXI_LOCK(sc);
 		} else {
 			/* XXX Zero-length packet ? */
 		}
@@ -1022,7 +1089,7 @@ axi_intr(void *arg)
 
 	sc = arg;
 
-	DWC_LOCK(sc);
+	AXI_LOCK(sc);
 
 	reg = READ4(sc, INTERRUPT_STATUS);
 	if (reg)
@@ -1050,7 +1117,7 @@ axi_intr(void *arg)
 	}
 
 	WRITE4(sc, DMA_STATUS, reg & DMA_STATUS_INTR_MASK);
-	DWC_UNLOCK(sc);
+	AXI_UNLOCK(sc);
 #endif
 }
 
@@ -1456,10 +1523,10 @@ axi_attach(device_t dev)
 
 	int caps;
 	caps = 0;
-	/* Alloc xDMA virtual channel. */
+	/* Alloc xDMA TX virtual channel. */
 	sc->xchan_tx = xdma_channel_alloc(sc->xdma_tx, caps);
 	if (sc->xchan_tx == NULL) {
-		device_printf(dev, "Can't alloc virtual DMA channel.\n");
+		device_printf(dev, "Can't alloc virtual DMA TX channel.\n");
 		return (ENXIO);
 	}
 	sc->xchan_tx->vmem = vmem;
@@ -1469,7 +1536,24 @@ axi_attach(device_t dev)
 	    axi_xdma_tx_intr, sc, &sc->ih_tx);
 	if (error) {
 		device_printf(sc->dev,
-		    "Can't setup xDMA interrupt handler.\n");
+		    "Can't setup xDMA TX interrupt handler.\n");
+		return (ENXIO);
+	}
+
+	/* Alloc xDMA RX virtual channel. */
+	sc->xchan_rx = xdma_channel_alloc(sc->xdma_rx, caps);
+	if (sc->xchan_rx == NULL) {
+		device_printf(dev, "Can't alloc virtual DMA RX channel.\n");
+		return (ENXIO);
+	}
+	sc->xchan_rx->vmem = vmem;
+
+	/* Setup interrupt handler. */
+	error = xdma_setup_intr(sc->xchan_rx,
+	    axi_xdma_rx_intr, sc, &sc->ih_rx);
+	if (error) {
+		device_printf(sc->dev,
+		    "Can't setup xDMA RX interrupt handler.\n");
 		return (ENXIO);
 	}
 
@@ -1477,6 +1561,15 @@ axi_attach(device_t dev)
 	    TX_QUEUE_SIZE,	/* xchan requests queue size */
 	    MCLBYTES,	/* maxsegsize */
 	    8,		/* maxnsegs */
+	    16,		/* alignment */
+	    0,		/* boundary */
+	    BUS_SPACE_MAXADDR_32BIT,
+	    BUS_SPACE_MAXADDR);
+
+	xdma_prep_sg(sc->xchan_rx,
+	    RX_QUEUE_SIZE,	/* xchan requests queue size */
+	    MCLBYTES,	/* maxsegsize */
+	    1,		/* maxnsegs */
 	    16,		/* alignment */
 	    0,		/* boundary */
 	    BUS_SPACE_MAXADDR_32BIT,
@@ -1656,6 +1749,10 @@ axi_attach(device_t dev)
 	DELAY(10000);
 
 	sfence_vma();
+
+	axi_rx_enqueue(sc, NUM_RX_MBUF);
+	/* Enable the receiver. */
+	WRITE4(sc, AXI_RCW1, RCW1_RX);
 
 	return (0);
 }

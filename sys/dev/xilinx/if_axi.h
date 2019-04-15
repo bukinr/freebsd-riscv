@@ -45,6 +45,7 @@
 #define	AXI_STATCNT(n)	(0x00200 + 0x4 * (n)) /* Statistics Counters RO */
 #define	AXI_RCW0	0x00400 /* Receive Configuration Word 0 Register RW */
 #define	AXI_RCW1	0x00404 /* Receive Configuration Word 1 Register RW */
+#define	 RCW1_RX	(1 << 28) /* Receive Enable */
 #define	AXI_TC		0x00408 /* Transmitter Configuration register RW */
 #define	 TC_TX		(1 << 28) /* Transmit Enable */
 #define	AXI_FCC		0x0040C /* Flow Control Configuration register RW */
