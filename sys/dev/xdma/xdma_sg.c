@@ -472,7 +472,8 @@ _xdma_load_data(xdma_channel_t *xchan, struct xdma_request *xr,
 	switch (xr->req_type) {
 	case XR_TYPE_MBUF:
 		if (xr->direction == XDMA_MEM_TO_DEV) {
-			printf("%s: copying mbuf to %x\n", __func__, xr->buf.paddr);
+			printf("%s: copying mbuf to %x\n",
+			    __func__, xr->buf.paddr);
 
 			//m_copydata(m, 0, m->m_pkthdr.len, xr->buf.cbuf);
 			//seg[0].ds_addr = (bus_addr_t)xr->buf.cbuf;
@@ -481,7 +482,8 @@ _xdma_load_data(xdma_channel_t *xchan, struct xdma_request *xr,
 			seg[0].ds_addr = (bus_addr_t)xr->buf.paddr;
 			seg[0].ds_len = m->m_pkthdr.len;
 		} else {
-			seg[0].ds_addr = mtod(m, bus_addr_t);
+			seg[0].ds_addr = (bus_addr_t)xr->buf.paddr;
+			//seg[0].ds_addr = mtod(m, bus_addr_t);
 			seg[0].ds_len = m->m_pkthdr.len;
 		}
 		break;

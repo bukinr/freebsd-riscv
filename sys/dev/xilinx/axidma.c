@@ -190,12 +190,9 @@ axidma_intr(struct axidma_softc *sc,
 		printf("%s: desc%d status %x (transferred %d)\n", __func__,
 		    chan->idx_tail, desc->status,
 		    (desc->status & BD_STATUS_TRANSFERRED_M));
+
 		if ((desc->status & BD_STATUS_CMPLT) == 0)
 			break;
-#if 0
-		if ((le32toh(desc->control) & BD_CONTROL_OWN) != 0)
-			break;
-#endif
 
 		tot_copied += desc->control & BD_CONTROL_LEN_M;
 		st.error = 0;
