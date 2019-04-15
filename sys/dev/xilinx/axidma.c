@@ -142,30 +142,18 @@ axidma_next_desc(struct axidma_channel *chan, uint32_t curidx)
 }
 
 static void
-axidma_intr_rx(void *arg)
+axidma_intr(struct axidma_softc *sc,
+    struct axidma_channel *chan)
 {
-
-	printf("%s\n", __func__);
-}
-
-static void
-axidma_intr_tx(void *arg)
-{
-	xdma_controller_t *xdma;
 	xdma_transfer_status_t status;
 	struct axidma_fdt_data *data;
 	struct xdma_transfer_status st;
+	xdma_controller_t *xdma;
 	struct axidma_desc *desc;
-	struct axidma_channel *chan;
 	struct xdma_channel *xchan;
-	struct axidma_softc *sc;
 	uint32_t tot_copied;
 	int pending;
 
-	printf("%s\n", __func__);
-
-	sc = arg;
-	chan = &sc->channels[0];
 	xchan = chan->xchan;
 	xdma = xchan->xdma;
 	data = xdma->data;
@@ -189,7 +177,6 @@ axidma_intr_tx(void *arg)
 #endif
 
 	tot_copied = 0;
-
 
 	while (chan->idx_tail != chan->idx_head) {
 		dprintf("%s: idx_tail %d idx_head %d\n", __func__,
@@ -227,6 +214,34 @@ axidma_intr_tx(void *arg)
 	status.error = 0;
 	status.transferred = tot_copied;
 	xdma_callback(chan->xchan, &status);
+}
+
+static void
+axidma_intr_rx(void *arg)
+{
+	struct axidma_softc *sc;
+	struct axidma_channel *chan;
+
+	printf("%s\n", __func__);
+
+	sc = arg;
+	chan = &sc->channels[1];
+
+	axidma_intr(sc, chan);
+}
+
+static void
+axidma_intr_tx(void *arg)
+{
+	struct axidma_softc *sc;
+	struct axidma_channel *chan;
+
+	printf("%s\n", __func__);
+
+	sc = arg;
+	chan = &sc->channels[0];
+
+	axidma_intr(sc, chan);
 }
 
 static int
@@ -317,6 +332,8 @@ axidma_attach(device_t dev)
 	OF_device_register_xref(xref, dev);
 
 	if (axidma_reset(sc, 0) != 0)
+		return (-1);
+	if (axidma_reset(sc, 1) != 0)
 		return (-1);
 
 #if 0
@@ -439,7 +456,8 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 	pmap_kenter_device(vaddr, size, paddr);
 
 	for (i = 0; i < nsegments; i++) {
-		chan->descs[i] = (struct axidma_desc *)((uint64_t)vaddr + desc_size * i);
+		chan->descs[i] =
+		    (struct axidma_desc *)((uint64_t)vaddr + desc_size * i);
 		chan->descs_phys[i].ds_addr = paddr + desc_size * i;
 		chan->descs_phys[i].ds_len = desc_size;
 	}
@@ -493,7 +511,6 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 
 	return (0);
 }
-
 
 static int
 axidma_channel_alloc(device_t dev, struct xdma_channel *xchan)

@@ -362,6 +362,8 @@ axi_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
 
 	sc = arg;
 
+	printf("%s\n", __func__);
+
 	AXI_LOCK(sc);
 
 	ifp = sc->ifp;
@@ -1751,6 +1753,8 @@ axi_attach(device_t dev)
 	sfence_vma();
 
 	axi_rx_enqueue(sc, NUM_RX_MBUF);
+	xdma_queue_submit(sc->xchan_rx);
+
 	/* Enable the receiver. */
 	WRITE4(sc, AXI_RCW1, RCW1_RX);
 
