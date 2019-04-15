@@ -384,7 +384,6 @@ axi_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
 
 		m->m_pkthdr.len = m->m_len = st.transferred;
 		m->m_pkthdr.rcvif = ifp;
-		m_adj(m, ETHER_ALIGN);
 		AXI_UNLOCK(sc);
 		(*ifp->if_input)(ifp, m);
 		AXI_LOCK(sc);

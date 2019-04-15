@@ -194,9 +194,9 @@ axidma_intr(struct axidma_softc *sc,
 		if ((desc->status & BD_STATUS_CMPLT) == 0)
 			break;
 
-		tot_copied += desc->control & BD_CONTROL_LEN_M;
+		tot_copied += desc->status & BD_CONTROL_LEN_M;
 		st.error = 0;
-		st.transferred = desc->control & BD_CONTROL_LEN_M;
+		st.transferred = desc->status & BD_CONTROL_LEN_M;
 		xchan_seg_done(xchan, &st);
 
 		chan->idx_tail = axidma_next_desc(chan, chan->idx_tail);

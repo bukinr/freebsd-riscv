@@ -330,6 +330,14 @@ xchan_seg_done(xdma_channel_t *xchan,
 				bus_dmamap_sync(xchan->dma_tag_bufs, b->map, 
 				    BUS_DMASYNC_POSTREAD);
 			bus_dmamap_unload(xchan->dma_tag_bufs, b->map);
+		} else {
+			if (xr->req_type == XR_TYPE_MBUF &&
+			    xr->direction == XDMA_DEV_TO_MEM) {
+				printf("%s: m_copyback %d\n", __func__,
+				    st->transferred);
+				m_copyback(xr->m, 0, st->transferred,
+				    (void *)xr->buf.vaddr);
+			}
 		}
 		xr->status.error = st->error;
 		xr->status.transferred = st->transferred;
@@ -552,6 +560,7 @@ xdma_process(xdma_channel_t *xchan,
 	TAILQ_FOREACH_SAFE(xr, &xchan->queue_in, xr_next, xr_tmp) {
 		switch (xr->req_type) {
 		case XR_TYPE_MBUF:
+			/* Defrag if required */
 			c = xdma_mbuf_defrag(xchan, xr);
 			break;
 		case XR_TYPE_BIO:
