@@ -100,6 +100,8 @@ __FBSDID("$FreeBSD$");
 #define	PHY_WRITE1(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 1, _r, _v)
 #define	PHY_READ3(sc, _r)	axi_miibus_read_reg(sc->dev, 3, _r)
 #define	PHY_WRITE3(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 3, _r, _v)
+
+/* Use this macro to access regs > 0x1f */
 #define WRITE_TI_EREG(sc, reg, data) {			\
 	PHY_WRITE3(sc, MII_MMDACR, MMDACR_DADDRMASK);	\
 	PHY_WRITE3(sc, MII_MMDAADR, reg);		\
@@ -108,12 +110,9 @@ __FBSDID("$FreeBSD$");
 }
 
 /* Not documented, VCU118 workaround */
-#define	 CFG4_SGMII_TMR			0x160 /* reserved bits */
+#define	 CFG4_SGMII_TMR			0x160 /* bits 8:7 MUST be '10' */
 #define	DP83867_SGMIICTL1		0xD3 /* not documented register */
 #define	 SGMIICTL1_SGMII_6W		(1 << 14) /* no idea what it is */
-
-// Reg > 0x1F should use WRITE_TI_REG function
-// IMPORTANT: Special reserved bits 8:7 MUST be '10' for workaround
 
 /*
  * The hardware imposes alignment restrictions on various objects involved in
