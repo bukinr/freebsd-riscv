@@ -161,11 +161,11 @@ axidma_intr(struct axidma_softc *sc,
 	pending = READ4(sc, AXI_DMASR(data->id));
 	WRITE4(sc, AXI_DMASR(data->id), pending);
 
-	printf("%s: AXI_DMASR %x\n", __func__,
+	dprintf("%s: AXI_DMASR %x\n", __func__,
 	    READ4(sc, AXI_DMASR(data->id)));
-	printf("%s: AXI_CURDESC %x\n", __func__,
+	dprintf("%s: AXI_CURDESC %x\n", __func__,
 	    READ4(sc, AXI_CURDESC(data->id)));
-	printf("%s: AXI_TAILDESC %x\n", __func__,
+	dprintf("%s: AXI_TAILDESC %x\n", __func__,
 	    READ4(sc, AXI_TAILDESC(data->id)));
 
 #if 0
@@ -219,7 +219,7 @@ axidma_intr_rx(void *arg)
 	struct axidma_softc *sc;
 	struct axidma_channel *chan;
 
-	printf("%s\n", __func__);
+	dprintf("%s\n", __func__);
 
 	sc = arg;
 	chan = &sc->channels[1];
@@ -233,7 +233,7 @@ axidma_intr_tx(void *arg)
 	struct axidma_softc *sc;
 	struct axidma_channel *chan;
 
-	printf("%s\n", __func__);
+	dprintf("%s\n", __func__);
 
 	sc = arg;
 	chan = &sc->channels[0];
@@ -672,7 +672,7 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 	struct axidma_desc *desc;
 	struct axidma_softc *sc;
 	uint32_t addr;
-	//uint32_t reg;
+	uint32_t reg;
 	int ret;
 	int i;
 
@@ -710,7 +710,6 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 	printf("%s(%d): curdesc %x\n", __func__, data->id, addr);
 	WRITE8(sc, AXI_CURDESC(data->id), addr);
 
-	uint32_t reg;
 	reg = READ4(sc, AXI_DMACR(data->id));
 	reg |= DMACR_IOC_IRQEN | DMACR_DLY_IRQEN | DMACR_ERR_IRQEN;
 	WRITE4(sc, AXI_DMACR(data->id), reg);
@@ -753,8 +752,6 @@ axidma_ofw_md_data(device_t dev, pcell_t *cells, int ncells, void **ptr)
 	data = malloc(sizeof(struct axidma_fdt_data),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
 	data->id = cells[0];
-
-	printf("%s: id %d\n", __func__, data->id);
 
 	*ptr = data;
 

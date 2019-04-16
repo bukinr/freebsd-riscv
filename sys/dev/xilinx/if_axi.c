@@ -81,6 +81,15 @@ __FBSDID("$FreeBSD$");
 #define	AXI_ASSERT_LOCKED(sc)		mtx_assert(&(sc)->mtx, MA_OWNED)
 #define	AXI_ASSERT_UNLOCKED(sc)		mtx_assert(&(sc)->mtx, MA_NOTOWNED)
 
+#define AXI_DEBUG
+#undef AXI_DEBUG
+
+#ifdef AXI_DEBUG
+#define dprintf(fmt, ...)  printf(fmt, ##__VA_ARGS__)
+#else
+#define dprintf(fmt, ...)
+#endif
+
 #if 0
 #define	DDESC_TDES0_OWN			(1U << 31)
 #define	DDESC_TDES0_TXINT		(1U << 30)
@@ -238,7 +247,6 @@ axi_get1paddr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 		return;
 	*(bus_addr_t *)arg = segs[0].ds_addr;
 }
-#endif
 
 inline static uint32_t
 axi_setup_txdesc(struct axi_softc *sc, int idx, bus_addr_t paddr,
@@ -286,7 +294,6 @@ axi_setup_txdesc(struct axi_softc *sc, int idx, bus_addr_t paddr,
 	return (nidx);
 }
 
-#if 0
 static int
 axi_setup_txbuf(struct axi_softc *sc, int idx, struct mbuf **mp)
 {
@@ -1302,7 +1309,6 @@ out:
 
 	return (0);
 }
-#endif
 
 static int __unused
 axi_get_hwaddr(struct axi_softc *sc, uint8_t *hwaddr)
@@ -1344,6 +1350,7 @@ axi_get_hwaddr(struct axi_softc *sc, uint8_t *hwaddr)
 
 	return (0);
 }
+#endif
 
 #define	GPIO_ACTIVE_LOW 1
 
