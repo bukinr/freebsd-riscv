@@ -84,6 +84,7 @@ cperciva [label="Colin Percival\ncperciva@FreeBSD.org\n2006/01/31"]
 crees [label="Chris Rees\ncrees@FreeBSD.org\n2011/06/11"]
 cs [label="Carlo Strub\ncs@FreeBSD.org\n2011/09/13"]
 culot [label="Frederic Culot\nculot@FreeBSD.org\n2010/10/16"]
+cy [label="Cy Schubert\ncy@FreeBSD.org\n2001/11/13"]
 daichi [label="Daichi Goto\ndaichi@FreeBSD.org\n2002/10/17"]
 danfe [label="Alexey Dokuchaev\ndanfe@FreeBSD.org\n2004/08/20"]
 danilo [label="Danilo E. Gondolfo\ndanilo@FreeBSD.org\n2013/09/23"]
@@ -217,6 +218,7 @@ pgollucci [label="Philip M. Gollucci\npgollucci@FreeBSD.org\n2008/07/21"]
 philip [label="Philip Paeps\nphilip@FreeBSD.org\n2005/10/19"]
 pi [label="Kurt Jaeger\npi@FreeBSD.org\n2014/03/14"]
 pizzamig [label="Luca Pizzamiglio\npizzamig@FreeBSD.org\n2017/08/25"]
+pkubaj [label="Piotr Kubaj\npkubaj@FreeBSD.org\n2019/04/14"]
 rafan [label="Rong-En Fan\nrafan@FreeBSD.org\n2006/06/23"]
 rakuco [label="Raphael Kubo da Costa\nrakuco@FreeBSD.org\n2011/08/22"]
 rene [label="Rene Ladan\nrene@FreeBSD.org\n2010/04/11"]
@@ -519,6 +521,7 @@ ler -> leres
 lifanov -> ultima
 
 linimon -> hrs
+linimon -> pkubaj
 
 lioux -> pat
 
@@ -555,6 +558,7 @@ mat -> thierry
 mat -> tobik
 mat -> woodsb02
 mat -> rigoletto
+mat -> pkubaj
 
 matthew -> leres
 matthew -> lifanov
@@ -719,6 +723,7 @@ tcberner -> fernape
 tcberner -> arrowd
 tcberner -> rigoletto
 tcberner -> kai
+tcberner -> pkubaj
 
 thierry -> jadawin
 thierry -> riggs
