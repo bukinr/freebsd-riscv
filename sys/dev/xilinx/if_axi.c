@@ -125,67 +125,33 @@ __FBSDID("$FreeBSD$");
 #define	PHY_READ3(sc, _r)	axi_miibus_read_reg(sc->dev, 3, _r)
 #define	PHY_WRITE3(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 3, _r, _v)
 #define WRITE_TI_EREG(sc, reg, data) {			\
-	PHY_WRITE3(sc, XAE_TI_PHY_CR, XAE_TI_PHY_DEVAD);	\
-	PHY_WRITE3(sc, XAE_TI_PHY_AR, reg);		\
-	PHY_WRITE3(sc, XAE_TI_PHY_CR, XAE_TI_PHY_DEVAD | XAE_TI_PHY_DEVAD_EN);\
-	PHY_WRITE3(sc, XAE_TI_PHY_AR, data);		\
+	PHY_WRITE3(sc, MII_MMDACR, MMDACR_DADDRMASK);	\
+	PHY_WRITE3(sc, MII_MMDAADR, reg);		\
+	PHY_WRITE3(sc, MII_MMDACR, MMDACR_DADDRMASK | MMDACR_FN_DATANPI);\
+	PHY_WRITE3(sc, MII_MMDAADR, data);		\
 }
 
-#define XAE_TI_QUIRK_RETRIES 20
-#define XAE_TI_PHY_BMCR      0x00
-#define XAE_TI_PHY_PHYCR     0x10
-#define XAE_TI_PHY_CFG2      0x14
-#define XAE_TI_PHY_CR        0x0D
-#define XAE_TI_PHY_AR        0x0E
+#define	DP83867_PHYCR			0x10	/* PHY Control Register */
+#define	 PHYCR_SGMII_EN			(1 << 11)
+#define	DP83867_CFG2			0x14	/* Configuration Register 2 */
+#define	 CFG2_SPEED_OPT_10M_EN		(1 << 6) /* Enable Speed Optimization to 10BASE-Te */
+#define	 CFG2_SPEED_OPT_ENHANCED_EN	(1 << 8) /* Speed Optimization Enhanced Mode Enable */
+#define	 CFG2_SPEED_OPT_ATTEMPT_CNT_S	10
+#define	 CFG2_SPEED_OPT_ATTEMPT_CNT_M	(0x3 << CFG2_SPEED_OPT_ATTEMPT_CNT_S)
+#define	 CFG2_SPEED_OPT_ATTEMPT_CNT_1	(0 << CFG2_SPEED_OPT_ATTEMPT_CNT_S)
+#define	 CFG2_SPEED_OPT_ATTEMPT_CNT_2	(1 << CFG2_SPEED_OPT_ATTEMPT_CNT_S)
+#define	 CFG2_SPEED_OPT_ATTEMPT_CNT_4	(2 << CFG2_SPEED_OPT_ATTEMPT_CNT_S)
+#define	 CFG2_SPEED_OPT_ATTEMPT_CNT_8	(3 << CFG2_SPEED_OPT_ATTEMPT_CNT_S)
+#define	 CFG2_INTERRUPT_POLARITY	(1 << 13) /* Interrupt pin is active low. */
+#define	DP83867_CFG4			0x31 /* Configuration Register 4 */
+
+/* Not documented, VCU118 workaround */
+#define	 CFG4_SGMII_TMR			0x160 /* vcu118 workaround */
+#define	DP83867_SGMIICTL1		0xD3
+#define	 SGMIICTL1_SGMII_6W		(1 << 14)
+
 // Reg > 0x1F should use WRITE_TI_REG function
-#define XAE_TI_PHY_CFG4      0x31
-#define XAE_TI_PHY_SGMIICTL1 0xD3
-
-#define XAE_TI_PHY_DEVAD     0x1F
-#define XAE_TI_PHY_DEVAD_EN  0x4000
-#define XAE_TI_PHY_SGMII_6W  0x4000
-#define XAE_TI_PHY_SGMII_EN  0x0800
-#define XAE_TI_PHY_CFG2_DEF  0x29C7
 // IMPORTANT: Special reserved bits 8:7 MUST be '10' for workaround
-#define XAE_TI_PHY_SGMII_TMR 0x0160
-#define XAE_TI_PHY_CONFIG    0x1140
-#define XAE_TI_PHY_RESET     0x8000
-
-#define XAE_PHY_CTRL         0x00
-#define XAE_PHY_STATUS       0x01
-#define XAE_PHY_CONFIG       0x1140
-#define XAE_PHY_RST_AUTONEG  0x0200
-#define XAE_PHY_AUTONEG_DONE 0x20
-
-/*
- * A hardware buffer descriptor.  Rx and Tx buffers have the same descriptor
- * layout, but the bits in the fields have different meanings.
- */
-struct axi_hwdesc
-{
-#if 1
-	uint32_t tdes0;		/* status for alt layout */
-	uint32_t tdes1;		/* cntl for alt layout */
-	uint32_t addr;		/* pointer to buffer data */
-	uint32_t addr_next;	/* link to next descriptor */
-#endif
-	uint32_t nxtdesc;
-	uint32_t reserved1;
-	uint32_t phys;
-	uint32_t reserved2;
-	uint32_t reserved3;
-	uint32_t reserved4;
-	uint32_t control;
-	uint32_t status;
-	uint32_t app0;
-	uint32_t app1;
-	uint32_t app2;
-	uint32_t app3;
-	uint32_t app4;
-	uint32_t sw_id_offset;
-	uint32_t reserved5;
-	uint32_t reserved6;
-};
 
 /*
  * The hardware imposes alignment restrictions on various objects involved in
@@ -1470,30 +1436,39 @@ axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
 static void
 fixup(struct axi_softc *sc)
 {
+	uint32_t reg;
 	device_t dev;
 
 	dev = sc->dev;
 
-	printf("%s: XAE_PHY_CTRL1 %x\n", __func__, PHY_READ1(sc, XAE_PHY_CTRL));
-	printf("%s: XAE_PHY_CTRL3 %x\n", __func__, PHY_READ3(sc, XAE_PHY_CTRL));
+	printf("%s: MII_BMCR1 %x\n", __func__, PHY_READ1(sc, MII_BMCR));
+	printf("%s: MII_BMCR3 %x\n", __func__, PHY_READ3(sc, MII_BMCR));
 
 	do {
-		WRITE_TI_EREG(sc, XAE_TI_PHY_SGMIICTL1,  XAE_TI_PHY_SGMII_6W);
-		PHY_WRITE3(sc, XAE_TI_PHY_PHYCR,  XAE_TI_PHY_SGMII_EN);
-		PHY_WRITE3(sc, XAE_TI_PHY_CFG2, XAE_TI_PHY_CFG2_DEF);
-		WRITE_TI_EREG(sc, XAE_TI_PHY_CFG4, XAE_TI_PHY_SGMII_TMR);
-		PHY_WRITE3(sc, XAE_TI_PHY_BMCR,
-		    XAE_TI_PHY_CONFIG | XAE_TI_PHY_RESET);
-	} while (PHY_READ1(sc, XAE_PHY_CTRL) == 0x0ffff);
+		WRITE_TI_EREG(sc, DP83867_SGMIICTL1, SGMIICTL1_SGMII_6W);
+		PHY_WRITE3(sc, DP83867_PHYCR, PHYCR_SGMII_EN);
 
-	printf("%s: XAE_PHY_CTRL1 %x\n", __func__, PHY_READ1(sc, XAE_PHY_CTRL));
-	printf("%s: XAE_PHY_CTRL3 %x\n", __func__, PHY_READ3(sc, XAE_PHY_CTRL));
+		reg = PHY_READ3(sc, DP83867_CFG2);
+		reg &= ~CFG2_SPEED_OPT_ATTEMPT_CNT_M;
+		reg |= (CFG2_SPEED_OPT_ATTEMPT_CNT_4);
+		reg |= CFG2_INTERRUPT_POLARITY;
+		reg |= CFG2_SPEED_OPT_ENHANCED_EN;
+		reg |= CFG2_SPEED_OPT_10M_EN;
+		PHY_WRITE3(sc, DP83867_CFG2, reg);
+
+		WRITE_TI_EREG(sc, DP83867_CFG4, CFG4_SGMII_TMR);
+		PHY_WRITE3(sc, MII_BMCR,
+		    BMCR_AUTOEN | BMCR_FDX | BMCR_SPEED1 | BMCR_RESET);
+	} while (PHY_READ1(sc, MII_BMCR) == 0x0ffff);
+
+	printf("%s: MII_BMCR1 %x\n", __func__, PHY_READ1(sc, MII_BMCR));
+	printf("%s: MII_BMCR3 %x\n", __func__, PHY_READ3(sc, MII_BMCR));
 
 	do {
-		PHY_WRITE1(sc, XAE_PHY_CTRL,
-		    XAE_PHY_CONFIG | XAE_PHY_RST_AUTONEG);
+		PHY_WRITE1(sc, MII_BMCR,
+		    BMCR_AUTOEN | BMCR_FDX | BMCR_SPEED1 | BMCR_STARTNEG);
 		DELAY(40000);
-	} while ((PHY_READ1(sc, XAE_PHY_STATUS) & XAE_PHY_AUTONEG_DONE) == 0);
+	} while ((PHY_READ1(sc, MII_BMSR) & BMSR_ACOMP) == 0);
 }
 
 static int
