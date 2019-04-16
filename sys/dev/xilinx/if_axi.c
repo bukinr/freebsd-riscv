@@ -120,7 +120,10 @@ __FBSDID("$FreeBSD$");
 #define	NUM_RX_MBUF		16
 #define	BUFRING_SIZE		8192
 
-/* */
+#define	PHY_READ1(sc, _r)	axi_miibus_read_reg(sc->dev, 1, _r)
+#define	PHY_WRITE1(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 1, _r, _v)
+#define	PHY_READ3(sc, _r)	axi_miibus_read_reg(sc->dev, 3, _r)
+#define	PHY_WRITE3(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 3, _r, _v)
 #define WRITE_TI_EREG(sc, reg, data) {			\
 	PHY_WRITE3(sc, XAE_TI_PHY_CR, XAE_TI_PHY_DEVAD);	\
 	PHY_WRITE3(sc, XAE_TI_PHY_AR, reg);		\
@@ -1413,12 +1416,6 @@ mdio_wait(struct axi_softc *sc)
 
 	return (0);
 }
-
-#define	PHY_READ1(sc, _r)	axi_miibus_read_reg(sc->dev, 1, _r)
-#define	PHY_WRITE1(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 1, _r, _v)
-#define	PHY_READ3(sc, _r)	axi_miibus_read_reg(sc->dev, 3, _r)
-#define	PHY_WRITE3(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 3, _r, _v)
-
 
 static int
 axi_miibus_read_reg(device_t dev, int phy, int reg)
