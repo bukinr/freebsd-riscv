@@ -187,7 +187,7 @@ axidma_intr(struct axidma_softc *sc,
 #endif
 
 		desc = chan->descs[chan->idx_tail];
-		printf("%s: desc%d status %x (transferred %d)\n", __func__,
+		dprintf("%s: desc%d status %x (transferred %d)\n", __func__,
 		    chan->idx_tail, desc->status,
 		    (desc->status & BD_STATUS_TRANSFERRED_M));
 
@@ -589,7 +589,7 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	int i;
 	int tail;
 
-	printf("%s: sg_n %d\n", __func__, sg_n);
+	dprintf("%s: sg_n %d\n", __func__, sg_n);
 
 	sc = device_get_softc(dev);
 
@@ -642,22 +642,22 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 
 	uint32_t addr;
 
-	printf("%s(%d): _curdesc %x\n", __func__, data->id,
+	dprintf("%s(%d): _curdesc %x\n", __func__, data->id,
 	    READ8(sc, AXI_CURDESC(data->id)));
-	printf("%s(%d): _curdesc %x\n", __func__, data->id,
+	dprintf("%s(%d): _curdesc %x\n", __func__, data->id,
 	    READ8(sc, AXI_CURDESC(data->id)));
-	printf("%s(%d): status %x\n", __func__, data->id,
+	dprintf("%s(%d): status %x\n", __func__, data->id,
 	    READ4(sc, AXI_DMASR(data->id)));
 
 	sfence_vma();
 	addr = chan->descs_phys[tmp].ds_addr;
 	WRITE8(sc, AXI_TAILDESC(data->id), addr);
 
-	printf("%s(%d): taildesc %x %x\n", __func__,
+	dprintf("%s(%d): taildesc %x %x\n", __func__,
 	    data->id, addr, READ8(sc, AXI_TAILDESC(data->id)));
-	printf("%s(%d): curdesc %x\n", __func__, data->id,
+	dprintf("%s(%d): curdesc %x\n", __func__, data->id,
 	    READ8(sc, AXI_CURDESC(data->id)));
-	printf("%s(%d): status %x\n", __func__,
+	dprintf("%s(%d): status %x\n", __func__,
 	    data->id, READ4(sc, AXI_DMASR(data->id)));
 
 	return (0);

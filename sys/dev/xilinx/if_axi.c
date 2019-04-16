@@ -372,7 +372,7 @@ axi_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
 
 	sc = arg;
 
-	printf("%s\n", __func__);
+	dprintf("%s\n", __func__);
 
 	AXI_LOCK(sc);
 
@@ -484,7 +484,7 @@ axi_transmit_locked(struct ifnet *ifp)
 	int error;
 	int enq;
 
-	printf("%s\n", __func__);
+	dprintf("%s\n", __func__);
 
 	sc = ifp->if_softc;
 	br = sc->br;
@@ -522,7 +522,7 @@ axi_transmit(struct ifnet *ifp, struct mbuf *m)
 	struct buf_ring *br;
 	int error;
 
-	printf("%s\n", __func__);
+	dprintf("%s\n", __func__);
 
 	sc = ifp->if_softc;
 	br = sc->br;

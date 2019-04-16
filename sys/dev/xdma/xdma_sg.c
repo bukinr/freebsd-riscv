@@ -326,8 +326,6 @@ xchan_seg_done(xdma_channel_t *xchan,
 		} else {
 			if (xr->req_type == XR_TYPE_MBUF &&
 			    xr->direction == XDMA_DEV_TO_MEM) {
-				printf("%s: m_copyback %d\n", __func__,
-				    st->transferred);
 				m_copyback(xr->m, 0, st->transferred,
 				    (void *)xr->buf.vaddr);
 			}
