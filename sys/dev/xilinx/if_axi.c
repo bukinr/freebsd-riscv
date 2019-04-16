@@ -90,31 +90,6 @@ __FBSDID("$FreeBSD$");
 #define dprintf(fmt, ...)
 #endif
 
-#if 0
-#define	DDESC_TDES0_OWN			(1U << 31)
-#define	DDESC_TDES0_TXINT		(1U << 30)
-#define	DDESC_TDES0_TXLAST		(1U << 29)
-#define	DDESC_TDES0_TXFIRST		(1U << 28)
-#define	DDESC_TDES0_TXCRCDIS		(1U << 27)
-#define	DDESC_TDES0_TXRINGEND		(1U << 21)
-#define	DDESC_TDES0_TXCHAIN		(1U << 20)
-
-#define	DDESC_RDES0_OWN			(1U << 31)
-#define	DDESC_RDES0_FL_MASK		0x3fff
-#define	DDESC_RDES0_FL_SHIFT		16	/* Frame Length */
-#define	DDESC_RDES1_CHAINED		(1U << 14)
-
-/* Alt descriptor bits. */
-#define	DDESC_CNTL_TXINT		(1U << 31)
-#define	DDESC_CNTL_TXLAST		(1U << 30)
-#define	DDESC_CNTL_TXFIRST		(1U << 29)
-#define	DDESC_CNTL_TXCRCDIS		(1U << 26)
-#define	DDESC_CNTL_TXRINGEND		(1U << 25)
-#define	DDESC_CNTL_TXCHAIN		(1U << 24)
-
-#define	DDESC_CNTL_CHAINED		(1U << 24)
-#endif
-
 #define	RX_QUEUE_SIZE		64
 #define	TX_QUEUE_SIZE		64
 #define	NUM_RX_MBUF		16
@@ -146,9 +121,9 @@ __FBSDID("$FreeBSD$");
 #define	DP83867_CFG4			0x31 /* Configuration Register 4 */
 
 /* Not documented, VCU118 workaround */
-#define	 CFG4_SGMII_TMR			0x160 /* vcu118 workaround */
-#define	DP83867_SGMIICTL1		0xD3
-#define	 SGMIICTL1_SGMII_6W		(1 << 14)
+#define	 CFG4_SGMII_TMR			0x160 /* reserved bits */
+#define	DP83867_SGMIICTL1		0xD3 /* not documented register */
+#define	 SGMIICTL1_SGMII_6W		(1 << 14) /* no idea what it is */
 
 // Reg > 0x1F should use WRITE_TI_REG function
 // IMPORTANT: Special reserved bits 8:7 MUST be '10' for workaround
