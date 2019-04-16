@@ -71,29 +71,22 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 	xdma_controller_t *xdma;
 	struct xdma_request *xr;
 	vmem_addr_t addr;
+	int size;
 	int i;
 
 	xdma = xchan->xdma;
 
-	printf("%s: xchan->xr_num %d\n", __func__, xchan->xr_num);
-
-	int size;
 	for (i = 0; i < xchan->xr_num; i++) {
-		size = PAGE_SIZE;
-		printf("%s: xchan->maxsegsize %d\n",
-		    __func__, xchan->maxsegsize);
+		size = roundup2(xchan->maxsegsize, PAGE_SIZE);
 		xr = &xchan->xr_mem[i];
-		printf("%s: vmem_alloc\n", __func__);
-		if (vmem_alloc(xchan->vmem, size, //xchan->maxsegsize,
+		if (vmem_alloc(xchan->vmem, size,
 		    M_FIRSTFIT, &addr)) {
 			device_printf(xdma->dev,
 			     "%s: Can't allocate memory\n", __func__);
 			return (-1);
 		}
 		xr->buf.paddr = addr;
-		printf("%s: kva_alloc\n", __func__);
 		xr->buf.vaddr = kva_alloc(size);
-		printf("%s: pmap_kenter_device\n", __func__);
 		pmap_kenter_device(xr->buf.vaddr, size, addr);
 
 #if 0
@@ -479,21 +472,11 @@ _xdma_load_data(xdma_channel_t *xchan, struct xdma_request *xr,
 
 	switch (xr->req_type) {
 	case XR_TYPE_MBUF:
-		if (xr->direction == XDMA_MEM_TO_DEV) {
-			printf("%s: copying mbuf to %x\n",
-			    __func__, xr->buf.paddr);
-
-			//m_copydata(m, 0, m->m_pkthdr.len, xr->buf.cbuf);
-			//seg[0].ds_addr = (bus_addr_t)xr->buf.cbuf;
+		if (xr->direction == XDMA_MEM_TO_DEV)
 			m_copydata(m, 0, m->m_pkthdr.len,
 			    (void *)xr->buf.vaddr);
-			seg[0].ds_addr = (bus_addr_t)xr->buf.paddr;
-			seg[0].ds_len = m->m_pkthdr.len;
-		} else {
-			seg[0].ds_addr = (bus_addr_t)xr->buf.paddr;
-			//seg[0].ds_addr = mtod(m, bus_addr_t);
-			seg[0].ds_len = m->m_pkthdr.len;
-		}
+		seg[0].ds_addr = (bus_addr_t)xr->buf.paddr;
+		seg[0].ds_len = m->m_pkthdr.len;
 		break;
 	case XR_TYPE_BIO:
 	case XR_TYPE_VIRT:
@@ -560,7 +543,7 @@ xdma_process(xdma_channel_t *xchan,
 	TAILQ_FOREACH_SAFE(xr, &xchan->queue_in, xr_next, xr_tmp) {
 		switch (xr->req_type) {
 		case XR_TYPE_MBUF:
-			/* Defrag if required */
+			/* Check if defrag required */
 			c = xdma_mbuf_defrag(xchan, xr);
 			break;
 		case XR_TYPE_BIO:
