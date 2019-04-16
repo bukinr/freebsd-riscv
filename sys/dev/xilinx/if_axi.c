@@ -78,9 +78,10 @@ __FBSDID("$FreeBSD$");
 
 #define	AXI_LOCK(sc)			mtx_lock(&(sc)->mtx)
 #define	AXI_UNLOCK(sc)			mtx_unlock(&(sc)->mtx)
-#define	DWC_ASSERT_LOCKED(sc)		mtx_assert(&(sc)->mtx, MA_OWNED)
-#define	DWC_ASSERT_UNLOCKED(sc)		mtx_assert(&(sc)->mtx, MA_NOTOWNED)
+#define	AXI_ASSERT_LOCKED(sc)		mtx_assert(&(sc)->mtx, MA_OWNED)
+#define	AXI_ASSERT_UNLOCKED(sc)		mtx_assert(&(sc)->mtx, MA_NOTOWNED)
 
+#if 0
 #define	DDESC_TDES0_OWN			(1U << 31)
 #define	DDESC_TDES0_TXINT		(1U << 30)
 #define	DDESC_TDES0_TXLAST		(1U << 29)
@@ -103,12 +104,12 @@ __FBSDID("$FreeBSD$");
 #define	DDESC_CNTL_TXCHAIN		(1U << 24)
 
 #define	DDESC_CNTL_CHAINED		(1U << 24)
+#endif
 
 #define	RX_QUEUE_SIZE		64
 #define	TX_QUEUE_SIZE		64
 #define	NUM_RX_MBUF		16
 #define	BUFRING_SIZE		8192
-
 
 /* */
 #define WRITE_TI_EREG(sc, reg, data) {			\
@@ -143,7 +144,6 @@ __FBSDID("$FreeBSD$");
 #define XAE_PHY_CONFIG       0x1140
 #define XAE_PHY_RST_AUTONEG  0x0200
 #define XAE_PHY_AUTONEG_DONE 0x20
-
 
 /*
  * A hardware buffer descriptor.  Rx and Tx buffers have the same descriptor
@@ -187,8 +187,10 @@ static struct resource_spec axi_spec[] = {
 	{ -1, 0 }
 };
 
+#if 0
 static void axi_txfinish_locked(struct axi_softc *sc);
 static void axi_rxfinish_locked(struct axi_softc *sc);
+#endif
 static void axi_stop_locked(struct axi_softc *sc);
 static void axi_setup_rxfilter(struct axi_softc *sc);
 
@@ -227,7 +229,7 @@ axi_rx_enqueue(struct axi_softc *sc, uint32_t n)
 	return (0);
 }
 
-
+#if 0
 static void
 axi_get1paddr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 {
@@ -236,6 +238,7 @@ axi_get1paddr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 		return;
 	*(bus_addr_t *)arg = segs[0].ds_addr;
 }
+#endif
 
 inline static uint32_t
 axi_setup_txdesc(struct axi_softc *sc, int idx, bus_addr_t paddr,
@@ -404,7 +407,7 @@ axi_txstart_locked(struct axi_softc *sc)
 	struct mbuf *m;
 	int enqueued;
 
-	DWC_ASSERT_LOCKED(sc);
+	AXI_ASSERT_LOCKED(sc);
 
 	printf("%s\n", __func__);
 
@@ -558,7 +561,7 @@ axi_stop_locked(struct axi_softc *sc)
 	struct ifnet *ifp;
 	uint32_t reg;
 
-	DWC_ASSERT_LOCKED(sc);
+	AXI_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
 	ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
@@ -643,7 +646,7 @@ axi_tick(void *arg)
 
 	sc = arg;
 
-	DWC_ASSERT_LOCKED(sc);
+	AXI_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
 
@@ -655,11 +658,13 @@ axi_tick(void *arg)
 	 * packets for output and never got a txdone interrupt for them.  Maybe
 	 * it's a missed interrupt somehow, just pretend we got one.
 	 */
+#if 0
 	if (sc->tx_watchdog_count > 0) {
 		if (--sc->tx_watchdog_count == 0) {
 			axi_txfinish_locked(sc);
 		}
 	}
+#endif
 
 	/* Gather stats from hardware counters. */
 	axi_harvest_stats(sc);
@@ -679,7 +684,7 @@ axi_init_locked(struct axi_softc *sc)
 {
 	struct ifnet *ifp;
 
-	DWC_ASSERT_LOCKED(sc);
+	AXI_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
 	if (ifp->if_drv_flags & IFF_DRV_RUNNING)
@@ -753,6 +758,7 @@ axi_setup_rxdesc(struct axi_softc *sc, int idx, bus_addr_t paddr)
 	return (0);
 }
 
+#if 0
 static int
 axi_setup_rxbuf(struct axi_softc *sc, int idx, struct mbuf *m)
 {
@@ -789,6 +795,7 @@ axi_alloc_mbufcl(struct axi_softc *sc)
 
 	return (m);
 }
+#endif
 
 static void
 axi_media_status(struct ifnet * ifp, struct ifmediareq *ifmr)
@@ -863,7 +870,7 @@ axi_setup_rxfilter(struct axi_softc *sc)
 	uint32_t crc, hashbit, hashreg, hi, lo, hash[8];
 	int nhash, i;
 
-	DWC_ASSERT_LOCKED(sc);
+	AXI_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
 	nhash = sc->mactype == 0;//DWC_GMAC_ALT_DESC ? 2 : 8;
@@ -992,6 +999,7 @@ axi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	return (error);
 }
 
+#if 0
 static void
 axi_txfinish_locked(struct axi_softc *sc)
 {
@@ -999,7 +1007,7 @@ axi_txfinish_locked(struct axi_softc *sc)
 	struct axi_hwdesc *desc;
 	struct ifnet *ifp;
 
-	DWC_ASSERT_LOCKED(sc);
+	AXI_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
 	while (sc->tx_idx_tail != sc->tx_idx_head) {
@@ -1077,6 +1085,7 @@ axi_rxfinish_locked(struct axi_softc *sc)
 		sc->rx_idx = next_rxidx(sc, sc->rx_idx);
 	}
 }
+#endif
 
 static void
 axi_intr(void *arg)
@@ -1122,6 +1131,7 @@ axi_intr(void *arg)
 #endif
 }
 
+#if 0
 static int __unused
 setup_dma(struct axi_softc *sc)
 {
@@ -1283,6 +1293,7 @@ out:
 
 	return (0);
 }
+#endif
 
 static int __unused
 axi_get_hwaddr(struct axi_softc *sc, uint8_t *hwaddr)
@@ -1776,7 +1787,7 @@ axi_miibus_statchg(device_t dev)
 
 	sc = device_get_softc(dev);
 
-	DWC_ASSERT_LOCKED(sc);
+	AXI_ASSERT_LOCKED(sc);
 
 	mii = sc->mii_softc;
 
