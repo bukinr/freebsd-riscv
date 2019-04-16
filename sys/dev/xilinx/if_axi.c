@@ -686,6 +686,8 @@ axi_init_locked(struct axi_softc *sc)
 
 	AXI_ASSERT_LOCKED(sc);
 
+	printf("%s\n", __func__);
+
 	ifp = sc->ifp;
 	if (ifp->if_drv_flags & IFF_DRV_RUNNING)
 		return;
@@ -715,6 +717,13 @@ axi_init_locked(struct axi_softc *sc)
 	reg |= (CONF_TE | CONF_RE);
 	WRITE4(sc, MAC_CONFIGURATION, reg);
 #endif
+
+	/* Enable the transmitter */
+	printf("%s: axi_tc %x\n", __func__, READ4(sc, AXI_TC));
+	WRITE4(sc, AXI_TC, TC_TX);
+
+	/* Enable the receiver. */
+	WRITE4(sc, AXI_RCW1, RCW1_RX);
 
 	/*
 	 * Call mii_mediachg() which will call back into axi_miibus_statchg()
@@ -1411,8 +1420,6 @@ axi_miibus_read_reg(device_t dev, int phy, int reg)
 	uint32_t mii;
 	int rv;
 
-	//printf("%s: phy %d reg %x\n", __func__, phy, reg);
-
 	sc = device_get_softc(dev);
 
 	if (mdio_wait(sc))
@@ -1428,7 +1435,6 @@ axi_miibus_read_reg(device_t dev, int phy, int reg)
 		return (0);
 
 	rv = READ4(sc, AXI_MDIO_READ);
-	//printf("%s: phy %d reg %x, rv %x\n", __func__, phy, reg, rv);
 
 	return (rv);
 }
@@ -1440,8 +1446,6 @@ axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
 	uint32_t mii;
 
 	sc = device_get_softc(dev);
-
-	//printf("%s: phy %d reg %x val %x\n", __func__, phy, reg, val);
 
 	if (mdio_wait(sc))
 		return (1);
@@ -1455,8 +1459,6 @@ axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
 
 	if (mdio_wait(sc))
 		return (1);
-
-	//printf("%s: phy %d reg %x val %x, success\n", __func__, phy, reg, val);
 
 	return (0);
 }
@@ -1510,8 +1512,7 @@ axi_attach(device_t dev)
 	uint8_t macaddr[ETHER_ADDR_LEN];
 	struct axi_softc *sc;
 	struct ifnet *ifp;
-	int error; // i;
-	//uint32_t reg;
+	int error;
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
@@ -1618,7 +1619,6 @@ axi_attach(device_t dev)
 
 	printf("ID: %x\n", READ4(sc, AXI_IDENT));
 
-
 #if 0
 	/* Read MAC before reset */
 	if (axi_get_hwaddr(sc, macaddr)) {
@@ -1701,14 +1701,14 @@ axi_attach(device_t dev)
 	IFQ_SET_READY(&ifp->if_snd);
 
 	uint32_t reg;
+	/* Enable MII clock */
 	reg = (MDIO_CLK_DIV_DEFAULT << MDIO_SETUP_CLK_DIV_S);
 	reg |= MDIO_SETUP_ENABLE;
 	WRITE4(sc, AXI_MDIO_SETUP, reg);
-
 	if (mdio_wait(sc))
 		return (ENXIO);
 
-	axi_miibus_write_reg(dev, 0x1, 0x0, 0x1340);
+	//axi_miibus_write_reg(dev, 0x1, 0x0, 0x1340);
 
 	macaddr[0] = 0x00;
 	macaddr[1] = 0x0a;
@@ -1722,10 +1722,6 @@ axi_attach(device_t dev)
 	WRITE4(sc, AXI_UAWL, reg);
 	reg = macaddr[4] | (macaddr[5] << 8);
 	WRITE4(sc, AXI_UAWU, reg);
-
-	/* Enable the transmitter */
-	printf("%s: axi_tc %x\n", __func__, READ4(sc, AXI_TC));
-	WRITE4(sc, AXI_TC, TC_TX);
 
 	/* Attach the mii driver. */
 	error = mii_attach(dev, &sc->miibus, ifp, axi_media_change,
@@ -1744,29 +1740,8 @@ axi_attach(device_t dev)
 	ether_ifattach(ifp, macaddr);
 	sc->is_attached = true;
 
-#if 0
-#define MII_BMCR                0x00    /* Basic mode control register */
-#define BMCR_ISOLATE            0x0400  /* Isolate data paths from MII */
-
-	reg = PHY_READ3(sc, MII_BMCR);
-	if (reg & BMCR_ISOLATE) {
-		printf("isolate: %x\n", reg);
-		reg &= ~BMCR_ISOLATE;
-	} else
-		printf("non isolate: %x\n", reg);
-	PHY_WRITE3(sc, MII_BMCR, reg);
-#endif
-
-	//PHY_WRITE1(sc, 0x0, 0x1340);
-	DELAY(10000);
-
-	sfence_vma();
-
 	axi_rx_enqueue(sc, NUM_RX_MBUF);
 	xdma_queue_submit(sc->xchan_rx);
-
-	/* Enable the receiver. */
-	WRITE4(sc, AXI_RCW1, RCW1_RX);
 
 	return (0);
 }
