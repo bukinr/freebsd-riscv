@@ -68,7 +68,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/xilinx/axidma.h>
 
 #define AXIDMA_DEBUG
-//#undef AXIDMA_DEBUG
+#undef AXIDMA_DEBUG
 
 #ifdef AXIDMA_DEBUG
 #define dprintf(fmt, ...)  printf(fmt, ##__VA_ARGS__)
@@ -650,8 +650,6 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	    READ4(sc, AXI_DMASR(data->id)));
 
 	sfence_vma();
-	addr = chan->descs_phys[tail].ds_addr;
-	addr = chan->descs_phys[chan->idx_head].ds_addr;
 	addr = chan->descs_phys[tmp].ds_addr;
 	WRITE8(sc, AXI_TAILDESC(data->id), addr);
 
