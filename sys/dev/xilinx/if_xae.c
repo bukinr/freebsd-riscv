@@ -348,9 +348,7 @@ xae_transmit(struct ifnet *ifp, struct mbuf *m)
 static void
 xae_stop_locked(struct xae_softc *sc)
 {
-#if 0
 	struct ifnet *ifp;
-	uint32_t reg;
 
 	XAE_ASSERT_LOCKED(sc);
 
@@ -361,6 +359,7 @@ xae_stop_locked(struct xae_softc *sc)
 
 	callout_stop(&sc->xae_callout);
 
+#if 0
 	/* Stop DMA TX */
 	reg = READ4(sc, OPERATION_MODE);
 	reg &= ~(MODE_ST);
@@ -510,7 +509,6 @@ xae_init_locked(struct xae_softc *sc)
 #endif
 
 	/* Enable the transmitter */
-	printf("%s: xae_tc %x\n", __func__, READ4(sc, XAE_TC));
 	WRITE4(sc, XAE_TC, TC_TX);
 
 	/* Enable the receiver. */
@@ -525,9 +523,11 @@ xae_init_locked(struct xae_softc *sc)
 }
 
 static void
-xae_init(void *if_softc)
+xae_init(void *arg)
 {
-	struct xae_softc *sc = if_softc;
+	struct xae_softc *sc;
+
+	sc = arg;
 
 	XAE_LOCK(sc);
 	xae_init_locked(sc);
