@@ -96,17 +96,22 @@ __FBSDID("$FreeBSD$");
 #define	NUM_RX_MBUF		16
 #define	BUFRING_SIZE		8192
 
-#define	PHY_READ1(sc, _r)	axi_miibus_read_reg(sc->dev, 1, _r)
-#define	PHY_WRITE1(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 1, _r, _v)
-#define	PHY_READ3(sc, _r)	axi_miibus_read_reg(sc->dev, 3, _r)
-#define	PHY_WRITE3(sc, _r, _v)	axi_miibus_write_reg(sc->dev, 3, _r, _v)
+#define	PHY1_RD(sc, _r)		\
+	axi_miibus_read_reg(sc->dev, 1, _r)
+#define	PHY1_WR(sc, _r, _v)	\
+	axi_miibus_write_reg(sc->dev, 1, _r, _v)
+
+#define	PHY_RD(sc, _r)		\
+	axi_miibus_read_reg(sc->dev, sc->phy_addr, _r)
+#define	PHY_WR(sc, _r, _v)	\
+	axi_miibus_write_reg(sc->dev, sc->phy_addr, _r, _v)
 
 /* Use this macro to access regs > 0x1f */
 #define WRITE_TI_EREG(sc, reg, data) {			\
-	PHY_WRITE3(sc, MII_MMDACR, MMDACR_DADDRMASK);	\
-	PHY_WRITE3(sc, MII_MMDAADR, reg);		\
-	PHY_WRITE3(sc, MII_MMDACR, MMDACR_DADDRMASK | MMDACR_FN_DATANPI);\
-	PHY_WRITE3(sc, MII_MMDAADR, data);		\
+	PHY_WR(sc, MII_MMDACR, MMDACR_DADDRMASK);	\
+	PHY_WR(sc, MII_MMDAADR, reg);		\
+	PHY_WR(sc, MII_MMDACR, MMDACR_DADDRMASK | MMDACR_FN_DATANPI);\
+	PHY_WR(sc, MII_MMDAADR, data);		\
 }
 
 /* Not documented, VCU118 workaround */
@@ -164,6 +169,27 @@ axi_rx_enqueue(struct axi_softc *sc, uint32_t n)
 		m->m_pkthdr.len = m->m_len = m->m_ext.ext_size;
 		xdma_enqueue_mbuf(sc->xchan_rx, &m, 0, 4, 4, XDMA_DEV_TO_MEM);
 	}
+
+	return (0);
+}
+
+static int
+axi_get_phyaddr(phandle_t node, int *phy_addr)
+{
+	phandle_t phy_node;
+	pcell_t phy_handle, phy_reg;
+
+	if (OF_getencprop(node, "phy-handle", (void *)&phy_handle,
+	    sizeof(phy_handle)) <= 0)
+		return (ENXIO);
+
+	phy_node = OF_node_from_xref(phy_handle);
+
+	if (OF_getencprop(phy_node, "reg", (void *)&phy_reg,
+	    sizeof(phy_reg)) <= 0)
+		return (ENXIO);
+
+	*phy_addr = phy_reg;
 
 	return (0);
 }
@@ -1402,34 +1428,28 @@ fixup(struct axi_softc *sc)
 
 	dev = sc->dev;
 
-	printf("%s: MII_BMCR1 %x\n", __func__, PHY_READ1(sc, MII_BMCR));
-	printf("%s: MII_BMCR3 %x\n", __func__, PHY_READ3(sc, MII_BMCR));
-
 	do {
 		WRITE_TI_EREG(sc, DP83867_SGMIICTL1, SGMIICTL1_SGMII_6W);
-		PHY_WRITE3(sc, DP83867_PHYCR, PHYCR_SGMII_EN);
+		PHY_WR(sc, DP83867_PHYCR, PHYCR_SGMII_EN);
 
-		reg = PHY_READ3(sc, DP83867_CFG2);
+		reg = PHY_RD(sc, DP83867_CFG2);
 		reg &= ~CFG2_SPEED_OPT_ATTEMPT_CNT_M;
 		reg |= (CFG2_SPEED_OPT_ATTEMPT_CNT_4);
 		reg |= CFG2_INTERRUPT_POLARITY;
 		reg |= CFG2_SPEED_OPT_ENHANCED_EN;
 		reg |= CFG2_SPEED_OPT_10M_EN;
-		PHY_WRITE3(sc, DP83867_CFG2, reg);
+		PHY_WR(sc, DP83867_CFG2, reg);
 
 		WRITE_TI_EREG(sc, DP83867_CFG4, CFG4_SGMII_TMR);
-		PHY_WRITE3(sc, MII_BMCR,
+		PHY_WR(sc, MII_BMCR,
 		    BMCR_AUTOEN | BMCR_FDX | BMCR_SPEED1 | BMCR_RESET);
-	} while (PHY_READ1(sc, MII_BMCR) == 0x0ffff);
-
-	printf("%s: MII_BMCR1 %x\n", __func__, PHY_READ1(sc, MII_BMCR));
-	printf("%s: MII_BMCR3 %x\n", __func__, PHY_READ3(sc, MII_BMCR));
+	} while (PHY1_RD(sc, MII_BMCR) == 0x0ffff);
 
 	do {
-		PHY_WRITE1(sc, MII_BMCR,
+		PHY1_WR(sc, MII_BMCR,
 		    BMCR_AUTOEN | BMCR_FDX | BMCR_SPEED1 | BMCR_STARTNEG);
 		DELAY(40000);
-	} while ((PHY_READ1(sc, MII_BMSR) & BMSR_ACOMP) == 0);
+	} while ((PHY1_RD(sc, MII_BMSR) & BMSR_ACOMP) == 0);
 }
 
 static int
@@ -1452,11 +1472,13 @@ axi_attach(device_t dev)
 	uint8_t macaddr[ETHER_ADDR_LEN];
 	struct axi_softc *sc;
 	struct ifnet *ifp;
+	phandle_t node;
 	int error;
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
 	sc->rx_idx = 0;
+	node = ofw_bus_get_node(dev);
 
 	vmem_t *vmem;
 	vmem = xdma_get_memory(dev);
@@ -1663,9 +1685,12 @@ axi_attach(device_t dev)
 	reg = macaddr[4] | (macaddr[5] << 8);
 	WRITE4(sc, AXI_UAWU, reg);
 
+	if (axi_get_phyaddr(node, &sc->phy_addr) != 0)
+		return (ENXIO);
+
 	/* Attach the mii driver. */
 	error = mii_attach(dev, &sc->miibus, ifp, axi_media_change,
-	    axi_media_status, BMSR_DEFCAPMASK, 3, //MII_PHY_ANY,
+	    axi_media_status, BMSR_DEFCAPMASK, sc->phy_addr,
 	    MII_OFFSET_ANY, 0);
 
 	if (error != 0) {
