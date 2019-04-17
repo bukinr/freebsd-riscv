@@ -130,10 +130,6 @@ static struct resource_spec xae_spec[] = {
 	{ -1, 0 }
 };
 
-#if 0
-static void xae_txfinish_locked(struct xae_softc *sc);
-static void xae_rxfinish_locked(struct xae_softc *sc);
-#endif
 static void xae_stop_locked(struct xae_softc *sc);
 static void xae_setup_rxfilter(struct xae_softc *sc);
 
@@ -192,92 +188,6 @@ xae_get_phyaddr(phandle_t node, int *phy_addr)
 
 	return (0);
 }
-
-#if 0
-static void
-xae_get1paddr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
-{
-
-	if (error != 0)
-		return;
-	*(bus_addr_t *)arg = segs[0].ds_addr;
-}
-
-inline static uint32_t
-xae_setup_txdesc(struct xae_softc *sc, int idx, bus_addr_t paddr,
-    uint32_t len)
-{
-	uint32_t flags;
-	uint32_t nidx;
-
-	nidx = next_txidx(sc, idx);
-
-	/* Addr/len 0 means we're clearing the descriptor after xmit done. */
-	if (paddr == 0 || len == 0) {
-		flags = 0;
-		--sc->txcount;
-	} else {
-#if 0
-		if (sc->mactype == DWC_GMAC_ALT_DESC)
-			flags = DDESC_CNTL_TXCHAIN | DDESC_CNTL_TXFIRST
-			    | DDESC_CNTL_TXLAST | DDESC_CNTL_TXINT;
-		else
-			flags = DDESC_TDES0_TXCHAIN | DDESC_TDES0_TXFIRST
-			    | DDESC_TDES0_TXLAST | DDESC_TDES0_TXINT;
-#endif
-		++sc->txcount;
-	}
-
-	sc->txdesc_ring[idx].addr = (uint32_t)(paddr);
-
-#if 0
-	if (sc->mactype == DWC_GMAC_ALT_DESC) {
-		sc->txdesc_ring[idx].tdes0 = 0;
-		sc->txdesc_ring[idx].tdes1 = flags | len;
-	} else {
-		sc->txdesc_ring[idx].tdes0 = flags;
-		sc->txdesc_ring[idx].tdes1 = len;
-	}
-
-	if (paddr && len) {
-		wmb();
-		sc->txdesc_ring[idx].tdes0 |= DDESC_TDES0_OWN;
-		wmb();
-	}
-#endif
-
-	return (nidx);
-}
-
-static int
-xae_setup_txbuf(struct xae_softc *sc, int idx, struct mbuf **mp)
-{
-	struct bus_dma_segment seg;
-	int error, nsegs;
-	struct mbuf * m;
-
-	if ((m = m_defrag(*mp, M_NOWAIT)) == NULL)
-		return (ENOMEM);
-	*mp = m;
-
-	error = bus_dmamap_load_mbuf_sg(sc->txbuf_tag, sc->txbuf_map[idx].map,
-	    m, &seg, &nsegs, 0);
-	if (error != 0) {
-		return (ENOMEM);
-	}
-
-	KASSERT(nsegs == 1, ("%s: %d segments returned!", __func__, nsegs));
-
-	bus_dmamap_sync(sc->txbuf_tag, sc->txbuf_map[idx].map,
-	    BUS_DMASYNC_PREWRITE);
-
-	sc->txbuf_map[idx].mbuf = m;
-
-	xae_setup_txdesc(sc, idx, seg.ds_addr, seg.ds_len);
-
-	return (0);
-}
-#endif
 
 static int
 xae_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
@@ -360,65 +270,6 @@ xae_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
 
 	return (0);
 }
-
-#if 0
-static void
-xae_txstart_locked(struct xae_softc *sc)
-{
-	struct ifnet *ifp;
-	struct mbuf *m;
-	int enqueued;
-
-	XAE_ASSERT_LOCKED(sc);
-
-	printf("%s\n", __func__);
-
-	if (!sc->link_is_up)
-		return;
-
-	ifp = sc->ifp;
-
-	if (ifp->if_drv_flags & IFF_DRV_OACTIVE)
-		return;
-
-	enqueued = 0;
-
-	for (;;) {
-		if (sc->txcount == (TX_DESC_COUNT-1)) {
-			ifp->if_drv_flags |= IFF_DRV_OACTIVE;
-			break;
-		}
-
-		IFQ_DRV_DEQUEUE(&ifp->if_snd, m);
-		if (m == NULL)
-			break;
-		if (xae_setup_txbuf(sc, sc->tx_idx_head, &m) != 0) {
-			IFQ_DRV_PREPEND(&ifp->if_snd, m);
-			break;
-		}
-		BPF_MTAP(ifp, m);
-		sc->tx_idx_head = next_txidx(sc, sc->tx_idx_head);
-		++enqueued;
-	}
-
-	if (enqueued != 0) {
-#if 0
-		WRITE4(sc, TRANSMIT_POLL_DEMAND, 0x1);
-		sc->tx_watchdog_count = WATCHDOG_TIMEOUT_SECS;
-#endif
-	}
-}
-
-static void
-xae_txstart(struct ifnet *ifp)
-{
-	struct xae_softc *sc = ifp->if_softc;
-
-	XAE_LOCK(sc);
-	xae_txstart_locked(sc);
-	XAE_UNLOCK(sc);
-}
-#endif
 
 static void
 xae_qflush(struct ifnet *ifp)
@@ -705,69 +556,6 @@ xae_init(void *if_softc)
 	XAE_UNLOCK(sc);
 }
 
-inline static uint32_t
-xae_setup_rxdesc(struct xae_softc *sc, int idx, bus_addr_t paddr)
-{
-#if 0
-	uint32_t nidx;
-
-	sc->rxdesc_ring[idx].addr = (uint32_t)paddr;
-	nidx = next_rxidx(sc, idx);
-	sc->rxdesc_ring[idx].addr_next = sc->rxdesc_ring_paddr +	\
-	    (nidx * sizeof(struct xae_hwdesc));
-	if (sc->mactype == DWC_GMAC_ALT_DESC)
-		sc->rxdesc_ring[idx].tdes1 = DDESC_CNTL_CHAINED | RX_MAX_PACKET;
-	else
-		sc->rxdesc_ring[idx].tdes1 = DDESC_RDES1_CHAINED | MCLBYTES;
-
-	wmb();
-	sc->rxdesc_ring[idx].tdes0 = DDESC_RDES0_OWN;
-	wmb();
-
-	return (nidx);
-#endif
-	return (0);
-}
-
-#if 0
-static int
-xae_setup_rxbuf(struct xae_softc *sc, int idx, struct mbuf *m)
-{
-	struct bus_dma_segment seg;
-	int error, nsegs;
-
-	m_adj(m, ETHER_ALIGN);
-
-	error = bus_dmamap_load_mbuf_sg(sc->rxbuf_tag, sc->rxbuf_map[idx].map,
-	    m, &seg, &nsegs, 0);
-	if (error != 0) {
-		return (error);
-	}
-
-	KASSERT(nsegs == 1, ("%s: %d segments returned!", __func__, nsegs));
-
-	bus_dmamap_sync(sc->rxbuf_tag, sc->rxbuf_map[idx].map,
-	    BUS_DMASYNC_PREREAD);
-
-	sc->rxbuf_map[idx].mbuf = m;
-	xae_setup_rxdesc(sc, idx, seg.ds_addr);
-
-	return (0);
-}
-
-static struct mbuf *
-xae_alloc_mbufcl(struct xae_softc *sc)
-{
-	struct mbuf *m;
-
-	m = m_getcl(M_NOWAIT, MT_DATA, M_PKTHDR);
-	if (m != NULL)
-		m->m_pkthdr.len = m->m_len = m->m_ext.ext_size;
-
-	return (m);
-}
-#endif
-
 static void
 xae_media_status(struct ifnet * ifp, struct ifmediareq *ifmr)
 {
@@ -969,94 +757,6 @@ xae_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	return (error);
 }
-
-#if 0
-static void
-xae_txfinish_locked(struct xae_softc *sc)
-{
-	struct xae_bufmap *bmap;
-	struct xae_hwdesc *desc;
-	struct ifnet *ifp;
-
-	XAE_ASSERT_LOCKED(sc);
-
-	ifp = sc->ifp;
-	while (sc->tx_idx_tail != sc->tx_idx_head) {
-		desc = &sc->txdesc_ring[sc->tx_idx_tail];
-		if ((desc->tdes0 & DDESC_TDES0_OWN) != 0)
-			break;
-		bmap = &sc->txbuf_map[sc->tx_idx_tail];
-		bus_dmamap_sync(sc->txbuf_tag, bmap->map,
-		    BUS_DMASYNC_POSTWRITE);
-		bus_dmamap_unload(sc->txbuf_tag, bmap->map);
-		m_freem(bmap->mbuf);
-		bmap->mbuf = NULL;
-		xae_setup_txdesc(sc, sc->tx_idx_tail, 0, 0);
-		sc->tx_idx_tail = next_txidx(sc, sc->tx_idx_tail);
-		ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
-		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
-	}
-
-	/* If there are no buffers outstanding, muzzle the watchdog. */
-	if (sc->tx_idx_tail == sc->tx_idx_head) {
-		sc->tx_watchdog_count = 0;
-	}
-}
-
-static void __unused
-xae_rxfinish_locked(struct xae_softc *sc)
-{
-	struct ifnet *ifp;
-	struct mbuf *m0;
-	struct mbuf *m;
-	int error, idx, len;
-	uint32_t rdes0;
-
-	ifp = sc->ifp;
-
-	for (;;) {
-		idx = sc->rx_idx;
-
-		rdes0 = sc->rxdesc_ring[idx].tdes0;
-		if ((rdes0 & DDESC_RDES0_OWN) != 0)
-			break;
-
-		bus_dmamap_sync(sc->rxbuf_tag, sc->rxbuf_map[idx].map,
-		    BUS_DMASYNC_POSTREAD);
-		bus_dmamap_unload(sc->rxbuf_tag, sc->rxbuf_map[idx].map);
-
-		len = (rdes0 >> DDESC_RDES0_FL_SHIFT) & DDESC_RDES0_FL_MASK;
-		if (len != 0) {
-			m = sc->rxbuf_map[idx].mbuf;
-			m->m_pkthdr.rcvif = ifp;
-			m->m_pkthdr.len = len;
-			m->m_len = len;
-			if_inc_counter(ifp, IFCOUNTER_IPACKETS, 1);
-
-			/* Remove trailing FCS */
-			m_adj(m, -ETHER_CRC_LEN);
-
-			XAE_UNLOCK(sc);
-			(*ifp->if_input)(ifp, m);
-			XAE_LOCK(sc);
-		} else {
-			/* XXX Zero-length packet ? */
-		}
-
-		if ((m0 = xae_alloc_mbufcl(sc)) != NULL) {
-			if ((error = xae_setup_rxbuf(sc, idx, m0)) != 0) {
-				/*
-				 * XXX Now what?
-				 * We've got a hole in the rx ring.
-				 */
-			}
-		} else
-			if_inc_counter(sc->ifp, IFCOUNTER_IQDROPS, 1);
-
-		sc->rx_idx = next_rxidx(sc, sc->rx_idx);
-	}
-}
-#endif
 
 static void
 xae_intr(void *arg)
