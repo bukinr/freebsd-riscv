@@ -1,10 +1,6 @@
 /*-
- * Copyright (c) 2014 Ruslan Bukin <br@bsdpad.com>
+ * Copyright (c) 2019 Ruslan Bukin <br@bsdpad.com>
  * All rights reserved.
- *
- * This software was developed by SRI International and the University of
- * Cambridge Computer Laboratory under DARPA/AFRL contract (FA8750-10-C-0237)
- * ("CTSRD"), as part of the DARPA CRASH research programme.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -30,16 +26,8 @@
  * $FreeBSD$
  */
 
-/*
- * Ethernet media access controller (EMAC)
- * Chapter 17, Altera Cyclone V Device Handbook (CV-5V2 2014.07.22)
- *
- * EMAC is an instance of the Synopsys DesignWare 3504-0
- * Universal 10/100/1000 Ethernet MAC (DWC_gmac).
- */
-
-#ifndef	__IF_DWCVAR_H__
-#define	__IF_DWCVAR_H__
+#ifndef	_DEV_XILINX_IF_XAEVAR_H_
+#define	_DEV_XILINX_IF_XAEVAR_H_
 
 #include <dev/xdma/xdma.h>
 
@@ -111,4 +99,4 @@ struct xae_softc {
 	int			txcount;
 };
 
-#endif	/* __IF_DWCVAR_H__ */
+#endif	/* _DEV_XILINX_IF_XAEVAR_H_ */

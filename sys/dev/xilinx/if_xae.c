@@ -50,7 +50,7 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 
-#include <dev/xilinx/if_xae.h>
+#include <dev/xilinx/if_xaereg.h>
 #include <dev/xilinx/if_xaevar.h>
 #include <dev/mii/mii.h>
 #include <dev/mii/miivar.h>
@@ -63,7 +63,6 @@ __FBSDID("$FreeBSD$");
 #include <dev/extres/hwreset/hwreset.h>
 #endif
 
-//#include "if_xae_if.h"
 #include "miibus_if.h"
 
 #define	READ4(_sc, _reg) \
@@ -77,15 +76,15 @@ __FBSDID("$FreeBSD$");
 
 #define	MDIO_CLK_DIV_DEFAULT	29
 
-#define	AXI_LOCK(sc)			mtx_lock(&(sc)->mtx)
-#define	AXI_UNLOCK(sc)			mtx_unlock(&(sc)->mtx)
-#define	AXI_ASSERT_LOCKED(sc)		mtx_assert(&(sc)->mtx, MA_OWNED)
-#define	AXI_ASSERT_UNLOCKED(sc)		mtx_assert(&(sc)->mtx, MA_NOTOWNED)
+#define	XAE_LOCK(sc)			mtx_lock(&(sc)->mtx)
+#define	XAE_UNLOCK(sc)			mtx_unlock(&(sc)->mtx)
+#define	XAE_ASSERT_LOCKED(sc)		mtx_assert(&(sc)->mtx, MA_OWNED)
+#define	XAE_ASSERT_UNLOCKED(sc)		mtx_assert(&(sc)->mtx, MA_NOTOWNED)
 
-#define AXI_DEBUG
-#undef AXI_DEBUG
+#define XAE_DEBUG
+#undef XAE_DEBUG
 
-#ifdef AXI_DEBUG
+#ifdef XAE_DEBUG
 #define dprintf(fmt, ...)  printf(fmt, ##__VA_ARGS__)
 #else
 #define dprintf(fmt, ...)
@@ -291,7 +290,7 @@ xae_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
 
 	sc = arg;
 
-	AXI_LOCK(sc);
+	XAE_LOCK(sc);
 
 	ifp = sc->ifp;
 
@@ -311,7 +310,7 @@ xae_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
 
 	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
 
-	AXI_UNLOCK(sc);
+	XAE_UNLOCK(sc);
 
 	return (0);
 }
@@ -330,7 +329,7 @@ xae_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
 
 	dprintf("%s\n", __func__);
 
-	AXI_LOCK(sc);
+	XAE_LOCK(sc);
 
 	ifp = sc->ifp;
 
@@ -350,14 +349,14 @@ xae_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
 
 		m->m_pkthdr.len = m->m_len = st.transferred;
 		m->m_pkthdr.rcvif = ifp;
-		AXI_UNLOCK(sc);
+		XAE_UNLOCK(sc);
 		(*ifp->if_input)(ifp, m);
-		AXI_LOCK(sc);
+		XAE_LOCK(sc);
 	}
 
 	xae_rx_enqueue(sc, cnt_processed);
 
-	AXI_UNLOCK(sc);
+	XAE_UNLOCK(sc);
 
 	return (0);
 }
@@ -370,7 +369,7 @@ xae_txstart_locked(struct xae_softc *sc)
 	struct mbuf *m;
 	int enqueued;
 
-	AXI_ASSERT_LOCKED(sc);
+	XAE_ASSERT_LOCKED(sc);
 
 	printf("%s\n", __func__);
 
@@ -415,9 +414,9 @@ xae_txstart(struct ifnet *ifp)
 {
 	struct xae_softc *sc = ifp->if_softc;
 
-	AXI_LOCK(sc);
+	XAE_LOCK(sc);
 	xae_txstart_locked(sc);
-	AXI_UNLOCK(sc);
+	XAE_UNLOCK(sc);
 }
 #endif
 
@@ -483,7 +482,7 @@ xae_transmit(struct ifnet *ifp, struct mbuf *m)
 	sc = ifp->if_softc;
 	br = sc->br;
 
-	AXI_LOCK(sc);
+	XAE_LOCK(sc);
 
 	mtx_lock(&sc->br_mtx);
 
@@ -491,7 +490,7 @@ xae_transmit(struct ifnet *ifp, struct mbuf *m)
 	    IFF_DRV_RUNNING) {
 		error = drbr_enqueue(ifp, sc->br, m);
 		mtx_unlock(&sc->br_mtx);
-		AXI_UNLOCK(sc);
+		XAE_UNLOCK(sc);
 		return (error);
 	}
 
@@ -499,20 +498,20 @@ xae_transmit(struct ifnet *ifp, struct mbuf *m)
 	if (!sc->link_is_up) {
 		error = drbr_enqueue(ifp, sc->br, m);
 		mtx_unlock(&sc->br_mtx);
-		AXI_UNLOCK(sc);
+		XAE_UNLOCK(sc);
 		return (error);
 	}
 
 	error = drbr_enqueue(ifp, br, m);
 	if (error) {
 		mtx_unlock(&sc->br_mtx);
-		AXI_UNLOCK(sc);
+		XAE_UNLOCK(sc);
 		return (error);
 	}
 	error = xae_transmit_locked(ifp);
 
 	mtx_unlock(&sc->br_mtx);
-	AXI_UNLOCK(sc);
+	XAE_UNLOCK(sc);
 
 	return (error);
 }
@@ -524,7 +523,7 @@ xae_stop_locked(struct xae_softc *sc)
 	struct ifnet *ifp;
 	uint32_t reg;
 
-	AXI_ASSERT_LOCKED(sc);
+	XAE_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
 	ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
@@ -609,7 +608,7 @@ xae_tick(void *arg)
 
 	sc = arg;
 
-	AXI_ASSERT_LOCKED(sc);
+	XAE_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
 
@@ -647,7 +646,7 @@ xae_init_locked(struct xae_softc *sc)
 {
 	struct ifnet *ifp;
 
-	AXI_ASSERT_LOCKED(sc);
+	XAE_ASSERT_LOCKED(sc);
 
 	printf("%s\n", __func__);
 
@@ -682,11 +681,11 @@ xae_init_locked(struct xae_softc *sc)
 #endif
 
 	/* Enable the transmitter */
-	printf("%s: xae_tc %x\n", __func__, READ4(sc, AXI_TC));
-	WRITE4(sc, AXI_TC, TC_TX);
+	printf("%s: xae_tc %x\n", __func__, READ4(sc, XAE_TC));
+	WRITE4(sc, XAE_TC, TC_TX);
 
 	/* Enable the receiver. */
-	WRITE4(sc, AXI_RCW1, RCW1_RX);
+	WRITE4(sc, XAE_RCW1, RCW1_RX);
 
 	/*
 	 * Call mii_mediachg() which will call back into xae_miibus_statchg()
@@ -701,9 +700,9 @@ xae_init(void *if_softc)
 {
 	struct xae_softc *sc = if_softc;
 
-	AXI_LOCK(sc);
+	XAE_LOCK(sc);
 	xae_init_locked(sc);
-	AXI_UNLOCK(sc);
+	XAE_UNLOCK(sc);
 }
 
 inline static uint32_t
@@ -777,11 +776,11 @@ xae_media_status(struct ifnet * ifp, struct ifmediareq *ifmr)
 
 	sc = ifp->if_softc;
 	mii = sc->mii_softc;
-	AXI_LOCK(sc);
+	XAE_LOCK(sc);
 	mii_pollstat(mii);
 	ifmr->ifm_active = mii->mii_media_active;
 	ifmr->ifm_status = mii->mii_media_status;
-	AXI_UNLOCK(sc);
+	XAE_UNLOCK(sc);
 }
 
 static int
@@ -801,9 +800,9 @@ xae_media_change(struct ifnet * ifp)
 
 	sc = ifp->if_softc;
 
-	AXI_LOCK(sc);
+	XAE_LOCK(sc);
 	error = xae_media_change_locked(sc);
-	AXI_UNLOCK(sc);
+	XAE_UNLOCK(sc);
 	return (error);
 }
 
@@ -842,7 +841,7 @@ xae_setup_rxfilter(struct xae_softc *sc)
 	uint32_t crc, hashbit, hashreg, hi, lo, hash[8];
 	int nhash, i;
 
-	AXI_ASSERT_LOCKED(sc);
+	XAE_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
 	nhash = sc->mactype == 0;//DWC_GMAC_ALT_DESC ? 2 : 8;
@@ -925,7 +924,7 @@ xae_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	error = 0;
 	switch (cmd) {
 	case SIOCSIFFLAGS:
-		AXI_LOCK(sc);
+		XAE_LOCK(sc);
 		if (ifp->if_flags & IFF_UP) {
 			if (ifp->if_drv_flags & IFF_DRV_RUNNING) {
 				if ((ifp->if_flags ^ sc->if_flags) &
@@ -940,14 +939,14 @@ xae_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 				xae_stop_locked(sc);
 		}
 		sc->if_flags = ifp->if_flags;
-		AXI_UNLOCK(sc);
+		XAE_UNLOCK(sc);
 		break;
 	case SIOCADDMULTI:
 	case SIOCDELMULTI:
 		if (ifp->if_drv_flags & IFF_DRV_RUNNING) {
-			AXI_LOCK(sc);
+			XAE_LOCK(sc);
 			xae_setup_rxfilter(sc);
-			AXI_UNLOCK(sc);
+			XAE_UNLOCK(sc);
 		}
 		break;
 	case SIOCSIFMEDIA:
@@ -979,7 +978,7 @@ xae_txfinish_locked(struct xae_softc *sc)
 	struct xae_hwdesc *desc;
 	struct ifnet *ifp;
 
-	AXI_ASSERT_LOCKED(sc);
+	XAE_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
 	while (sc->tx_idx_tail != sc->tx_idx_head) {
@@ -1037,9 +1036,9 @@ xae_rxfinish_locked(struct xae_softc *sc)
 			/* Remove trailing FCS */
 			m_adj(m, -ETHER_CRC_LEN);
 
-			AXI_UNLOCK(sc);
+			XAE_UNLOCK(sc);
 			(*ifp->if_input)(ifp, m);
-			AXI_LOCK(sc);
+			XAE_LOCK(sc);
 		} else {
 			/* XXX Zero-length packet ? */
 		}
@@ -1071,7 +1070,7 @@ xae_intr(void *arg)
 
 	sc = arg;
 
-	AXI_LOCK(sc);
+	XAE_LOCK(sc);
 
 	reg = READ4(sc, INTERRUPT_STATUS);
 	if (reg)
@@ -1099,7 +1098,7 @@ xae_intr(void *arg)
 	}
 
 	WRITE4(sc, DMA_STATUS, reg & DMA_STATUS_INTR_MASK);
-	AXI_UNLOCK(sc);
+	XAE_UNLOCK(sc);
 #endif
 }
 
@@ -1356,7 +1355,7 @@ mdio_wait(struct xae_softc *sc)
 	timeout = 200;
 
 	do {
-		reg = READ4(sc, AXI_MDIO_CTRL);
+		reg = READ4(sc, XAE_MDIO_CTRL);
 		if (reg & MDIO_CTRL_READY)
 			break;
 		DELAY(1);
@@ -1386,12 +1385,12 @@ xae_miibus_read_reg(device_t dev, int phy, int reg)
 	mii |= (reg << MDIO_TX_REGAD_S);
 	mii |= (phy << MDIO_TX_PHYAD_S);
 
-	WRITE4(sc, AXI_MDIO_CTRL, mii);
+	WRITE4(sc, XAE_MDIO_CTRL, mii);
 
 	if (mdio_wait(sc))
 		return (0);
 
-	rv = READ4(sc, AXI_MDIO_READ);
+	rv = READ4(sc, XAE_MDIO_READ);
 
 	return (rv);
 }
@@ -1411,8 +1410,8 @@ xae_miibus_write_reg(device_t dev, int phy, int reg, int val)
 	mii |= (reg << MDIO_TX_REGAD_S);
 	mii |= (phy << MDIO_TX_PHYAD_S);
 
-	WRITE4(sc, AXI_MDIO_WRITE, val);
-	WRITE4(sc, AXI_MDIO_CTRL, mii);
+	WRITE4(sc, XAE_MDIO_WRITE, val);
+	WRITE4(sc, XAE_MDIO_CTRL, mii);
 
 	if (mdio_wait(sc))
 		return (1);
@@ -1580,7 +1579,7 @@ xae_attach(device_t dev)
 	sc->bst = rman_get_bustag(sc->res[0]);
 	sc->bsh = rman_get_bushandle(sc->res[0]);
 
-	printf("ID: %x\n", READ4(sc, AXI_IDENT));
+	printf("ID: %x\n", READ4(sc, XAE_IDENT));
 
 #if 0
 	/* Read MAC before reset */
@@ -1667,7 +1666,7 @@ xae_attach(device_t dev)
 	/* Enable MII clock */
 	reg = (MDIO_CLK_DIV_DEFAULT << MDIO_SETUP_CLK_DIV_S);
 	reg |= MDIO_SETUP_ENABLE;
-	WRITE4(sc, AXI_MDIO_SETUP, reg);
+	WRITE4(sc, XAE_MDIO_SETUP, reg);
 	if (mdio_wait(sc))
 		return (ENXIO);
 
@@ -1682,9 +1681,9 @@ xae_attach(device_t dev)
 
 	reg = macaddr[0] | (macaddr[1] << 8);
 	reg |= (macaddr[2] << 16) | (macaddr[3] << 24);
-	WRITE4(sc, AXI_UAWL, reg);
+	WRITE4(sc, XAE_UAWL, reg);
 	reg = macaddr[4] | (macaddr[5] << 8);
-	WRITE4(sc, AXI_UAWU, reg);
+	WRITE4(sc, XAE_UAWU, reg);
 
 	if (xae_get_phyaddr(node, &sc->phy_addr) != 0)
 		return (ENXIO);
@@ -1728,7 +1727,7 @@ xae_miibus_statchg(device_t dev)
 
 	sc = device_get_softc(dev);
 
-	AXI_ASSERT_LOCKED(sc);
+	XAE_ASSERT_LOCKED(sc);
 
 	mii = sc->mii_softc;
 
@@ -1763,7 +1762,7 @@ xae_miibus_statchg(device_t dev)
 		return;
 	}
 
-	WRITE4(sc, AXI_SPEED, reg);
+	WRITE4(sc, XAE_SPEED, reg);
 	DELAY(1);
 
 #if 0
