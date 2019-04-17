@@ -48,16 +48,16 @@
  */
 #define	RX_MAX_PACKET	0x7ff
 #define	RX_DESC_COUNT	1024
-#define	RX_DESC_SIZE	(sizeof(struct axi_hwdesc) * RX_DESC_COUNT)
+#define	RX_DESC_SIZE	(sizeof(struct xae_hwdesc) * RX_DESC_COUNT)
 #define	TX_DESC_COUNT	1024
-#define	TX_DESC_SIZE	(sizeof(struct axi_hwdesc) * TX_DESC_COUNT)
+#define	TX_DESC_SIZE	(sizeof(struct xae_hwdesc) * TX_DESC_COUNT)
 
-struct axi_bufmap {
+struct xae_bufmap {
 	bus_dmamap_t		map;
 	struct mbuf		*mbuf;
 };
 
-struct axi_softc {
+struct xae_softc {
 	struct resource		*res[2];
 	bus_space_tag_t		bst;
 	bus_space_handle_t	bsh;
@@ -70,12 +70,13 @@ struct axi_softc {
 	int			if_flags;
 	struct mtx		mtx;
 	void *			intr_cookie;
-	struct callout		axi_callout;
+	struct callout		xae_callout;
 	boolean_t		link_is_up;
 	boolean_t		is_attached;
 	boolean_t		is_detaching;
 	int			tx_watchdog_count;
 	int			stats_harvest_count;
+	int			phy_addr;
 
 	/* xDMA */
 	xdma_controller_t	*xdma_tx;
@@ -92,19 +93,19 @@ struct axi_softc {
 	/* RX */
 	bus_dma_tag_t		rxdesc_tag;
 	bus_dmamap_t		rxdesc_map;
-	struct axi_hwdesc	*rxdesc_ring;
+	struct xae_hwdesc	*rxdesc_ring;
 	bus_addr_t		rxdesc_ring_paddr;
 	bus_dma_tag_t		rxbuf_tag;
-	struct axi_bufmap	rxbuf_map[RX_DESC_COUNT];
+	struct xae_bufmap	rxbuf_map[RX_DESC_COUNT];
 	uint32_t		rx_idx;
 
 	/* TX */
 	bus_dma_tag_t		txdesc_tag;
 	bus_dmamap_t		txdesc_map;
-	struct axi_hwdesc	*txdesc_ring;
+	struct xae_hwdesc	*txdesc_ring;
 	bus_addr_t		txdesc_ring_paddr;
 	bus_dma_tag_t		txbuf_tag;
-	struct axi_bufmap	txbuf_map[TX_DESC_COUNT];
+	struct xae_bufmap	txbuf_map[TX_DESC_COUNT];
 	uint32_t		tx_idx_head;
 	uint32_t		tx_idx_tail;
 	int			txcount;

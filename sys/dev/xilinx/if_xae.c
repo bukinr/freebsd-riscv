@@ -50,8 +50,8 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 
-#include <dev/xilinx/if_axi.h>
-#include <dev/xilinx/if_axivar.h>
+#include <dev/xilinx/if_xae.h>
+#include <dev/xilinx/if_xaevar.h>
 #include <dev/mii/mii.h>
 #include <dev/mii/miivar.h>
 #include <dev/mii/tiphy.h>
@@ -63,7 +63,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/extres/hwreset/hwreset.h>
 #endif
 
-#include "if_axi_if.h"
+//#include "if_xae_if.h"
 #include "miibus_if.h"
 
 #define	READ4(_sc, _reg) \
@@ -97,14 +97,14 @@ __FBSDID("$FreeBSD$");
 #define	BUFRING_SIZE		8192
 
 #define	PHY1_RD(sc, _r)		\
-	axi_miibus_read_reg(sc->dev, 1, _r)
+	xae_miibus_read_reg(sc->dev, 1, _r)
 #define	PHY1_WR(sc, _r, _v)	\
-	axi_miibus_write_reg(sc->dev, 1, _r, _v)
+	xae_miibus_write_reg(sc->dev, 1, _r, _v)
 
 #define	PHY_RD(sc, _r)		\
-	axi_miibus_read_reg(sc->dev, sc->phy_addr, _r)
+	xae_miibus_read_reg(sc->dev, sc->phy_addr, _r)
 #define	PHY_WR(sc, _r, _v)	\
-	axi_miibus_write_reg(sc->dev, sc->phy_addr, _r, _v)
+	xae_miibus_write_reg(sc->dev, sc->phy_addr, _r, _v)
 
 /* Use this macro to access regs > 0x1f */
 #define WRITE_TI_EREG(sc, reg, data) {			\
@@ -125,35 +125,35 @@ __FBSDID("$FreeBSD$");
  */
 #define	DWC_DESC_RING_ALIGN		2048
 
-static struct resource_spec axi_spec[] = {
+static struct resource_spec xae_spec[] = {
 	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
 	{ SYS_RES_IRQ,		0,	RF_ACTIVE },
 	{ -1, 0 }
 };
 
 #if 0
-static void axi_txfinish_locked(struct axi_softc *sc);
-static void axi_rxfinish_locked(struct axi_softc *sc);
+static void xae_txfinish_locked(struct xae_softc *sc);
+static void xae_rxfinish_locked(struct xae_softc *sc);
 #endif
-static void axi_stop_locked(struct axi_softc *sc);
-static void axi_setup_rxfilter(struct axi_softc *sc);
+static void xae_stop_locked(struct xae_softc *sc);
+static void xae_setup_rxfilter(struct xae_softc *sc);
 
 static inline uint32_t
-next_rxidx(struct axi_softc *sc, uint32_t curidx)
+next_rxidx(struct xae_softc *sc, uint32_t curidx)
 {
 
 	return ((curidx + 1) % RX_DESC_COUNT);
 }
 
 static inline uint32_t
-next_txidx(struct axi_softc *sc, uint32_t curidx)
+next_txidx(struct xae_softc *sc, uint32_t curidx)
 {
 
 	return ((curidx + 1) % TX_DESC_COUNT);
 }
 
 static int
-axi_rx_enqueue(struct axi_softc *sc, uint32_t n)
+xae_rx_enqueue(struct xae_softc *sc, uint32_t n)
 {
 	struct mbuf *m;
 	int i;
@@ -174,7 +174,7 @@ axi_rx_enqueue(struct axi_softc *sc, uint32_t n)
 }
 
 static int
-axi_get_phyaddr(phandle_t node, int *phy_addr)
+xae_get_phyaddr(phandle_t node, int *phy_addr)
 {
 	phandle_t phy_node;
 	pcell_t phy_handle, phy_reg;
@@ -196,7 +196,7 @@ axi_get_phyaddr(phandle_t node, int *phy_addr)
 
 #if 0
 static void
-axi_get1paddr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
+xae_get1paddr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 {
 
 	if (error != 0)
@@ -205,7 +205,7 @@ axi_get1paddr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 }
 
 inline static uint32_t
-axi_setup_txdesc(struct axi_softc *sc, int idx, bus_addr_t paddr,
+xae_setup_txdesc(struct xae_softc *sc, int idx, bus_addr_t paddr,
     uint32_t len)
 {
 	uint32_t flags;
@@ -251,7 +251,7 @@ axi_setup_txdesc(struct axi_softc *sc, int idx, bus_addr_t paddr,
 }
 
 static int
-axi_setup_txbuf(struct axi_softc *sc, int idx, struct mbuf **mp)
+xae_setup_txbuf(struct xae_softc *sc, int idx, struct mbuf **mp)
 {
 	struct bus_dma_segment seg;
 	int error, nsegs;
@@ -274,17 +274,17 @@ axi_setup_txbuf(struct axi_softc *sc, int idx, struct mbuf **mp)
 
 	sc->txbuf_map[idx].mbuf = m;
 
-	axi_setup_txdesc(sc, idx, seg.ds_addr, seg.ds_len);
+	xae_setup_txdesc(sc, idx, seg.ds_addr, seg.ds_len);
 
 	return (0);
 }
 #endif
 
 static int
-axi_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
+xae_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
 {
 	xdma_transfer_status_t st;
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	struct ifnet *ifp;
 	struct mbuf *m;
 	int err;
@@ -317,10 +317,10 @@ axi_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
 }
 
 static int
-axi_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
+xae_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
 {
 	xdma_transfer_status_t st;
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	struct ifnet *ifp;
 	struct mbuf *m;
 	int err;
@@ -355,7 +355,7 @@ axi_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
 		AXI_LOCK(sc);
 	}
 
-	axi_rx_enqueue(sc, cnt_processed);
+	xae_rx_enqueue(sc, cnt_processed);
 
 	AXI_UNLOCK(sc);
 
@@ -364,7 +364,7 @@ axi_xdma_rx_intr(void *arg, xdma_transfer_status_t *status)
 
 #if 0
 static void
-axi_txstart_locked(struct axi_softc *sc)
+xae_txstart_locked(struct xae_softc *sc)
 {
 	struct ifnet *ifp;
 	struct mbuf *m;
@@ -393,7 +393,7 @@ axi_txstart_locked(struct axi_softc *sc)
 		IFQ_DRV_DEQUEUE(&ifp->if_snd, m);
 		if (m == NULL)
 			break;
-		if (axi_setup_txbuf(sc, sc->tx_idx_head, &m) != 0) {
+		if (xae_setup_txbuf(sc, sc->tx_idx_head, &m) != 0) {
 			IFQ_DRV_PREPEND(&ifp->if_snd, m);
 			break;
 		}
@@ -411,20 +411,20 @@ axi_txstart_locked(struct axi_softc *sc)
 }
 
 static void
-axi_txstart(struct ifnet *ifp)
+xae_txstart(struct ifnet *ifp)
 {
-	struct axi_softc *sc = ifp->if_softc;
+	struct xae_softc *sc = ifp->if_softc;
 
 	AXI_LOCK(sc);
-	axi_txstart_locked(sc);
+	xae_txstart_locked(sc);
 	AXI_UNLOCK(sc);
 }
 #endif
 
 static void
-axi_qflush(struct ifnet *ifp)
+xae_qflush(struct ifnet *ifp)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 
 	sc = ifp->if_softc;
 
@@ -432,9 +432,9 @@ axi_qflush(struct ifnet *ifp)
 }
 
 static int
-axi_transmit_locked(struct ifnet *ifp)
+xae_transmit_locked(struct ifnet *ifp)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	struct mbuf *m;
 	struct buf_ring *br;
 	int error;
@@ -472,9 +472,9 @@ axi_transmit_locked(struct ifnet *ifp)
 }
 
 static int
-axi_transmit(struct ifnet *ifp, struct mbuf *m)
+xae_transmit(struct ifnet *ifp, struct mbuf *m)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	struct buf_ring *br;
 	int error;
 
@@ -509,7 +509,7 @@ axi_transmit(struct ifnet *ifp, struct mbuf *m)
 		AXI_UNLOCK(sc);
 		return (error);
 	}
-	error = axi_transmit_locked(ifp);
+	error = xae_transmit_locked(ifp);
 
 	mtx_unlock(&sc->br_mtx);
 	AXI_UNLOCK(sc);
@@ -518,7 +518,7 @@ axi_transmit(struct ifnet *ifp, struct mbuf *m)
 }
 
 static void
-axi_stop_locked(struct axi_softc *sc)
+xae_stop_locked(struct xae_softc *sc)
 {
 #if 0
 	struct ifnet *ifp;
@@ -531,7 +531,7 @@ axi_stop_locked(struct axi_softc *sc)
 	sc->tx_watchdog_count = 0;
 	sc->stats_harvest_count = 0;
 
-	callout_stop(&sc->axi_callout);
+	callout_stop(&sc->xae_callout);
 
 	/* Stop DMA TX */
 	reg = READ4(sc, OPERATION_MODE);
@@ -555,7 +555,7 @@ axi_stop_locked(struct axi_softc *sc)
 #endif
 }
 
-static void axi_clear_stats(struct axi_softc *sc)
+static void xae_clear_stats(struct xae_softc *sc)
 {
 #if 0
 	uint32_t reg;
@@ -567,7 +567,7 @@ static void axi_clear_stats(struct axi_softc *sc)
 }
 
 static void
-axi_harvest_stats(struct axi_softc *sc)
+xae_harvest_stats(struct xae_softc *sc)
 {
 	struct ifnet *ifp;
 
@@ -597,13 +597,13 @@ axi_harvest_stats(struct axi_softc *sc)
 	    READ4(sc, TXEXESSCOL) + READ4(sc, TXLATECOL));
 #endif
 
-	axi_clear_stats(sc);
+	xae_clear_stats(sc);
 }
 
 static void
-axi_tick(void *arg)
+xae_tick(void *arg)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	struct ifnet *ifp;
 	int link_was_up;
 
@@ -624,26 +624,26 @@ axi_tick(void *arg)
 #if 0
 	if (sc->tx_watchdog_count > 0) {
 		if (--sc->tx_watchdog_count == 0) {
-			axi_txfinish_locked(sc);
+			xae_txfinish_locked(sc);
 		}
 	}
 #endif
 
 	/* Gather stats from hardware counters. */
-	axi_harvest_stats(sc);
+	xae_harvest_stats(sc);
 
 	/* Check the media status. */
 	link_was_up = sc->link_is_up;
 	mii_tick(sc->mii_softc);
 	if (sc->link_is_up && !link_was_up)
-		axi_transmit_locked(sc->ifp);
+		xae_transmit_locked(sc->ifp);
 
 	/* Schedule another check one second from now. */
-	callout_reset(&sc->axi_callout, hz, axi_tick, sc);
+	callout_reset(&sc->xae_callout, hz, xae_tick, sc);
 }
 
 static void
-axi_init_locked(struct axi_softc *sc)
+xae_init_locked(struct xae_softc *sc)
 {
 	struct ifnet *ifp;
 
@@ -658,7 +658,7 @@ axi_init_locked(struct axi_softc *sc)
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 
 #if 0
-	axi_setup_rxfilter(sc);
+	xae_setup_rxfilter(sc);
 
 	/* Initializa DMA and enable transmitters */
 	reg = READ4(sc, OPERATION_MODE);
@@ -682,32 +682,32 @@ axi_init_locked(struct axi_softc *sc)
 #endif
 
 	/* Enable the transmitter */
-	printf("%s: axi_tc %x\n", __func__, READ4(sc, AXI_TC));
+	printf("%s: xae_tc %x\n", __func__, READ4(sc, AXI_TC));
 	WRITE4(sc, AXI_TC, TC_TX);
 
 	/* Enable the receiver. */
 	WRITE4(sc, AXI_RCW1, RCW1_RX);
 
 	/*
-	 * Call mii_mediachg() which will call back into axi_miibus_statchg()
+	 * Call mii_mediachg() which will call back into xae_miibus_statchg()
 	 * to set up the remaining config registers based on current media.
 	 */
 	mii_mediachg(sc->mii_softc);
-	callout_reset(&sc->axi_callout, hz, axi_tick, sc);
+	callout_reset(&sc->xae_callout, hz, xae_tick, sc);
 }
 
 static void
-axi_init(void *if_softc)
+xae_init(void *if_softc)
 {
-	struct axi_softc *sc = if_softc;
+	struct xae_softc *sc = if_softc;
 
 	AXI_LOCK(sc);
-	axi_init_locked(sc);
+	xae_init_locked(sc);
 	AXI_UNLOCK(sc);
 }
 
 inline static uint32_t
-axi_setup_rxdesc(struct axi_softc *sc, int idx, bus_addr_t paddr)
+xae_setup_rxdesc(struct xae_softc *sc, int idx, bus_addr_t paddr)
 {
 #if 0
 	uint32_t nidx;
@@ -715,7 +715,7 @@ axi_setup_rxdesc(struct axi_softc *sc, int idx, bus_addr_t paddr)
 	sc->rxdesc_ring[idx].addr = (uint32_t)paddr;
 	nidx = next_rxidx(sc, idx);
 	sc->rxdesc_ring[idx].addr_next = sc->rxdesc_ring_paddr +	\
-	    (nidx * sizeof(struct axi_hwdesc));
+	    (nidx * sizeof(struct xae_hwdesc));
 	if (sc->mactype == DWC_GMAC_ALT_DESC)
 		sc->rxdesc_ring[idx].tdes1 = DDESC_CNTL_CHAINED | RX_MAX_PACKET;
 	else
@@ -732,7 +732,7 @@ axi_setup_rxdesc(struct axi_softc *sc, int idx, bus_addr_t paddr)
 
 #if 0
 static int
-axi_setup_rxbuf(struct axi_softc *sc, int idx, struct mbuf *m)
+xae_setup_rxbuf(struct xae_softc *sc, int idx, struct mbuf *m)
 {
 	struct bus_dma_segment seg;
 	int error, nsegs;
@@ -751,13 +751,13 @@ axi_setup_rxbuf(struct axi_softc *sc, int idx, struct mbuf *m)
 	    BUS_DMASYNC_PREREAD);
 
 	sc->rxbuf_map[idx].mbuf = m;
-	axi_setup_rxdesc(sc, idx, seg.ds_addr);
+	xae_setup_rxdesc(sc, idx, seg.ds_addr);
 
 	return (0);
 }
 
 static struct mbuf *
-axi_alloc_mbufcl(struct axi_softc *sc)
+xae_alloc_mbufcl(struct xae_softc *sc)
 {
 	struct mbuf *m;
 
@@ -770,9 +770,9 @@ axi_alloc_mbufcl(struct axi_softc *sc)
 #endif
 
 static void
-axi_media_status(struct ifnet * ifp, struct ifmediareq *ifmr)
+xae_media_status(struct ifnet * ifp, struct ifmediareq *ifmr)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	struct mii_data *mii;
 
 	sc = ifp->if_softc;
@@ -785,7 +785,7 @@ axi_media_status(struct ifnet * ifp, struct ifmediareq *ifmr)
 }
 
 static int
-axi_media_change_locked(struct axi_softc *sc)
+xae_media_change_locked(struct xae_softc *sc)
 {
 
 	printf("%s\n", __func__);
@@ -794,15 +794,15 @@ axi_media_change_locked(struct axi_softc *sc)
 }
 
 static int
-axi_media_change(struct ifnet * ifp)
+xae_media_change(struct ifnet * ifp)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	int error;
 
 	sc = ifp->if_softc;
 
 	AXI_LOCK(sc);
-	error = axi_media_change_locked(sc);
+	error = xae_media_change_locked(sc);
 	AXI_UNLOCK(sc);
 	return (error);
 }
@@ -833,7 +833,7 @@ bitreverse(uint8_t x)
 }
 
 static void
-axi_setup_rxfilter(struct axi_softc *sc)
+xae_setup_rxfilter(struct xae_softc *sc)
 {
 	struct ifmultiaddr *ifma;
 	struct ifnet *ifp;
@@ -912,9 +912,9 @@ axi_setup_rxfilter(struct axi_softc *sc)
 }
 
 static int
-axi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
+xae_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	struct mii_data *mii;
 	struct ifreq *ifr;
 	int mask, error;
@@ -930,14 +930,14 @@ axi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 			if (ifp->if_drv_flags & IFF_DRV_RUNNING) {
 				if ((ifp->if_flags ^ sc->if_flags) &
 				    (IFF_PROMISC | IFF_ALLMULTI))
-					axi_setup_rxfilter(sc);
+					xae_setup_rxfilter(sc);
 			} else {
 				if (!sc->is_detaching)
-					axi_init_locked(sc);
+					xae_init_locked(sc);
 			}
 		} else {
 			if (ifp->if_drv_flags & IFF_DRV_RUNNING)
-				axi_stop_locked(sc);
+				xae_stop_locked(sc);
 		}
 		sc->if_flags = ifp->if_flags;
 		AXI_UNLOCK(sc);
@@ -946,7 +946,7 @@ axi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	case SIOCDELMULTI:
 		if (ifp->if_drv_flags & IFF_DRV_RUNNING) {
 			AXI_LOCK(sc);
-			axi_setup_rxfilter(sc);
+			xae_setup_rxfilter(sc);
 			AXI_UNLOCK(sc);
 		}
 		break;
@@ -973,10 +973,10 @@ axi_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 #if 0
 static void
-axi_txfinish_locked(struct axi_softc *sc)
+xae_txfinish_locked(struct xae_softc *sc)
 {
-	struct axi_bufmap *bmap;
-	struct axi_hwdesc *desc;
+	struct xae_bufmap *bmap;
+	struct xae_hwdesc *desc;
 	struct ifnet *ifp;
 
 	AXI_ASSERT_LOCKED(sc);
@@ -992,7 +992,7 @@ axi_txfinish_locked(struct axi_softc *sc)
 		bus_dmamap_unload(sc->txbuf_tag, bmap->map);
 		m_freem(bmap->mbuf);
 		bmap->mbuf = NULL;
-		axi_setup_txdesc(sc, sc->tx_idx_tail, 0, 0);
+		xae_setup_txdesc(sc, sc->tx_idx_tail, 0, 0);
 		sc->tx_idx_tail = next_txidx(sc, sc->tx_idx_tail);
 		ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
 		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
@@ -1005,7 +1005,7 @@ axi_txfinish_locked(struct axi_softc *sc)
 }
 
 static void __unused
-axi_rxfinish_locked(struct axi_softc *sc)
+xae_rxfinish_locked(struct xae_softc *sc)
 {
 	struct ifnet *ifp;
 	struct mbuf *m0;
@@ -1044,8 +1044,8 @@ axi_rxfinish_locked(struct axi_softc *sc)
 			/* XXX Zero-length packet ? */
 		}
 
-		if ((m0 = axi_alloc_mbufcl(sc)) != NULL) {
-			if ((error = axi_setup_rxbuf(sc, idx, m0)) != 0) {
+		if ((m0 = xae_alloc_mbufcl(sc)) != NULL) {
+			if ((error = xae_setup_rxbuf(sc, idx, m0)) != 0) {
 				/*
 				 * XXX Now what?
 				 * We've got a hole in the rx ring.
@@ -1060,13 +1060,13 @@ axi_rxfinish_locked(struct axi_softc *sc)
 #endif
 
 static void
-axi_intr(void *arg)
+xae_intr(void *arg)
 {
 
 	printf("%s\n", __func__);
 
 #if 0
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	uint32_t reg;
 
 	sc = arg;
@@ -1080,11 +1080,11 @@ axi_intr(void *arg)
 	reg = READ4(sc, DMA_STATUS);
 	if (reg & DMA_STATUS_NIS) {
 		if (reg & DMA_STATUS_RI)
-			axi_rxfinish_locked(sc);
+			xae_rxfinish_locked(sc);
 
 		if (reg & DMA_STATUS_TI) {
-			axi_txfinish_locked(sc);
-			axi_txstart_locked(sc);
+			xae_txfinish_locked(sc);
+			xae_txstart_locked(sc);
 		}
 	}
 
@@ -1093,8 +1093,8 @@ axi_intr(void *arg)
 			/* Fatal bus error */
 			device_printf(sc->dev,
 			    "Ethernet DMA error, restarting controller.\n");
-			axi_stop_locked(sc);
-			axi_init_locked(sc);
+			xae_stop_locked(sc);
+			xae_init_locked(sc);
 		}
 	}
 
@@ -1105,7 +1105,7 @@ axi_intr(void *arg)
 
 #if 0
 static int __unused
-setup_dma(struct axi_softc *sc)
+setup_dma(struct xae_softc *sc)
 {
 	struct mbuf *m;
 	int error;
@@ -1142,7 +1142,7 @@ setup_dma(struct axi_softc *sc)
 	}
 
 	error = bus_dmamap_load(sc->txdesc_tag, sc->txdesc_map,
-	    sc->txdesc_ring, TX_DESC_SIZE, axi_get1paddr,
+	    sc->txdesc_ring, TX_DESC_SIZE, xae_get1paddr,
 	    &sc->txdesc_ring_paddr, 0);
 	if (error != 0) {
 		device_printf(sc->dev,
@@ -1153,7 +1153,7 @@ setup_dma(struct axi_softc *sc)
 	for (idx = 0; idx < TX_DESC_COUNT; idx++) {
 		nidx = next_txidx(sc, idx);
 		sc->txdesc_ring[idx].addr_next = sc->txdesc_ring_paddr +
-		    (nidx * sizeof(struct axi_hwdesc));
+		    (nidx * sizeof(struct xae_hwdesc));
 	}
 
 	error = bus_dma_tag_create(
@@ -1181,7 +1181,7 @@ setup_dma(struct axi_softc *sc)
 			    "could not create TX buffer DMA map.\n");
 			goto out;
 		}
-		axi_setup_txdesc(sc, idx, 0, 0);
+		xae_setup_txdesc(sc, idx, 0, 0);
 	}
 
 	/*
@@ -1214,7 +1214,7 @@ setup_dma(struct axi_softc *sc)
 	}
 
 	error = bus_dmamap_load(sc->rxdesc_tag, sc->rxdesc_map,
-	    sc->rxdesc_ring, RX_DESC_SIZE, axi_get1paddr,
+	    sc->rxdesc_ring, RX_DESC_SIZE, xae_get1paddr,
 	    &sc->rxdesc_ring_paddr, 0);
 	if (error != 0) {
 		device_printf(sc->dev,
@@ -1247,12 +1247,12 @@ setup_dma(struct axi_softc *sc)
 			    "could not create RX buffer DMA map.\n");
 			goto out;
 		}
-		if ((m = axi_alloc_mbufcl(sc)) == NULL) {
+		if ((m = xae_alloc_mbufcl(sc)) == NULL) {
 			device_printf(sc->dev, "Could not alloc mbuf\n");
 			error = ENOMEM;
 			goto out;
 		}
-		if ((error = axi_setup_rxbuf(sc, idx, m)) != 0) {
+		if ((error = xae_setup_rxbuf(sc, idx, m)) != 0) {
 			device_printf(sc->dev,
 			    "could not create new RX buffer.\n");
 			goto out;
@@ -1267,7 +1267,7 @@ out:
 }
 
 static int __unused
-axi_get_hwaddr(struct axi_softc *sc, uint8_t *hwaddr)
+xae_get_hwaddr(struct xae_softc *sc, uint8_t *hwaddr)
 {
 	uint32_t hi, lo, rnd;
 
@@ -1311,7 +1311,7 @@ axi_get_hwaddr(struct axi_softc *sc, uint8_t *hwaddr)
 #define	GPIO_ACTIVE_LOW 1
 
 static int __unused
-axi_reset(device_t dev)
+xae_reset(device_t dev)
 {
 
 	return (0);
@@ -1319,7 +1319,7 @@ axi_reset(device_t dev)
 
 #ifdef EXT_RESOURCES
 static int
-axi_clock_init(device_t dev)
+xae_clock_init(device_t dev)
 {
 	hwreset_t rst;
 	clk_t clk;
@@ -1348,7 +1348,7 @@ axi_clock_init(device_t dev)
 #endif
 
 static int
-mdio_wait(struct axi_softc *sc)
+mdio_wait(struct xae_softc *sc)
 {
 	uint32_t reg;
 	int timeout;
@@ -1371,9 +1371,9 @@ mdio_wait(struct axi_softc *sc)
 }
 
 static int
-axi_miibus_read_reg(device_t dev, int phy, int reg)
+xae_miibus_read_reg(device_t dev, int phy, int reg)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	uint32_t mii;
 	int rv;
 
@@ -1397,9 +1397,9 @@ axi_miibus_read_reg(device_t dev, int phy, int reg)
 }
 
 static int
-axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
+xae_miibus_write_reg(device_t dev, int phy, int reg, int val)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	uint32_t mii;
 
 	sc = device_get_softc(dev);
@@ -1421,7 +1421,7 @@ axi_miibus_write_reg(device_t dev, int phy, int reg, int val)
 }
 
 static void
-fixup(struct axi_softc *sc)
+fixup(struct xae_softc *sc)
 {
 	uint32_t reg;
 	device_t dev;
@@ -1453,7 +1453,7 @@ fixup(struct axi_softc *sc)
 }
 
 static int
-axi_probe(device_t dev)
+xae_probe(device_t dev)
 {
 
 	if (!ofw_bus_status_okay(dev))
@@ -1463,14 +1463,15 @@ axi_probe(device_t dev)
 		return (ENXIO);
 
 	device_set_desc(dev, "Xilinx AXI Ethernet");
+
 	return (BUS_PROBE_DEFAULT);
 }
 
 static int
-axi_attach(device_t dev)
+xae_attach(device_t dev)
 {
 	uint8_t macaddr[ETHER_ADDR_LEN];
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	struct ifnet *ifp;
 	phandle_t node;
 	int error;
@@ -1508,7 +1509,7 @@ axi_attach(device_t dev)
 
 	/* Setup interrupt handler. */
 	error = xdma_setup_intr(sc->xchan_tx,
-	    axi_xdma_tx_intr, sc, &sc->ih_tx);
+	    xae_xdma_tx_intr, sc, &sc->ih_tx);
 	if (error) {
 		device_printf(sc->dev,
 		    "Can't setup xDMA TX interrupt handler.\n");
@@ -1525,7 +1526,7 @@ axi_attach(device_t dev)
 
 	/* Setup interrupt handler. */
 	error = xdma_setup_intr(sc->xchan_rx,
-	    axi_xdma_rx_intr, sc, &sc->ih_rx);
+	    xae_xdma_rx_intr, sc, &sc->ih_rx);
 	if (error) {
 		device_printf(sc->dev,
 		    "Can't setup xDMA RX interrupt handler.\n");
@@ -1566,11 +1567,11 @@ axi_attach(device_t dev)
 #endif
 
 #ifdef EXT_RESOURCES
-	if (axi_clock_init(dev) != 0)
+	if (xae_clock_init(dev) != 0)
 		return (ENXIO);
 #endif
 
-	if (bus_alloc_resources(dev, axi_spec, sc->res)) {
+	if (bus_alloc_resources(dev, xae_spec, sc->res)) {
 		device_printf(dev, "could not allocate resources\n");
 		return (ENXIO);
 	}
@@ -1583,13 +1584,13 @@ axi_attach(device_t dev)
 
 #if 0
 	/* Read MAC before reset */
-	if (axi_get_hwaddr(sc, macaddr)) {
+	if (xae_get_hwaddr(sc, macaddr)) {
 		device_printf(sc->dev, "can't get mac\n");
 		return (ENXIO);
 	}
 
 	/* Reset the PHY if needed */
-	if (axi_reset(dev) != 0) {
+	if (xae_reset(dev) != 0) {
 		device_printf(dev, "Can't reset the PHY\n");
 		return (ENXIO);
 	}
@@ -1635,11 +1636,11 @@ axi_attach(device_t dev)
 	mtx_init(&sc->mtx, device_get_nameunit(sc->dev),
 	    MTX_NETWORK_LOCK, MTX_DEF);
 
-	callout_init_mtx(&sc->axi_callout, &sc->mtx, 0);
+	callout_init_mtx(&sc->xae_callout, &sc->mtx, 0);
 
 	/* Setup interrupt handler. */
 	error = bus_setup_intr(dev, sc->res[1], INTR_TYPE_NET | INTR_MPSAFE,
-	    NULL, axi_intr, sc, &sc->intr_cookie);
+	    NULL, xae_intr, sc, &sc->intr_cookie);
 	if (error != 0) {
 		device_printf(dev, "could not setup interrupt handler.\n");
 		return (ENXIO);
@@ -1654,10 +1655,10 @@ axi_attach(device_t dev)
 	ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
 	ifp->if_capabilities = IFCAP_VLAN_MTU;
 	ifp->if_capenable = ifp->if_capabilities;
-	ifp->if_transmit = axi_transmit;
-	ifp->if_qflush = axi_qflush;
-	ifp->if_ioctl = axi_ioctl;
-	ifp->if_init = axi_init;
+	ifp->if_transmit = xae_transmit;
+	ifp->if_qflush = xae_qflush;
+	ifp->if_ioctl = xae_ioctl;
+	ifp->if_init = xae_init;
 	IFQ_SET_MAXLEN(&ifp->if_snd, TX_DESC_COUNT - 1);
 	ifp->if_snd.ifq_drv_maxlen = TX_DESC_COUNT - 1;
 	IFQ_SET_READY(&ifp->if_snd);
@@ -1670,7 +1671,7 @@ axi_attach(device_t dev)
 	if (mdio_wait(sc))
 		return (ENXIO);
 
-	//axi_miibus_write_reg(dev, 0x1, 0x0, 0x1340);
+	//xae_miibus_write_reg(dev, 0x1, 0x0, 0x1340);
 
 	macaddr[0] = 0x00;
 	macaddr[1] = 0x0a;
@@ -1685,12 +1686,12 @@ axi_attach(device_t dev)
 	reg = macaddr[4] | (macaddr[5] << 8);
 	WRITE4(sc, AXI_UAWU, reg);
 
-	if (axi_get_phyaddr(node, &sc->phy_addr) != 0)
+	if (xae_get_phyaddr(node, &sc->phy_addr) != 0)
 		return (ENXIO);
 
 	/* Attach the mii driver. */
-	error = mii_attach(dev, &sc->miibus, ifp, axi_media_change,
-	    axi_media_status, BMSR_DEFCAPMASK, sc->phy_addr,
+	error = mii_attach(dev, &sc->miibus, ifp, xae_media_change,
+	    xae_media_status, BMSR_DEFCAPMASK, sc->phy_addr,
 	    MII_OFFSET_ANY, 0);
 
 	if (error != 0) {
@@ -1705,16 +1706,16 @@ axi_attach(device_t dev)
 	ether_ifattach(ifp, macaddr);
 	sc->is_attached = true;
 
-	axi_rx_enqueue(sc, NUM_RX_MBUF);
+	xae_rx_enqueue(sc, NUM_RX_MBUF);
 	xdma_queue_submit(sc->xchan_rx);
 
 	return (0);
 }
 
 static void
-axi_miibus_statchg(device_t dev)
+xae_miibus_statchg(device_t dev)
 {
-	struct axi_softc *sc;
+	struct xae_softc *sc;
 	struct mii_data *mii;
 	uint32_t reg;
 
@@ -1774,28 +1775,28 @@ axi_miibus_statchg(device_t dev)
 #endif
 }
 
-static device_method_t axi_methods[] = {
-	DEVMETHOD(device_probe,		axi_probe),
-	DEVMETHOD(device_attach,	axi_attach),
+static device_method_t xae_methods[] = {
+	DEVMETHOD(device_probe,		xae_probe),
+	DEVMETHOD(device_attach,	xae_attach),
 
 	/* MII Interface */
-	DEVMETHOD(miibus_readreg,	axi_miibus_read_reg),
-	DEVMETHOD(miibus_writereg,	axi_miibus_write_reg),
-	DEVMETHOD(miibus_statchg,	axi_miibus_statchg),
+	DEVMETHOD(miibus_readreg,	xae_miibus_read_reg),
+	DEVMETHOD(miibus_writereg,	xae_miibus_write_reg),
+	DEVMETHOD(miibus_statchg,	xae_miibus_statchg),
 
 	{ 0, 0 }
 };
 
-driver_t axi_driver = {
-	"axi",
-	axi_methods,
-	sizeof(struct axi_softc),
+driver_t xae_driver = {
+	"xae",
+	xae_methods,
+	sizeof(struct xae_softc),
 };
 
-static devclass_t axi_devclass;
+static devclass_t xae_devclass;
 
-DRIVER_MODULE(axi, simplebus, axi_driver, axi_devclass, 0, 0);
-DRIVER_MODULE(miibus, axi, miibus_driver, miibus_devclass, 0, 0);
+DRIVER_MODULE(xae, simplebus, xae_driver, xae_devclass, 0, 0);
+DRIVER_MODULE(miibus, xae, miibus_driver, miibus_devclass, 0, 0);
 
-MODULE_DEPEND(axi, ether, 1, 1, 1);
-MODULE_DEPEND(axi, miibus, 1, 1, 1);
+MODULE_DEPEND(xae, ether, 1, 1, 1);
+MODULE_DEPEND(xae, miibus, 1, 1, 1);

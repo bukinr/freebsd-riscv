@@ -106,7 +106,7 @@ device		uart_ns8250	# ns8250-type UART driver
 
 device		miibus
 #device		tiphy
-device		axi
+device		xae
 
 device		cgem
 
