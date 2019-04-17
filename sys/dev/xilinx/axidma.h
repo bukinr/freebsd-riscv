@@ -26,8 +26,8 @@
  * $FreeBSD$
  */
 
-#ifndef _DEV_XDMA_CONTROLLER_PL330_H_
-#define _DEV_XDMA_CONTROLLER_PL330_H_
+#ifndef _DEV_XILINX_AXIDMA_H_
+#define _DEV_XILINX_AXIDMA_H_
 
 #define	AXI_DMACR(n)		(0x00 + 0x30 * (n)) /* DMA Control register */
 #define	 DMACR_RS		(1 << 0) /* Run / Stop. */
@@ -73,12 +73,7 @@ struct axidma_desc {
 	uint32_t app2;
 	uint32_t app3;
 	uint32_t app4;
-	uint64_t sw_id_offset;
-	uint64_t ptp_tx_skb;
-	uint32_t ptp_tx_ts_tag;
-	uint64_t tx_skb;
-	uint32_t tx_desc_mapping;
-	uint32_t reserved[9];
+	uint32_t reserved[3];
 };
 
-#endif /* !_DEV_XDMA_CONTROLLER_PL330_H_ */
+#endif /* !_DEV_XILINX_AXIDMA_H_ */
