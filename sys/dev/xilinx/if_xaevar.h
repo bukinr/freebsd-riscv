@@ -66,37 +66,18 @@ struct xae_softc {
 	int			stats_harvest_count;
 	int			phy_addr;
 
-	/* xDMA */
+	/* xDMA TX */
 	xdma_controller_t	*xdma_tx;
 	xdma_channel_t		*xchan_tx;
 	void			*ih_tx;
 
+	/* xDMA RX */
 	xdma_controller_t	*xdma_rx;
 	xdma_channel_t		*xchan_rx;
 	void			*ih_rx;
 
 	struct buf_ring		*br;
 	struct mtx		br_mtx;
-
-	/* RX */
-	bus_dma_tag_t		rxdesc_tag;
-	bus_dmamap_t		rxdesc_map;
-	struct xae_hwdesc	*rxdesc_ring;
-	bus_addr_t		rxdesc_ring_paddr;
-	bus_dma_tag_t		rxbuf_tag;
-	struct xae_bufmap	rxbuf_map[RX_DESC_COUNT];
-	uint32_t		rx_idx;
-
-	/* TX */
-	bus_dma_tag_t		txdesc_tag;
-	bus_dmamap_t		txdesc_map;
-	struct xae_hwdesc	*txdesc_ring;
-	bus_addr_t		txdesc_ring_paddr;
-	bus_dma_tag_t		txbuf_tag;
-	struct xae_bufmap	txbuf_map[TX_DESC_COUNT];
-	uint32_t		tx_idx_head;
-	uint32_t		tx_idx_tail;
-	int			txcount;
 };
 
 #endif	/* _DEV_XILINX_IF_XAEVAR_H_ */

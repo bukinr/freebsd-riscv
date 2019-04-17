@@ -193,7 +193,6 @@ xae_xdma_tx_intr(void *arg, xdma_transfer_status_t *status)
 		}
 
 		m_freem(m);
-		sc->txcount--;
 	}
 
 	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
@@ -286,7 +285,6 @@ xae_transmit_locked(struct ifnet *ifp)
 
 		drbr_advance(ifp, br);
 
-		sc->txcount++;
 		enq++;
 
 		/* If anyone is interested give them a copy. */
@@ -989,7 +987,6 @@ xae_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
-	sc->rx_idx = 0;
 	node = ofw_bus_get_node(dev);
 
 	vmem_t *vmem;
