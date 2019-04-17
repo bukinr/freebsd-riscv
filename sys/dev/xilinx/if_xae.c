@@ -70,8 +70,6 @@ __FBSDID("$FreeBSD$");
 #define	WRITE4(_sc, _reg, _val) \
 	bus_write_4((_sc)->res[0], _reg, _val)
 
-#define	MAC_RESET_TIMEOUT	100
-#define	WATCHDOG_TIMEOUT_SECS	5
 #define	STATS_HARVEST_INTERVAL	2
 
 #define	MDIO_CLK_DIV_DEFAULT	29
@@ -113,16 +111,10 @@ __FBSDID("$FreeBSD$");
 	PHY_WR(sc, MII_MMDAADR, data);		\
 }
 
-/* Not documented, VCU118 workaround */
+/* Not documented, Xilinx VCU118 workaround */
 #define	 CFG4_SGMII_TMR			0x160 /* bits 8:7 MUST be '10' */
 #define	DP83867_SGMIICTL1		0xD3 /* not documented register */
 #define	 SGMIICTL1_SGMII_6W		(1 << 14) /* no idea what it is */
-
-/*
- * The hardware imposes alignment restrictions on various objects involved in
- * DMA transfers.  These values are expressed in bytes (not bits).
- */
-#define	DWC_DESC_RING_ALIGN		2048
 
 static struct resource_spec xae_spec[] = {
 	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
@@ -132,20 +124,6 @@ static struct resource_spec xae_spec[] = {
 
 static void xae_stop_locked(struct xae_softc *sc);
 static void xae_setup_rxfilter(struct xae_softc *sc);
-
-static inline uint32_t
-next_rxidx(struct xae_softc *sc, uint32_t curidx)
-{
-
-	return ((curidx + 1) % RX_DESC_COUNT);
-}
-
-static inline uint32_t
-next_txidx(struct xae_softc *sc, uint32_t curidx)
-{
-
-	return ((curidx + 1) % TX_DESC_COUNT);
-}
 
 static int
 xae_rx_enqueue(struct xae_softc *sc, uint32_t n)
@@ -802,169 +780,6 @@ xae_intr(void *arg)
 #endif
 }
 
-#if 0
-static int __unused
-setup_dma(struct xae_softc *sc)
-{
-	struct mbuf *m;
-	int error;
-	int nidx;
-	int idx;
-
-	/*
-	 * Set up TX descriptor ring, descriptors, and dma maps.
-	 */
-	error = bus_dma_tag_create(
-	    bus_get_dma_tag(sc->dev),	/* Parent tag. */
-	    DWC_DESC_RING_ALIGN, 0,	/* alignment, boundary */
-	    BUS_SPACE_MAXADDR_32BIT,	/* lowaddr */
-	    BUS_SPACE_MAXADDR,		/* highaddr */
-	    NULL, NULL,			/* filter, filterarg */
-	    TX_DESC_SIZE, 1, 		/* maxsize, nsegments */
-	    TX_DESC_SIZE,		/* maxsegsize */
-	    0,				/* flags */
-	    NULL, NULL,			/* lockfunc, lockarg */
-	    &sc->txdesc_tag);
-	if (error != 0) {
-		device_printf(sc->dev,
-		    "could not create TX ring DMA tag.\n");
-		goto out;
-	}
-
-	error = bus_dmamem_alloc(sc->txdesc_tag, (void**)&sc->txdesc_ring,
-	    BUS_DMA_COHERENT | BUS_DMA_WAITOK | BUS_DMA_ZERO,
-	    &sc->txdesc_map);
-	if (error != 0) {
-		device_printf(sc->dev,
-		    "could not allocate TX descriptor ring.\n");
-		goto out;
-	}
-
-	error = bus_dmamap_load(sc->txdesc_tag, sc->txdesc_map,
-	    sc->txdesc_ring, TX_DESC_SIZE, xae_get1paddr,
-	    &sc->txdesc_ring_paddr, 0);
-	if (error != 0) {
-		device_printf(sc->dev,
-		    "could not load TX descriptor ring map.\n");
-		goto out;
-	}
-
-	for (idx = 0; idx < TX_DESC_COUNT; idx++) {
-		nidx = next_txidx(sc, idx);
-		sc->txdesc_ring[idx].addr_next = sc->txdesc_ring_paddr +
-		    (nidx * sizeof(struct xae_hwdesc));
-	}
-
-	error = bus_dma_tag_create(
-	    bus_get_dma_tag(sc->dev),	/* Parent tag. */
-	    1, 0,			/* alignment, boundary */
-	    BUS_SPACE_MAXADDR_32BIT,	/* lowaddr */
-	    BUS_SPACE_MAXADDR,		/* highaddr */
-	    NULL, NULL,			/* filter, filterarg */
-	    MCLBYTES, 1, 		/* maxsize, nsegments */
-	    MCLBYTES,			/* maxsegsize */
-	    0,				/* flags */
-	    NULL, NULL,			/* lockfunc, lockarg */
-	    &sc->txbuf_tag);
-	if (error != 0) {
-		device_printf(sc->dev,
-		    "could not create TX ring DMA tag.\n");
-		goto out;
-	}
-
-	for (idx = 0; idx < TX_DESC_COUNT; idx++) {
-		error = bus_dmamap_create(sc->txbuf_tag, BUS_DMA_COHERENT,
-		    &sc->txbuf_map[idx].map);
-		if (error != 0) {
-			device_printf(sc->dev,
-			    "could not create TX buffer DMA map.\n");
-			goto out;
-		}
-		xae_setup_txdesc(sc, idx, 0, 0);
-	}
-
-	/*
-	 * Set up RX descriptor ring, descriptors, dma maps, and mbufs.
-	 */
-	error = bus_dma_tag_create(
-	    bus_get_dma_tag(sc->dev),	/* Parent tag. */
-	    DWC_DESC_RING_ALIGN, 0,	/* alignment, boundary */
-	    BUS_SPACE_MAXADDR_32BIT,	/* lowaddr */
-	    BUS_SPACE_MAXADDR,		/* highaddr */
-	    NULL, NULL,			/* filter, filterarg */
-	    RX_DESC_SIZE, 1, 		/* maxsize, nsegments */
-	    RX_DESC_SIZE,		/* maxsegsize */
-	    0,				/* flags */
-	    NULL, NULL,			/* lockfunc, lockarg */
-	    &sc->rxdesc_tag);
-	if (error != 0) {
-		device_printf(sc->dev,
-		    "could not create RX ring DMA tag.\n");
-		goto out;
-	}
-
-	error = bus_dmamem_alloc(sc->rxdesc_tag, (void **)&sc->rxdesc_ring,
-	    BUS_DMA_COHERENT | BUS_DMA_WAITOK | BUS_DMA_ZERO,
-	    &sc->rxdesc_map);
-	if (error != 0) {
-		device_printf(sc->dev,
-		    "could not allocate RX descriptor ring.\n");
-		goto out;
-	}
-
-	error = bus_dmamap_load(sc->rxdesc_tag, sc->rxdesc_map,
-	    sc->rxdesc_ring, RX_DESC_SIZE, xae_get1paddr,
-	    &sc->rxdesc_ring_paddr, 0);
-	if (error != 0) {
-		device_printf(sc->dev,
-		    "could not load RX descriptor ring map.\n");
-		goto out;
-	}
-
-	error = bus_dma_tag_create(
-	    bus_get_dma_tag(sc->dev),	/* Parent tag. */
-	    1, 0,			/* alignment, boundary */
-	    BUS_SPACE_MAXADDR_32BIT,	/* lowaddr */
-	    BUS_SPACE_MAXADDR,		/* highaddr */
-	    NULL, NULL,			/* filter, filterarg */
-	    MCLBYTES, 1, 		/* maxsize, nsegments */
-	    MCLBYTES,			/* maxsegsize */
-	    0,				/* flags */
-	    NULL, NULL,			/* lockfunc, lockarg */
-	    &sc->rxbuf_tag);
-	if (error != 0) {
-		device_printf(sc->dev,
-		    "could not create RX buf DMA tag.\n");
-		goto out;
-	}
-
-	for (idx = 0; idx < RX_DESC_COUNT; idx++) {
-		error = bus_dmamap_create(sc->rxbuf_tag, BUS_DMA_COHERENT,
-		    &sc->rxbuf_map[idx].map);
-		if (error != 0) {
-			device_printf(sc->dev,
-			    "could not create RX buffer DMA map.\n");
-			goto out;
-		}
-		if ((m = xae_alloc_mbufcl(sc)) == NULL) {
-			device_printf(sc->dev, "Could not alloc mbuf\n");
-			error = ENOMEM;
-			goto out;
-		}
-		if ((error = xae_setup_rxbuf(sc, idx, m)) != 0) {
-			device_printf(sc->dev,
-			    "could not create new RX buffer.\n");
-			goto out;
-		}
-	}
-
-out:
-	if (error != 0)
-		return (ENXIO);
-
-	return (0);
-}
-
 static int __unused
 xae_get_hwaddr(struct xae_softc *sc, uint8_t *hwaddr)
 {
@@ -1005,9 +820,6 @@ xae_get_hwaddr(struct xae_softc *sc, uint8_t *hwaddr)
 
 	return (0);
 }
-#endif
-
-#define	GPIO_ACTIVE_LOW 1
 
 static int __unused
 xae_reset(device_t dev)
@@ -1256,15 +1068,6 @@ xae_attach(device_t dev)
 	if (sc->br == NULL)
 		return (ENOMEM);
 
-#if 0
-	sc->txcount = TX_DESC_COUNT;
-	sc->mii_clk = IF_DWC_MII_CLK(dev);
-	sc->mactype = IF_DWC_MAC_TYPE(dev);
-
-	if (IF_DWC_INIT(dev) != 0)
-		return (ENXIO);
-#endif
-
 #ifdef EXT_RESOURCES
 	if (xae_clock_init(dev) != 0)
 		return (ENXIO);
@@ -1436,11 +1239,14 @@ xae_miibus_statchg(device_t dev)
 	else
 		sc->link_is_up = false;
 
+#if 0
 	printf("link_is_up %d\n", sc->link_is_up);
 	printf("%s: IFM_SUBTYPE(mii->mii_media_active) %d\n",
 	    __func__, IFM_SUBTYPE(mii->mii_media_active));
 	printf("%s: options %x\n",
 	    __func__, IFM_OPTIONS(mii->mii_media_active));
+#endif
+
 	switch (IFM_SUBTYPE(mii->mii_media_active)) {
 	case IFM_1000_T:
 	case IFM_1000_SX:
