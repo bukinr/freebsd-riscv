@@ -1005,10 +1005,8 @@ xae_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	int caps;
-	caps = 0;
 	/* Alloc xDMA TX virtual channel. */
-	sc->xchan_tx = xdma_channel_alloc(sc->xdma_tx, caps);
+	sc->xchan_tx = xdma_channel_alloc(sc->xdma_tx, 0);
 	if (sc->xchan_tx == NULL) {
 		device_printf(dev, "Can't alloc virtual DMA TX channel.\n");
 		return (ENXIO);
@@ -1025,7 +1023,7 @@ xae_attach(device_t dev)
 	}
 
 	/* Alloc xDMA RX virtual channel. */
-	sc->xchan_rx = xdma_channel_alloc(sc->xdma_rx, caps);
+	sc->xchan_rx = xdma_channel_alloc(sc->xdma_rx, 0);
 	if (sc->xchan_rx == NULL) {
 		device_printf(dev, "Can't alloc virtual DMA RX channel.\n");
 		return (ENXIO);
@@ -1079,7 +1077,8 @@ xae_attach(device_t dev)
 	sc->bst = rman_get_bustag(sc->res[0]);
 	sc->bsh = rman_get_bushandle(sc->res[0]);
 
-	printf("ID: %x\n", READ4(sc, XAE_IDENT));
+	device_printf(sc->dev, "Identification: %x\n",
+	    READ4(sc, XAE_IDENT));
 
 #if 0
 	/* Read MAC before reset */
@@ -1266,7 +1265,6 @@ xae_miibus_statchg(device_t dev)
 	}
 
 	WRITE4(sc, XAE_SPEED, reg);
-	DELAY(1);
 
 #if 0
 	if ((IFM_OPTIONS(mii->mii_media_active) & IFM_FDX) != 0)

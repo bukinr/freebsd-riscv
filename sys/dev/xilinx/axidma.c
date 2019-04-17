@@ -97,10 +97,12 @@ struct axidma_channel {
 	struct axidma_desc	**descs;
 	bus_dma_segment_t	*descs_phys;
 	uint32_t		descs_num;
+#if 0
 	bus_dma_tag_t		dma_tag;
 	bus_dmamap_t		*dma_map;
 	uint32_t		map_descr;
 	uint8_t			map_err;
+#endif
 	uint32_t		descs_used_count;
 };
 
@@ -350,6 +352,7 @@ axidma_detach(device_t dev)
 	return (0);
 }
 
+#if 0
 static void
 axidma_dmamap_cb(void *arg, bus_dma_segment_t *segs, int nseg, int err)
 {
@@ -369,6 +372,7 @@ axidma_dmamap_cb(void *arg, bus_dma_segment_t *segs, int nseg, int err)
 	dprintf("map desc %d: descs phys %lx len %ld\n",
 	    chan->map_descr, segs[0].ds_addr, segs[0].ds_len);
 }
+#endif
 
 static int
 axidma_desc_free(struct axidma_softc *sc, struct axidma_channel *chan)
@@ -381,13 +385,19 @@ axidma_desc_free(struct axidma_softc *sc, struct axidma_channel *chan)
 
 	for (i = 0; i < nsegments; i++) {
 		desc = chan->descs[i];
+#if 0
 		bus_dmamap_unload(chan->dma_tag, chan->dma_map[i]);
 		bus_dmamem_free(chan->dma_tag, desc, chan->dma_map[i]);
+#endif
 	}
 
+#if 0
 	bus_dma_tag_destroy(chan->dma_tag);
+#endif
 	free(chan->descs, M_DEVBUF);
+#if 0
 	free(chan->dma_map, M_DEVBUF);
+#endif
 	free(chan->descs_phys, M_DEVBUF);
 
 	return (0);
@@ -399,16 +409,16 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 {
 	struct axidma_channel *chan;
 	int nsegments;
-	int err;
 	int i;
 
 	chan = (struct axidma_channel *)xchan->chan;
 
 	nsegments = chan->descs_num;
 
-	dprintf("%s: nseg %d, desc_size %d\n",
+	printf("%s: nseg %d, desc_size %d\n",
 	    __func__, nsegments, desc_size);
 
+#if 0
 	dprintf("%s: creating tag\n", __func__);
 	err = bus_dma_tag_create(
 	    bus_get_dma_tag(sc->dev),
@@ -425,6 +435,7 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 		    "%s: Can't create bus_dma tag.\n", __func__);
 		return (-1);
 	}
+#endif
 
 	dprintf("%s: allocating descriptors\n", __func__);
 	/* Descriptors. */
@@ -436,8 +447,10 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 		return (-1);
 	}
 	dprintf("%s: allocating dma_map\n", __func__);
+#if 0
 	chan->dma_map = malloc(nsegments * sizeof(bus_dmamap_t),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
+#endif
 	dprintf("%s: allocating descs_phys\n", __func__);
 	chan->descs_phys = malloc(nsegments * sizeof(bus_dma_segment_t),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
@@ -460,6 +473,7 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 	}
 	return (0);
 
+#if 0
 	bus_size_t psize;
 
 	psize = desc_size * nsegments;
@@ -468,7 +482,8 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 	printf("%s: paddr %x\n", __func__, vtophys(vaddr));
 
 	for (i = 0; i < nsegments; i++) {
-		chan->descs[i] = (struct axidma_desc *)((uint64_t)vaddr + desc_size * i);
+		chan->descs[i] = \
+		    (struct axidma_desc *)((uint64_t)vaddr + desc_size * i);
 		chan->descs_phys[i].ds_addr = 0x80000000 + desc_size * i;
 		chan->descs_phys[i].ds_len = desc_size;
 	}
@@ -505,6 +520,7 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 			return (-1);
 		}
 	}
+#endif
 
 	return (0);
 }
