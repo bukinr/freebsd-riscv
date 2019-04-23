@@ -51,6 +51,7 @@ struct xae_softc {
 	bus_space_handle_t	bsh;
 	device_t		dev;
 	int			mactype;
+	uint8_t			macaddr[ETHER_ADDR_LEN];
 	int			mii_clk;
 	device_t		miibus;
 	struct mii_data *	mii_softc;

@@ -94,12 +94,12 @@
 			};
 		};
 		axi_dma: dma@62200000 {
+			#dma-cells = <1>;
 			compatible = "xlnx,eth-dma";
 			reg = <0x62200000 0x10000>;
 			interrupts-extended = <&plic 3 &plic 4>;
 			axistream-connected = <&axi_ethernet_eth>;
 			axistream-connected-control = <&axi_ethernet_eth>;
-			#dma-cells = <1>;
 		};
 		ns16550: uart@62300000 {
 			current-speed = <115200>;

@@ -639,22 +639,14 @@ xae_setup_rxfilter(struct xae_softc *sc)
 	 * Set the primary address.
 	 */
 
-	uint8_t macaddr[ETHER_ADDR_LEN];
-	macaddr[0] = 0x00;
-	macaddr[1] = 0x0a;
-	macaddr[2] = 0x35;
-	macaddr[3] = 0x04;
-	macaddr[4] = 0xdb;
-	macaddr[5] = 0x5a;
-
-	reg = macaddr[0];
-	reg |= (macaddr[1] << 8);
-	reg |= (macaddr[2] << 16);
-	reg |= (macaddr[3] << 24);
+	reg = sc->macaddr[0];
+	reg |= (sc->macaddr[1] << 8);
+	reg |= (sc->macaddr[2] << 16);
+	reg |= (sc->macaddr[3] << 24);
 	WRITE4(sc, XAE_UAW0, reg);
 
-	reg = macaddr[4];
-	reg |= (macaddr[5] << 8);
+	reg = sc->macaddr[4];
+	reg |= (sc->macaddr[5] << 8);
 	WRITE4(sc, XAE_UAW1, reg);
 }
 
@@ -762,43 +754,23 @@ xae_intr(void *arg)
 #endif
 }
 
-static int __unused
+static int
 xae_get_hwaddr(struct xae_softc *sc, uint8_t *hwaddr)
 {
-	uint32_t hi, lo, rnd;
+	phandle_t node;
+	int len;
 
-	/*
-	 * Try to recover a MAC address from the running hardware. If there's
-	 * something non-zero there, assume the bootloader did the right thing
-	 * and just use it.
-	 *
-	 * Otherwise, set the address to a convenient locally assigned address,
-	 * 'bsd' + random 24 low-order bits.  'b' is 0x62, which has the locally
-	 * assigned bit set, and the broadcast/multicast bit clear.
-	 */
-#if 0
-	lo = READ4(sc, MAC_ADDRESS_LOW(0));
-	hi = READ4(sc, MAC_ADDRESS_HIGH(0)) & 0xffff;
-#else
-	lo = 0;
-	hi = 0;
-#endif
-	if ((lo != 0xffffffff) || (hi != 0xffff)) {
-		hwaddr[0] = (lo >>  0) & 0xff;
-		hwaddr[1] = (lo >>  8) & 0xff;
-		hwaddr[2] = (lo >> 16) & 0xff;
-		hwaddr[3] = (lo >> 24) & 0xff;
-		hwaddr[4] = (hi >>  0) & 0xff;
-		hwaddr[5] = (hi >>  8) & 0xff;
-	} else {
-		rnd = arc4random() & 0x00ffffff;
-		hwaddr[0] = 'b';
-		hwaddr[1] = 's';
-		hwaddr[2] = 'd';
-		hwaddr[3] = rnd >> 16;
-		hwaddr[4] = rnd >>  8;
-		hwaddr[5] = rnd >>  0;
-	}
+	node = ofw_bus_get_node(sc->dev);
+
+	/* Check if there is property */
+	if ((len = OF_getproplen(node, "local-mac-address")) <= 0)
+		return (EINVAL);
+
+	if (len != ETHER_ADDR_LEN)
+		return (EINVAL);
+
+	OF_getprop(node, "local-mac-address", hwaddr,
+	    ETHER_ADDR_LEN);
 
 	return (0);
 }
@@ -963,7 +935,6 @@ xae_probe(device_t dev)
 static int
 xae_attach(device_t dev)
 {
-	uint8_t macaddr[ETHER_ADDR_LEN];
 	struct xae_softc *sc;
 	struct ifnet *ifp;
 	phandle_t node;
@@ -1064,13 +1035,13 @@ xae_attach(device_t dev)
 	device_printf(sc->dev, "Identification: %x\n",
 	    READ4(sc, XAE_IDENT));
 
-#if 0
-	/* Read MAC before reset */
-	if (xae_get_hwaddr(sc, macaddr)) {
+	/* Get MAC addr */
+	if (xae_get_hwaddr(sc, sc->macaddr)) {
 		device_printf(sc->dev, "can't get mac\n");
 		return (ENXIO);
 	}
 
+#if 0
 	/* Reset the PHY if needed */
 	if (xae_reset(dev) != 0) {
 		device_printf(dev, "Can't reset the PHY\n");
@@ -1155,22 +1126,17 @@ xae_attach(device_t dev)
 
 	//xae_miibus_write_reg(dev, 0x1, 0x0, 0x1340);
 
-	macaddr[0] = 0x00;
-	macaddr[1] = 0x0a;
-	macaddr[2] = 0x35;
-	macaddr[3] = 0x04;
-	macaddr[4] = 0xdb;
-	macaddr[5] = 0x5a;
-
-	reg = macaddr[0];
-	reg |= (macaddr[1] << 8);
-	reg |= (macaddr[2] << 16);
-	reg |= (macaddr[3] << 24);
+#if 1
+	reg = sc->macaddr[0];
+	reg |= (sc->macaddr[1] << 8);
+	reg |= (sc->macaddr[2] << 16);
+	reg |= (sc->macaddr[3] << 24);
 	WRITE4(sc, XAE_UAW0, reg);
 
-	reg = macaddr[4];
-	reg |= (macaddr[5] << 8);
+	reg = sc->macaddr[4];
+	reg |= (sc->macaddr[5] << 8);
 	WRITE4(sc, XAE_UAW1, reg);
+#endif
 
 	if (xae_get_phyaddr(node, &sc->phy_addr) != 0)
 		return (ENXIO);
@@ -1189,7 +1155,7 @@ xae_attach(device_t dev)
 	fixup(sc);
 
 	/* All ready to run, attach the ethernet interface. */
-	ether_ifattach(ifp, macaddr);
+	ether_ifattach(ifp, sc->macaddr);
 	sc->is_attached = true;
 
 	xae_rx_enqueue(sc, NUM_RX_MBUF);
