@@ -83,11 +83,14 @@
 #define	XAE_UAW0	0x00700 /* Unicast Address Word 0 register (UAW0) RW */
 #define	XAE_UAW1	0x00704 /* Unicast Address Word 1 register (UAW1) RW */
 #define	XAE_FFC		0x00708 /* Frame Filter Control RW */
+#define	 FFC_PM		(1 << 31) /* Promiscuous Mode */
 #define	XAE_FFV(n)	(0x00710 + 0x4 * (n)) /* Frame Filter Value RW */
 #define	XAE_FFMV(n)	(0x00750 + 0x4 * (n)) /* Frame Filter Mask Value RW */
 #define	XAE_TX_VLAN(n)	(0x04000 + 0x4 * (n)) /* Transmit VLAN Data Table RW */
 #define	XAE_RX_VLAN(n)	(0x08000 + 0x4 * (n)) /* Receive VLAN Data Table RW */
 #define	XAE_AVB(n)	(0x10000 + 0x4 * (n)) /* Ethernet AVB RW */
 #define	XAE_MAT(n)	(0x20000 + 0x4 * (n)) /* Multicast Address Table RW */
+
+#define	XAE_MULTICAST_TABLE_SIZE	4
 
 #endif	/* _DEV_XILINX_IF_XAE_H_ */

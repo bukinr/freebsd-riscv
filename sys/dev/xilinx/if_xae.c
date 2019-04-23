@@ -482,9 +482,9 @@ xae_init_locked(struct xae_softc *sc)
 
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 
-#if 0
 	xae_setup_rxfilter(sc);
 
+#if 0
 	/* Initializa DMA and enable transmitters */
 	reg = READ4(sc, OPERATION_MODE);
 	reg |= (MODE_TSF | MODE_OSF | MODE_FUF);
@@ -570,77 +570,58 @@ xae_media_change(struct ifnet * ifp)
 	return (error);
 }
 
-static const uint8_t nibbletab[] = {
-	/* 0x0 0000 -> 0000 */  0x0,
-	/* 0x1 0001 -> 1000 */  0x8,
-	/* 0x2 0010 -> 0100 */  0x4,
-	/* 0x3 0011 -> 1100 */  0xc,
-	/* 0x4 0100 -> 0010 */  0x2,
-	/* 0x5 0101 -> 1010 */  0xa,
-	/* 0x6 0110 -> 0110 */  0x6,
-	/* 0x7 0111 -> 1110 */  0xe,
-	/* 0x8 1000 -> 0001 */  0x1,
-	/* 0x9 1001 -> 1001 */  0x9,
-	/* 0xa 1010 -> 0101 */  0x5,
-	/* 0xb 1011 -> 1101 */  0xd,
-	/* 0xc 1100 -> 0011 */  0x3,
-	/* 0xd 1101 -> 1011 */  0xb,
-	/* 0xe 1110 -> 0111 */  0x7,
-	/* 0xf 1111 -> 1111 */  0xf, };
-
-static uint8_t
-bitreverse(uint8_t x)
-{
-
-	return (nibbletab[x & 0xf] << 4) | nibbletab[x >> 4];
-}
-
 static void
 xae_setup_rxfilter(struct xae_softc *sc)
 {
 	struct ifmultiaddr *ifma;
 	struct ifnet *ifp;
-	uint8_t *eaddr, val;
-	//uint32_t crc, ffval, hashbit, hashreg, hi, lo, hash[8];
-	uint32_t crc, hashbit, hashreg, hi, lo, hash[8];
-	int nhash, i;
+	uint32_t reg;
+	uint8_t *ma;
+	int i;
 
 	XAE_ASSERT_LOCKED(sc);
 
 	ifp = sc->ifp;
-	nhash = sc->mactype == 0;//DWC_GMAC_ALT_DESC ? 2 : 8;
 
 	/*
 	 * Set the multicast (group) filter hash.
 	 */
 	if ((ifp->if_flags & IFF_ALLMULTI) != 0) {
-#if 0
-		ffval = (FRAME_FILTER_PM);
-#endif
-		for (i = 0; i < nhash; i++)
-			hash[i] = ~0;
+		reg = READ4(sc, XAE_FFC);
+		reg |= FFC_PM;
+		WRITE4(sc, XAE_FFC, reg);
 	} else {
-#if 0
-		ffval = (FRAME_FILTER_HMC);
-#endif
-		for (i = 0; i < nhash; i++)
-			hash[i] = 0;
+		reg = READ4(sc, XAE_FFC);
+		reg &= ~FFC_PM;
+		WRITE4(sc, XAE_FFC, reg);
+
 		if_maddr_rlock(ifp);
+
+		i = 0;
 		CK_STAILQ_FOREACH(ifma, &sc->ifp->if_multiaddrs, ifma_link) {
 			if (ifma->ifma_addr->sa_family != AF_LINK)
 				continue;
-			crc = ether_crc32_le(LLADDR((struct sockaddr_dl *)
-				ifma->ifma_addr), ETHER_ADDR_LEN);
 
-			/* Take lower 8 bits and reverse it */
-			val = bitreverse(~crc & 0xff);
-#if 0
-			if (sc->mactype == DWC_GMAC_ALT_DESC)
-				val >>= nhash; /* Only need lower 6 bits */
-#endif
-			hashreg = (val >> 5);
-			hashbit = (val & 31);
-			hash[hashreg] |= (1 << hashbit);
+			if (i >= XAE_MULTICAST_TABLE_SIZE)
+				break;
+
+			ma = LLADDR((struct sockaddr_dl *)ifma->ifma_addr);
+
+			reg = READ4(sc, XAE_FFC) & 0xffffff00;
+			reg |= i;
+			WRITE4(sc, XAE_FFC, reg);
+
+			reg = (ma[0]);
+			reg |= (ma[1] << 8);
+			reg |= (ma[2] << 16);
+			reg |= (ma[3] << 24);
+			WRITE4(sc, XAE_FFV(0), reg);
+
+			reg = ma[4];
+			reg |= ma[5] << 8;
+			WRITE4(sc, XAE_FFV(1), reg);
+
+			i += 1;
 		}
 		if_maddr_runlock(ifp);
 	}
@@ -648,30 +629,33 @@ xae_setup_rxfilter(struct xae_softc *sc)
 	/*
 	 * Set the individual address filter hash.
 	 */
-#if 0
-	if (ifp->if_flags & IFF_PROMISC)
-		ffval |= (FRAME_FILTER_PR);
-#endif
+	if (ifp->if_flags & IFF_PROMISC) {
+		reg = READ4(sc, XAE_FFC);
+		reg |= FFC_PM;
+		WRITE4(sc, XAE_FFC, reg);
+	}
 
 	/*
 	 * Set the primary address.
 	 */
-	eaddr = IF_LLADDR(ifp);
-	lo = eaddr[0] | (eaddr[1] << 8) | (eaddr[2] << 16) |
-	    (eaddr[3] << 24);
-	hi = eaddr[4] | (eaddr[5] << 8);
-#if 0
-	WRITE4(sc, MAC_ADDRESS_LOW(0), lo);
-	WRITE4(sc, MAC_ADDRESS_HIGH(0), hi);
-	WRITE4(sc, MAC_FRAME_FILTER, ffval);
-	if (sc->mactype == DWC_GMAC_ALT_DESC) {
-		WRITE4(sc, GMAC_MAC_HTLOW, hash[0]);
-		WRITE4(sc, GMAC_MAC_HTHIGH, hash[1]);
-	} else {
-		for (i = 0; i < nhash; i++)
-			WRITE4(sc, HASH_TABLE_REG(i), hash[i]);
-	}
-#endif
+
+	uint8_t macaddr[ETHER_ADDR_LEN];
+	macaddr[0] = 0x00;
+	macaddr[1] = 0x0a;
+	macaddr[2] = 0x35;
+	macaddr[3] = 0x04;
+	macaddr[4] = 0xdb;
+	macaddr[5] = 0x5a;
+
+	reg = macaddr[0];
+	reg |= (macaddr[1] << 8);
+	reg |= (macaddr[2] << 16);
+	reg |= (macaddr[3] << 24);
+	WRITE4(sc, XAE_UAW0, reg);
+
+	reg = macaddr[4];
+	reg |= (macaddr[5] << 8);
+	WRITE4(sc, XAE_UAW1, reg);
 }
 
 static int
@@ -1178,11 +1162,15 @@ xae_attach(device_t dev)
 	macaddr[4] = 0xdb;
 	macaddr[5] = 0x5a;
 
-	reg = macaddr[0] | (macaddr[1] << 8);
-	reg |= (macaddr[2] << 16) | (macaddr[3] << 24);
-	WRITE4(sc, XAE_UAWL, reg);
-	reg = macaddr[4] | (macaddr[5] << 8);
-	WRITE4(sc, XAE_UAWU, reg);
+	reg = macaddr[0];
+	reg |= (macaddr[1] << 8);
+	reg |= (macaddr[2] << 16);
+	reg |= (macaddr[3] << 24);
+	WRITE4(sc, XAE_UAW0, reg);
+
+	reg = macaddr[4];
+	reg |= (macaddr[5] << 8);
+	WRITE4(sc, XAE_UAW1, reg);
 
 	if (xae_get_phyaddr(node, &sc->phy_addr) != 0)
 		return (ENXIO);
