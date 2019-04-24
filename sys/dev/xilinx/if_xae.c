@@ -1124,20 +1124,6 @@ xae_attach(device_t dev)
 	if (mdio_wait(sc))
 		return (ENXIO);
 
-	//xae_miibus_write_reg(dev, 0x1, 0x0, 0x1340);
-
-#if 1
-	reg = sc->macaddr[0];
-	reg |= (sc->macaddr[1] << 8);
-	reg |= (sc->macaddr[2] << 16);
-	reg |= (sc->macaddr[3] << 24);
-	WRITE4(sc, XAE_UAW0, reg);
-
-	reg = sc->macaddr[4];
-	reg |= (sc->macaddr[5] << 8);
-	WRITE4(sc, XAE_UAW1, reg);
-#endif
-
 	if (xae_get_phyaddr(node, &sc->phy_addr) != 0)
 		return (ENXIO);
 
