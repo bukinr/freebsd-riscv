@@ -104,11 +104,11 @@ __FBSDID("$FreeBSD$");
 	xae_miibus_write_reg(sc->dev, sc->phy_addr, _r, _v)
 
 /* Use this macro to access regs > 0x1f */
-#define WRITE_TI_EREG(sc, reg, data) {			\
-	PHY_WR(sc, MII_MMDACR, MMDACR_DADDRMASK);	\
-	PHY_WR(sc, MII_MMDAADR, reg);		\
-	PHY_WR(sc, MII_MMDACR, MMDACR_DADDRMASK | MMDACR_FN_DATANPI);\
-	PHY_WR(sc, MII_MMDAADR, data);		\
+#define WRITE_TI_EREG(sc, reg, data) {					\
+	PHY_WR(sc, MII_MMDACR, MMDACR_DADDRMASK);			\
+	PHY_WR(sc, MII_MMDAADR, reg);					\
+	PHY_WR(sc, MII_MMDACR, MMDACR_DADDRMASK | MMDACR_FN_DATANPI);	\
+	PHY_WR(sc, MII_MMDAADR, data);					\
 }
 
 /* Not documented, Xilinx VCU118 workaround */
@@ -347,6 +347,7 @@ static void
 xae_stop_locked(struct xae_softc *sc)
 {
 	struct ifnet *ifp;
+	uint32_t reg;
 
 	XAE_ASSERT_LOCKED(sc);
 
@@ -357,27 +358,15 @@ xae_stop_locked(struct xae_softc *sc)
 
 	callout_stop(&sc->xae_callout);
 
-#if 0
-	/* Stop DMA TX */
-	reg = READ4(sc, OPERATION_MODE);
-	reg &= ~(MODE_ST);
-	WRITE4(sc, OPERATION_MODE, reg);
+	/* Stop the transmitter */
+	reg = READ4(sc, XAE_TC);
+	reg &= ~TC_TX;
+	WRITE4(sc, XAE_TC, reg);
 
-	/* Flush TX */
-	reg = READ4(sc, OPERATION_MODE);
-	reg |= (MODE_FTF);
-	WRITE4(sc, OPERATION_MODE, reg);
-
-	/* Stop transmitters */
-	reg = READ4(sc, MAC_CONFIGURATION);
-	reg &= ~(CONF_TE | CONF_RE);
-	WRITE4(sc, MAC_CONFIGURATION, reg);
-
-	/* Stop DMA RX */
-	reg = READ4(sc, OPERATION_MODE);
-	reg &= ~(MODE_SR);
-	WRITE4(sc, OPERATION_MODE, reg);
-#endif
+	/* Stop the receiver. */
+	reg = READ4(sc, XAE_RCW1);
+	reg &= ~RCW1_RX;
+	WRITE4(sc, XAE_RCW1, reg);
 }
 
 static void xae_clear_stats(struct xae_softc *sc)
@@ -938,6 +927,7 @@ xae_attach(device_t dev)
 	struct xae_softc *sc;
 	struct ifnet *ifp;
 	phandle_t node;
+	uint32_t reg;
 	int error;
 
 	sc = device_get_softc(dev);
@@ -1116,7 +1106,6 @@ xae_attach(device_t dev)
 	ifp->if_snd.ifq_drv_maxlen = TX_DESC_COUNT - 1;
 	IFQ_SET_READY(&ifp->if_snd);
 
-	uint32_t reg;
 	/* Enable MII clock */
 	reg = (MDIO_CLK_DIV_DEFAULT << MDIO_SETUP_CLK_DIV_S);
 	reg |= MDIO_SETUP_ENABLE;
