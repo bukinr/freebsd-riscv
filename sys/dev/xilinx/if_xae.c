@@ -786,7 +786,7 @@ xae_miibus_write_reg(device_t dev, int phy, int reg, int val)
 }
 
 static void
-fixup(struct xae_softc *sc)
+xae_phy_fixup(struct xae_softc *sc)
 {
 	uint32_t reg;
 	device_t dev;
@@ -838,6 +838,7 @@ xae_attach(device_t dev)
 	struct xae_softc *sc;
 	struct ifnet *ifp;
 	phandle_t node;
+	vmem_t *vmem;
 	uint32_t reg;
 	int error;
 
@@ -845,7 +846,6 @@ xae_attach(device_t dev)
 	sc->dev = dev;
 	node = ofw_bus_get_node(dev);
 
-	vmem_t *vmem;
 	vmem = xdma_get_memory(dev);
 
 	/* Get xDMA controller */   
@@ -959,7 +959,10 @@ xae_attach(device_t dev)
 
 	/* Set up the ethernet interface. */
 	sc->ifp = ifp = if_alloc(IFT_ETHER);
-	/* if ifp == NULL */
+	if (ifp == NULL) {
+		device_printf(dev, "could not allocate ifp.\n");
+		return (ENXIO);
+	}
 
 	ifp->if_softc = sc;
 	if_initname(ifp, device_get_name(dev), device_get_unit(dev));
@@ -988,7 +991,9 @@ xae_attach(device_t dev)
 	}
 	sc->mii_softc = device_get_softc(sc->miibus);
 
-	fixup(sc);
+	/* Apply vcu118 workaround. */
+	if (OF_getproplen(node, "xlnx,vcu118") >= 0)
+		xae_phy_fixup(sc);
 
 	/* All ready to run, attach the ethernet interface. */
 	ether_ifattach(ifp, sc->macaddr);
