@@ -326,7 +326,6 @@ xae_transmit(struct ifnet *ifp, struct mbuf *m)
 		return (error);
 	}
 
-	//if ((sc->atse_flags & DWC_FLAGS_LINK) == 0) {
 	if (!sc->link_is_up) {
 		error = drbr_enqueue(ifp, sc->br, m);
 		mtx_unlock(&sc->br_mtx);
@@ -358,7 +357,6 @@ xae_stop_locked(struct xae_softc *sc)
 
 	ifp = sc->ifp;
 	ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
-	sc->tx_watchdog_count = 0;
 
 	callout_stop(&sc->xae_callout);
 
@@ -436,19 +434,6 @@ xae_tick(void *arg)
 
 	if (!(ifp->if_drv_flags & IFF_DRV_RUNNING))
 		return;
-
-	/*
-	 * Typical tx watchdog.  If this fires it indicates that we enqueued
-	 * packets for output and never got a txdone interrupt for them.  Maybe
-	 * it's a missed interrupt somehow, just pretend we got one.
-	 */
-#if 0
-	if (sc->tx_watchdog_count > 0) {
-		if (--sc->tx_watchdog_count == 0) {
-			xae_txfinish_locked(sc);
-		}
-	}
-#endif
 
 	/* Gather stats from hardware counters. */
 	xae_harvest_stats(sc);
@@ -708,44 +693,6 @@ static void
 xae_intr(void *arg)
 {
 
-	printf("%s\n", __func__);
-
-#if 0
-	struct xae_softc *sc;
-	uint32_t reg;
-
-	sc = arg;
-
-	XAE_LOCK(sc);
-
-	reg = READ4(sc, INTERRUPT_STATUS);
-	if (reg)
-		READ4(sc, SGMII_RGMII_SMII_CTRL_STATUS);
-
-	reg = READ4(sc, DMA_STATUS);
-	if (reg & DMA_STATUS_NIS) {
-		if (reg & DMA_STATUS_RI)
-			xae_rxfinish_locked(sc);
-
-		if (reg & DMA_STATUS_TI) {
-			xae_txfinish_locked(sc);
-			xae_txstart_locked(sc);
-		}
-	}
-
-	if (reg & DMA_STATUS_AIS) {
-		if (reg & DMA_STATUS_FBI) {
-			/* Fatal bus error */
-			device_printf(sc->dev,
-			    "Ethernet DMA error, restarting controller.\n");
-			xae_stop_locked(sc);
-			xae_init_locked(sc);
-		}
-	}
-
-	WRITE4(sc, DMA_STATUS, reg & DMA_STATUS_INTR_MASK);
-	XAE_UNLOCK(sc);
-#endif
 }
 
 static int
@@ -768,43 +715,6 @@ xae_get_hwaddr(struct xae_softc *sc, uint8_t *hwaddr)
 
 	return (0);
 }
-
-static int __unused
-xae_reset(device_t dev)
-{
-
-	return (0);
-}
-
-#ifdef EXT_RESOURCES
-static int
-xae_clock_init(device_t dev)
-{
-	hwreset_t rst;
-	clk_t clk;
-	int error;
-
-	/* Enable clock */
-	if (clk_get_by_ofw_name(dev, 0, "stmmaceth", &clk) == 0) {
-		error = clk_enable(clk);
-		if (error != 0) {
-			device_printf(dev, "could not enable main clock\n");
-			return (error);
-		}
-	}
-
-	/* De-assert reset */
-	if (hwreset_get_by_ofw_name(dev, 0, "stmmaceth", &rst) == 0) {
-		error = hwreset_deassert(rst);
-		if (error != 0) {
-			device_printf(dev, "could not de-assert reset\n");
-			return (error);
-		}
-	}
-
-	return (0);
-}
-#endif
 
 static int
 mdio_wait(struct xae_softc *sc)
@@ -1013,11 +923,6 @@ xae_attach(device_t dev)
 	if (sc->br == NULL)
 		return (ENOMEM);
 
-#ifdef EXT_RESOURCES
-	if (xae_clock_init(dev) != 0)
-		return (ENXIO);
-#endif
-
 	if (bus_alloc_resources(dev, xae_spec, sc->res)) {
 		device_printf(dev, "could not allocate resources\n");
 		return (ENXIO);
@@ -1036,50 +941,12 @@ xae_attach(device_t dev)
 		return (ENXIO);
 	}
 
-#if 0
-	/* Reset the PHY if needed */
-	if (xae_reset(dev) != 0) {
-		device_printf(dev, "Can't reset the PHY\n");
+	/* Enable MII clock */
+	reg = (MDIO_CLK_DIV_DEFAULT << MDIO_SETUP_CLK_DIV_S);
+	reg |= MDIO_SETUP_ENABLE;
+	WRITE4(sc, XAE_MDIO_SETUP, reg);
+	if (mdio_wait(sc))
 		return (ENXIO);
-	}
-
-	/* Reset */
-	reg = READ4(sc, BUS_MODE);
-	reg |= (BUS_MODE_SWR);
-	WRITE4(sc, BUS_MODE, reg);
-
-	for (i = 0; i < MAC_RESET_TIMEOUT; i++) {
-		if ((READ4(sc, BUS_MODE) & BUS_MODE_SWR) == 0)
-			break;
-		DELAY(10);
-	}
-	if (i >= MAC_RESET_TIMEOUT) {
-		device_printf(sc->dev, "Can't reset DWC.\n");
-		return (ENXIO);
-	}
-
-	if (sc->mactype == DWC_GMAC_ALT_DESC) {
-		reg = BUS_MODE_FIXEDBURST;
-		reg |= (BUS_MODE_PRIORXTX_41 << BUS_MODE_PRIORXTX_SHIFT);
-	} else
-		reg = (BUS_MODE_EIGHTXPBL);
-	reg |= (BUS_MODE_PBL_BEATS_8 << BUS_MODE_PBL_SHIFT);
-	WRITE4(sc, BUS_MODE, reg);
-
-	/*
-	 * DMA must be stop while changing descriptor list addresses.
-	 */
-	reg = READ4(sc, OPERATION_MODE);
-	reg &= ~(MODE_ST | MODE_SR);
-	WRITE4(sc, OPERATION_MODE, reg);
-
-	if (setup_dma(sc))
-	        return (ENXIO);
-
-	/* Setup addresses */
-	WRITE4(sc, RX_DESCR_LIST_ADDR, sc->rxdesc_ring_paddr);
-	WRITE4(sc, TX_DESCR_LIST_ADDR, sc->txdesc_ring_paddr);
-#endif
 
 	mtx_init(&sc->mtx, device_get_nameunit(sc->dev),
 	    MTX_NETWORK_LOCK, MTX_DEF);
@@ -1110,13 +977,6 @@ xae_attach(device_t dev)
 	IFQ_SET_MAXLEN(&ifp->if_snd, TX_DESC_COUNT - 1);
 	ifp->if_snd.ifq_drv_maxlen = TX_DESC_COUNT - 1;
 	IFQ_SET_READY(&ifp->if_snd);
-
-	/* Enable MII clock */
-	reg = (MDIO_CLK_DIV_DEFAULT << MDIO_SETUP_CLK_DIV_S);
-	reg |= MDIO_SETUP_ENABLE;
-	WRITE4(sc, XAE_MDIO_SETUP, reg);
-	if (mdio_wait(sc))
-		return (ENXIO);
 
 	if (xae_get_phyaddr(node, &sc->phy_addr) != 0)
 		return (ENXIO);
@@ -1167,14 +1027,6 @@ xae_miibus_statchg(device_t dev)
 	else
 		sc->link_is_up = false;
 
-#if 0
-	printf("link_is_up %d\n", sc->link_is_up);
-	printf("%s: IFM_SUBTYPE(mii->mii_media_active) %d\n",
-	    __func__, IFM_SUBTYPE(mii->mii_media_active));
-	printf("%s: options %x\n",
-	    __func__, IFM_OPTIONS(mii->mii_media_active));
-#endif
-
 	switch (IFM_SUBTYPE(mii->mii_media_active)) {
 	case IFM_1000_T:
 	case IFM_1000_SX:
@@ -1197,14 +1049,6 @@ xae_miibus_statchg(device_t dev)
 	}
 
 	WRITE4(sc, XAE_SPEED, reg);
-
-#if 0
-	if ((IFM_OPTIONS(mii->mii_media_active) & IFM_FDX) != 0)
-		reg |= (CONF_DM);
-	else
-		reg &= ~(CONF_DM);
-	WRITE4(sc, MAC_CONFIGURATION, reg);
-#endif
 }
 
 static device_method_t xae_methods[] = {

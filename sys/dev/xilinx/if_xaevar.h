@@ -51,9 +51,7 @@ struct xae_softc {
 	bus_space_tag_t		bst;
 	bus_space_handle_t	bsh;
 	device_t		dev;
-	int			mactype;
 	uint8_t			macaddr[ETHER_ADDR_LEN];
-	int			mii_clk;
 	device_t		miibus;
 	struct mii_data *	mii_softc;
 	struct ifnet		*ifp;
@@ -64,7 +62,6 @@ struct xae_softc {
 	boolean_t		link_is_up;
 	boolean_t		is_attached;
 	boolean_t		is_detaching;
-	int			tx_watchdog_count;
 	int			phy_addr;
 
 	/* xDMA TX */
