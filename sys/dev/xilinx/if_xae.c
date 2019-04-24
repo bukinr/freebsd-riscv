@@ -75,8 +75,6 @@ __FBSDID("$FreeBSD$");
 #define	WRITE8(_sc, _reg, _val) \
 	bus_write_8((_sc)->res[0], _reg, _val)
 
-#define	STATS_HARVEST_INTERVAL	2
-
 #define	MDIO_CLK_DIV_DEFAULT	29
 
 #define	XAE_LOCK(sc)			mtx_lock(&(sc)->mtx)
@@ -587,7 +585,7 @@ xae_setup_rxfilter(struct xae_softc *sc)
 			ma = LLADDR((struct sockaddr_dl *)ifma->ifma_addr);
 
 			reg = READ4(sc, XAE_FFC) & 0xffffff00;
-			reg |= i;
+			reg |= i++;
 			WRITE4(sc, XAE_FFC, reg);
 
 			reg = (ma[0]);
@@ -599,8 +597,6 @@ xae_setup_rxfilter(struct xae_softc *sc)
 			reg = ma[4];
 			reg |= ma[5] << 8;
 			WRITE4(sc, XAE_FFV(1), reg);
-
-			i += 1;
 		}
 		if_maddr_runlock(ifp);
 	}
