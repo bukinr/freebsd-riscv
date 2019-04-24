@@ -70,6 +70,11 @@ __FBSDID("$FreeBSD$");
 #define	WRITE4(_sc, _reg, _val) \
 	bus_write_4((_sc)->res[0], _reg, _val)
 
+#define	READ8(_sc, _reg) \
+	bus_read_8((_sc)->res[0], _reg)
+#define	WRITE8(_sc, _reg, _val) \
+	bus_write_8((_sc)->res[0], _reg, _val)
+
 #define	STATS_HARVEST_INTERVAL	2
 
 #define	MDIO_CLK_DIV_DEFAULT	29
@@ -354,7 +359,6 @@ xae_stop_locked(struct xae_softc *sc)
 	ifp = sc->ifp;
 	ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
 	sc->tx_watchdog_count = 0;
-	sc->stats_harvest_count = 0;
 
 	callout_stop(&sc->xae_callout);
 
@@ -369,15 +373,25 @@ xae_stop_locked(struct xae_softc *sc)
 	WRITE4(sc, XAE_RCW1, reg);
 }
 
-static void xae_clear_stats(struct xae_softc *sc)
+static uint64_t
+xae_stat(struct xae_softc *sc, int counter_id)
 {
-#if 0
-	uint32_t reg;
+	uint64_t new, old;
+	uint64_t delta;
 
-	reg = READ4(sc, MMC_CONTROL);
-	reg |= (MMC_CONTROL_CNTRST);
-	WRITE4(sc, MMC_CONTROL, reg);
-#endif
+	KASSERT(counter_id < XAE_MAX_COUNTERS,
+		("counter %d is out of range", counter_id));
+
+	new = READ8(sc, XAE_STATCNT(counter_id));
+	old = sc->counters[counter_id];
+
+	if (new >= old)
+		delta = new - old;
+	else
+		delta = UINT64_MAX - old + new;
+	sc->counters[counter_id] = new;
+
+	return (delta);
 }
 
 static void
@@ -385,33 +399,26 @@ xae_harvest_stats(struct xae_softc *sc)
 {
 	struct ifnet *ifp;
 
-	/* We don't need to harvest too often. */
-	if (++sc->stats_harvest_count < STATS_HARVEST_INTERVAL)
-		return;
-
-	sc->stats_harvest_count = 0;
 	ifp = sc->ifp;
 
-#if 0
-	if_inc_counter(ifp, IFCOUNTER_IPACKETS, READ4(sc, RXFRAMECOUNT_GB));
-	if_inc_counter(ifp, IFCOUNTER_IMCASTS, READ4(sc, RXMULTICASTFRAMES_G));
+	if_inc_counter(ifp, IFCOUNTER_IPACKETS, xae_stat(sc, RX_GOOD_FRAMES));
+	if_inc_counter(ifp, IFCOUNTER_IMCASTS, xae_stat(sc, RX_GOOD_MCASTS));
 	if_inc_counter(ifp, IFCOUNTER_IERRORS,
-	    READ4(sc, RXOVERSIZE_G) + READ4(sc, RXUNDERSIZE_G) +
-	    READ4(sc, RXCRCERROR) + READ4(sc, RXALIGNMENTERROR) +
-	    READ4(sc, RXRUNTERROR) + READ4(sc, RXJABBERERROR) +
-	    READ4(sc, RXLENGTHERROR));
+	    xae_stat(sc, RX_FRAME_CHECK_SEQ_ERROR) +
+	    xae_stat(sc, RX_LEN_OUT_OF_RANGE) +
+	    xae_stat(sc, RX_ALIGNMENT_ERRORS));
 
-	if_inc_counter(ifp, IFCOUNTER_OPACKETS, READ4(sc, TXFRAMECOUNT_G));
-	if_inc_counter(ifp, IFCOUNTER_OMCASTS, READ4(sc, TXMULTICASTFRAMES_G));
+	if_inc_counter(ifp, IFCOUNTER_OBYTES, xae_stat(sc, TX_BYTES));
+	if_inc_counter(ifp, IFCOUNTER_OPACKETS, xae_stat(sc, TX_GOOD_FRAMES));
+	if_inc_counter(ifp, IFCOUNTER_OMCASTS, xae_stat(sc, TX_GOOD_MCASTS));
 	if_inc_counter(ifp, IFCOUNTER_OERRORS,
-	    READ4(sc, TXOVERSIZE_G) + READ4(sc, TXEXCESSDEF) +
-	    READ4(sc, TXCARRIERERR) + READ4(sc, TXUNDERFLOWERROR));
+	    xae_stat(sc, TX_GOOD_UNDERRUN_ERRORS));
 
 	if_inc_counter(ifp, IFCOUNTER_COLLISIONS,
-	    READ4(sc, TXEXESSCOL) + READ4(sc, TXLATECOL));
-#endif
-
-	xae_clear_stats(sc);
+	    xae_stat(sc, TX_SINGLE_COLLISION_FRAMES) +
+	    xae_stat(sc, TX_MULTI_COLLISION_FRAMES) +
+	    xae_stat(sc, TX_LATE_COLLISIONS) +
+	    xae_stat(sc, TX_EXCESS_COLLISIONS));
 }
 
 static void
@@ -462,8 +469,6 @@ xae_init_locked(struct xae_softc *sc)
 	struct ifnet *ifp;
 
 	XAE_ASSERT_LOCKED(sc);
-
-	printf("%s\n", __func__);
 
 	ifp = sc->ifp;
 	if (ifp->if_drv_flags & IFF_DRV_RUNNING)
@@ -1150,8 +1155,6 @@ xae_miibus_statchg(device_t dev)
 	 * Called by the MII bus driver when the PHY establishes
 	 * link to set the MAC interface registers.
 	 */
-
-	printf("%s\n", __func__);
 
 	sc = device_get_softc(dev);
 

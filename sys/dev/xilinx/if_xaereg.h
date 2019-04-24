@@ -42,7 +42,7 @@
 #define	XAE_TPID0	0x00028 /* VLAN TPID Word 0 RW */
 #define	XAE_TPID1	0x0002C /* VLAN TPID Word 1 RW */
 #define	XAE_PPST	0x00030 /* PCS PMA Status register RO */
-#define	XAE_STATCNT(n)	(0x00200 + 0x4 * (n)) /* Statistics Counters RO */
+#define	XAE_STATCNT(n)	(0x00200 + 0x8 * (n)) /* Statistics Counters RO */
 #define	XAE_RCW0	0x00400 /* Receive Configuration Word 0 Register RW */
 #define	XAE_RCW1	0x00404 /* Receive Configuration Word 1 Register RW */
 #define	 RCW1_RX	(1 << 28) /* Receive Enable */
@@ -92,5 +92,23 @@
 #define	XAE_MAT(n)	(0x20000 + 0x4 * (n)) /* Multicast Address Table RW */
 
 #define	XAE_MULTICAST_TABLE_SIZE	4
+
+/* RX statistical counters. */
+#define	RX_BYTES			0
+#define	RX_GOOD_FRAMES			18
+#define	RX_FRAME_CHECK_SEQ_ERROR	19
+#define	RX_GOOD_MCASTS			21
+#define	RX_LEN_OUT_OF_RANGE		23
+#define	RX_ALIGNMENT_ERRORS		40
+
+/* TX statistical counters. */
+#define	TX_BYTES			1
+#define	TX_GOOD_FRAMES			27
+#define	TX_GOOD_MCASTS			29
+#define TX_GOOD_UNDERRUN_ERRORS		30
+#define	TX_SINGLE_COLLISION_FRAMES	34
+#define	TX_MULTI_COLLISION_FRAMES	35
+#define	TX_LATE_COLLISIONS		37
+#define	TX_EXCESS_COLLISIONS		38
 
 #endif	/* _DEV_XILINX_IF_XAE_H_ */

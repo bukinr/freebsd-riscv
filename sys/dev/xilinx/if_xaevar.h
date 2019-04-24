@@ -39,6 +39,7 @@
 #define	RX_DESC_SIZE	(sizeof(struct xae_hwdesc) * RX_DESC_COUNT)
 #define	TX_DESC_COUNT	1024
 #define	TX_DESC_SIZE	(sizeof(struct xae_hwdesc) * TX_DESC_COUNT)
+#define	XAE_MAX_COUNTERS	43
 
 struct xae_bufmap {
 	bus_dmamap_t		map;
@@ -64,7 +65,6 @@ struct xae_softc {
 	boolean_t		is_attached;
 	boolean_t		is_detaching;
 	int			tx_watchdog_count;
-	int			stats_harvest_count;
 	int			phy_addr;
 
 	/* xDMA TX */
@@ -79,6 +79,9 @@ struct xae_softc {
 
 	struct buf_ring		*br;
 	struct mtx		br_mtx;
+
+	/* Counters */
+	uint64_t		counters[XAE_MAX_COUNTERS];
 };
 
 #endif	/* _DEV_XILINX_IF_XAEVAR_H_ */
