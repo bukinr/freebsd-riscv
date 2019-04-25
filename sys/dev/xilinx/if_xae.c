@@ -50,18 +50,13 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 
-#include <dev/xilinx/if_xaereg.h>
-#include <dev/xilinx/if_xaevar.h>
 #include <dev/mii/mii.h>
 #include <dev/mii/miivar.h>
 #include <dev/mii/tiphy.h>
 #include <dev/ofw/ofw_bus.h>
 #include <dev/ofw/ofw_bus_subr.h>
-
-#ifdef EXT_RESOURCES
-#include <dev/extres/clk/clk.h>
-#include <dev/extres/hwreset/hwreset.h>
-#endif
+#include <dev/xilinx/if_xaereg.h>
+#include <dev/xilinx/if_xaevar.h>
 
 #include "miibus_if.h"
 
@@ -461,28 +456,6 @@ xae_init_locked(struct xae_softc *sc)
 
 	xae_setup_rxfilter(sc);
 
-#if 0
-	/* Initializa DMA and enable transmitters */
-	reg = READ4(sc, OPERATION_MODE);
-	reg |= (MODE_TSF | MODE_OSF | MODE_FUF);
-	reg &= ~(MODE_RSF);
-	reg |= (MODE_RTC_LEV32 << MODE_RTC_SHIFT);
-	WRITE4(sc, OPERATION_MODE, reg);
-
-	WRITE4(sc, INTERRUPT_ENABLE, INT_EN_DEFAULT);
-
-	/* Start DMA */
-	reg = READ4(sc, OPERATION_MODE);
-	reg |= (MODE_ST | MODE_SR);
-	WRITE4(sc, OPERATION_MODE, reg);
-
-	/* Enable transmitters */
-	reg = READ4(sc, MAC_CONFIGURATION);
-	reg |= (CONF_JD | CONF_ACS | CONF_BE);
-	reg |= (CONF_TE | CONF_RE);
-	WRITE4(sc, MAC_CONFIGURATION, reg);
-#endif
-
 	/* Enable the transmitter */
 	WRITE4(sc, XAE_TC, TC_TX);
 
@@ -517,6 +490,7 @@ xae_media_status(struct ifnet * ifp, struct ifmediareq *ifmr)
 
 	sc = ifp->if_softc;
 	mii = sc->mii_softc;
+
 	XAE_LOCK(sc);
 	mii_pollstat(mii);
 	ifmr->ifm_active = mii->mii_media_active;
@@ -527,8 +501,6 @@ xae_media_status(struct ifnet * ifp, struct ifmediareq *ifmr)
 static int
 xae_media_change_locked(struct xae_softc *sc)
 {
-
-	printf("%s\n", __func__);
 
 	return (mii_mediachg(sc->mii_softc));
 }
