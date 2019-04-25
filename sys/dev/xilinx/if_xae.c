@@ -808,33 +808,13 @@ xae_phy_fixup(struct xae_softc *sc)
 }
 
 static int
-xae_probe(device_t dev)
+setup_xdma(struct xae_softc *sc)
 {
-
-	if (!ofw_bus_status_okay(dev))
-		return (ENXIO);
-
-	if (!ofw_bus_is_compatible(dev, "xlnx,axi-ethernet-1.00.a"))
-		return (ENXIO);
-
-	device_set_desc(dev, "Xilinx AXI Ethernet");
-
-	return (BUS_PROBE_DEFAULT);
-}
-
-static int
-xae_attach(device_t dev)
-{
-	struct xae_softc *sc;
-	struct ifnet *ifp;
-	phandle_t node;
+	device_t dev;
 	vmem_t *vmem;
-	uint32_t reg;
 	int error;
 
-	sc = device_get_softc(dev);
-	sc->dev = dev;
-	node = ofw_bus_get_node(dev);
+	dev = sc->dev;
 
 	/* Get xDMA controller */   
 	sc->xdma_tx = xdma_ofw_get(sc->dev, "tx");
@@ -872,13 +852,6 @@ xae_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	/* Setup bounce buffer */
-	vmem = xdma_get_memory(dev);
-	if (vmem) {
-		sc->xchan_tx->vmem = vmem;
-		sc->xchan_rx->vmem = vmem;
-	}
-
 	/* Setup interrupt handler. */
 	error = xdma_setup_intr(sc->xchan_rx,
 	    xae_xdma_rx_intr, sc, &sc->ih_rx);
@@ -886,6 +859,13 @@ xae_attach(device_t dev)
 		device_printf(sc->dev,
 		    "Can't setup xDMA RX interrupt handler.\n");
 		return (ENXIO);
+	}
+
+	/* Setup bounce buffer */
+	vmem = xdma_get_memory(dev);
+	if (vmem) {
+		sc->xchan_tx->vmem = vmem;
+		sc->xchan_rx->vmem = vmem;
 	}
 
 	xdma_prep_sg(sc->xchan_tx,
@@ -905,6 +885,42 @@ xae_attach(device_t dev)
 	    0,		/* boundary */
 	    BUS_SPACE_MAXADDR_32BIT,
 	    BUS_SPACE_MAXADDR);
+
+	return (0);
+}
+
+static int
+xae_probe(device_t dev)
+{
+
+	if (!ofw_bus_status_okay(dev))
+		return (ENXIO);
+
+	if (!ofw_bus_is_compatible(dev, "xlnx,axi-ethernet-1.00.a"))
+		return (ENXIO);
+
+	device_set_desc(dev, "Xilinx AXI Ethernet");
+
+	return (BUS_PROBE_DEFAULT);
+}
+
+static int
+xae_attach(device_t dev)
+{
+	struct xae_softc *sc;
+	struct ifnet *ifp;
+	phandle_t node;
+	uint32_t reg;
+	int error;
+
+	sc = device_get_softc(dev);
+	sc->dev = dev;
+	node = ofw_bus_get_node(dev);
+
+	if (setup_xdma(sc) != 0) {
+		device_printf(dev, "Could not setup xDMA.\n");
+		return (ENXIO);
+	}
 
 	mtx_init(&sc->br_mtx, "buf ring mtx", NULL, MTX_DEF);
 	sc->br = buf_ring_alloc(BUFRING_SIZE, M_DEVBUF,
