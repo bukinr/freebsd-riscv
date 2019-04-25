@@ -47,8 +47,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/sx.h>
 
 #include <machine/bus.h>
-//#include <machine/fdt.h>
-//#include <machine/cache.h>
 
 #include <vm/vm.h>
 #include <vm/vm_extern.h>
@@ -170,14 +168,6 @@ axidma_intr(struct axidma_softc *sc,
 	dprintf("%s: AXI_TAILDESC %x\n", __func__,
 	    READ4(sc, AXI_TAILDESC(data->id)));
 
-#if 0
-	dprintf("%s(%d): status 0x%08x next_descr 0x%08x, control 0x%08x\n",
-	    __func__, data->id,
-		READ4_DESC(sc, PF_STATUS),
-		READ4_DESC(sc, PF_NEXT_LO),
-		READ4_DESC(sc, PF_CONTROL));
-#endif
-
 	tot_copied = 0;
 
 	while (chan->idx_tail != chan->idx_head) {
@@ -196,9 +186,9 @@ axidma_intr(struct axidma_softc *sc,
 		if ((desc->status & BD_STATUS_CMPLT) == 0)
 			break;
 
-		tot_copied += desc->status & BD_CONTROL_LEN_M;
 		st.error = 0;
 		st.transferred = desc->status & BD_CONTROL_LEN_M;
+		tot_copied += st.transferred;
 		xchan_seg_done(xchan, &st);
 
 		chan->idx_tail = axidma_next_desc(chan, chan->idx_tail);
@@ -247,13 +237,6 @@ static int
 axidma_reset(struct axidma_softc *sc, int chan_id)
 {
 	int timeout;
-
-#if 0
-	dprintf("%s: read status: %x\n", __func__, READ4(sc, 0x00));
-	dprintf("%s: read control: %x\n", __func__, READ4(sc, 0x04));
-	dprintf("%s: read 1: %x\n", __func__, READ4(sc, 0x08));
-	dprintf("%s: read 2: %x\n", __func__, READ4(sc, 0x0C));
-#endif
 
 	WRITE4(sc, AXI_DMACR(chan_id), DMACR_RESET);
 
@@ -438,6 +421,7 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 #endif
 
 	dprintf("%s: allocating descriptors\n", __func__);
+
 	/* Descriptors. */
 	chan->descs = malloc(nsegments * sizeof(struct axidma_desc *),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
@@ -471,6 +455,7 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 		chan->descs_phys[i].ds_addr = paddr + desc_size * i;
 		chan->descs_phys[i].ds_len = desc_size;
 	}
+
 	return (0);
 
 #if 0
@@ -534,12 +519,17 @@ axidma_channel_alloc(device_t dev, struct xdma_channel *xchan)
 
 	sc = device_get_softc(dev);
 
+	if (xchan->caps & XCHAN_CAP_BUSDMA) {
+		device_printf(sc->dev,
+		    "Error: busdma operation is not implemented.");
+		return (-1);
+	}
+
 	for (i = 0; i < AXIDMA_NCHANNELS; i++) {
 		chan = &sc->channels[i];
 		if (chan->used == 0) {
 			chan->xchan = xchan;
 			xchan->chan = (void *)chan;
-			//xchan->caps |= XCHAN_CAP_BUSDMA;
 			chan->index = i;
 			chan->sc = sc;
 			chan->used = 1;
