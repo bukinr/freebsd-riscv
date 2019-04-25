@@ -313,34 +313,33 @@ xdma_memory(vmem_t *vmem, phandle_t memory)
 	pcell_t *regp;
 	int addr_cells, size_cells;
 	int i, reg_len, rv, tuple_size, tuples;
+	uint64_t mem_start;
+	uint64_t mem_size;
 
 	if ((rv = fdt_addrsize_cells(OF_parent(memory), &addr_cells,
 	    &size_cells)) != 0)
-		goto out;
+		return (rv);
 
 	if (addr_cells > 2) {
 		rv = ERANGE;
-		goto out;
+		return (rv);
 	}
 
 	tuple_size = sizeof(pcell_t) * (addr_cells + size_cells);
 	reg_len = OF_getproplen(memory, "reg");
 	if (reg_len <= 0 || reg_len > sizeof(reg)) {
 		rv = ERANGE;
-		goto out;
+		return (rv);
 	}
 
 	if (OF_getprop(memory, "reg", reg, reg_len) <= 0) {
 		rv = ENXIO;
-		goto out;
+		return (rv);
 	}
 
 	tuples = reg_len / tuple_size;
 	regp = (pcell_t *)&reg;
 	for (i = 0; i < tuples; i++) {
-
-		uint64_t mem_start;
-		uint64_t mem_size;
 
 		rv = fdt_data_to_res(regp, addr_cells, size_cells,
 		    &mem_start, &mem_size);
@@ -348,12 +347,10 @@ xdma_memory(vmem_t *vmem, phandle_t memory)
 		vmem_add(vmem, mem_start, mem_size, 0);
 
 		if (rv != 0)
-			goto out;
+			return (rv);
 
 		regp += addr_cells + size_cells;
 	}
-
-out:
 
 	return (0);
 }
