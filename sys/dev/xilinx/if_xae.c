@@ -563,7 +563,7 @@ xae_setup_rxfilter(struct xae_softc *sc)
 	/*
 	 * Set the multicast (group) filter hash.
 	 */
-	if ((ifp->if_flags & IFF_ALLMULTI) != 0) {
+	if ((ifp->if_flags & (IFF_ALLMULTI | IFF_PROMISC)) != 0) {
 		reg = READ4(sc, XAE_FFC);
 		reg |= FFC_PM;
 		WRITE4(sc, XAE_FFC, reg);
@@ -602,18 +602,8 @@ xae_setup_rxfilter(struct xae_softc *sc)
 	}
 
 	/*
-	 * Set the individual address filter hash.
-	 */
-	if (ifp->if_flags & IFF_PROMISC) {
-		reg = READ4(sc, XAE_FFC);
-		reg |= FFC_PM;
-		WRITE4(sc, XAE_FFC, reg);
-	}
-
-	/*
 	 * Set the primary address.
 	 */
-
 	reg = sc->macaddr[0];
 	reg |= (sc->macaddr[1] << 8);
 	reg |= (sc->macaddr[2] << 16);
@@ -846,8 +836,6 @@ xae_attach(device_t dev)
 	sc->dev = dev;
 	node = ofw_bus_get_node(dev);
 
-	vmem = xdma_get_memory(dev);
-
 	/* Get xDMA controller */   
 	sc->xdma_tx = xdma_ofw_get(sc->dev, "tx");
 	if (sc->xdma_tx == NULL) {
@@ -867,7 +855,6 @@ xae_attach(device_t dev)
 		device_printf(dev, "Can't alloc virtual DMA TX channel.\n");
 		return (ENXIO);
 	}
-	sc->xchan_tx->vmem = vmem;
 
 	/* Setup interrupt handler. */
 	error = xdma_setup_intr(sc->xchan_tx,
@@ -884,7 +871,13 @@ xae_attach(device_t dev)
 		device_printf(dev, "Can't alloc virtual DMA RX channel.\n");
 		return (ENXIO);
 	}
-	sc->xchan_rx->vmem = vmem;
+
+	/* Setup bounce buffer */
+	vmem = xdma_get_memory(dev);
+	if (vmem) {
+		sc->xchan_tx->vmem = vmem;
+		sc->xchan_rx->vmem = vmem;
+	}
 
 	/* Setup interrupt handler. */
 	error = xdma_setup_intr(sc->xchan_rx,
