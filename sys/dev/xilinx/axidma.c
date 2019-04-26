@@ -195,10 +195,6 @@ axidma_intr(struct axidma_softc *sc,
 		atomic_subtract_int(&chan->descs_used_count, 1);
 	}
 
-#if 0
-	WRITE4_DESC(sc, PF_STATUS, PF_STATUS_IRQ);
-#endif
-
 	/* Finish operation */
 	status.error = 0;
 	status.transferred = tot_copied;
@@ -317,10 +313,6 @@ axidma_attach(device_t dev)
 		return (-1);
 	if (axidma_reset(sc, 1) != 0)
 		return (-1);
-
-#if 0
-	WRITE4(sc, DMA_CONTROL, CONTROL_GIEM);
-#endif
 
 	return (0);
 }
@@ -459,21 +451,6 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 	return (0);
 
 #if 0
-	bus_size_t psize;
-
-	psize = desc_size * nsegments;
-	bus_space_map(&memmap_bus, 0x80000000, psize, 0, &vaddr);
-	printf("%s: vaddr %x\n", __func__, vaddr);
-	printf("%s: paddr %x\n", __func__, vtophys(vaddr));
-
-	for (i = 0; i < nsegments; i++) {
-		chan->descs[i] = \
-		    (struct axidma_desc *)((uint64_t)vaddr + desc_size * i);
-		chan->descs_phys[i].ds_addr = 0x80000000 + desc_size * i;
-		chan->descs_phys[i].ds_len = desc_size;
-	}
-
-	return (0);
 
 	/* Allocate bus_dma memory for each descriptor. */
 	for (i = 0; i < nsegments; i++) {
@@ -590,6 +567,7 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	struct axidma_softc *sc;
 	uint32_t src_addr_lo;
 	uint32_t dst_addr_lo;
+	uint32_t addr;
 	uint32_t len;
 	uint32_t tmp;
 	int i;
@@ -603,11 +581,12 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	xdma = xchan->xdma;
 	data = xdma->data;
 
+	if (sg_n == 0)
+		return (0);
+
 	tail = chan->idx_head;
 
 	tmp = 0;
-	if (sg_n == 0)
-		panic("here");
 
 	for (i = 0; i < sg_n; i++) {
 		src_addr_lo = (uint32_t)sg[i].src_addr;
@@ -646,8 +625,6 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 #endif
 	}
 
-	uint32_t addr;
-
 	dprintf("%s(%d): _curdesc %x\n", __func__, data->id,
 	    READ8(sc, AXI_CURDESC(data->id)));
 	dprintf("%s(%d): _curdesc %x\n", __func__, data->id,
@@ -655,7 +632,6 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	dprintf("%s(%d): status %x\n", __func__, data->id,
 	    READ4(sc, AXI_DMASR(data->id)));
 
-	sfence_vma();
 	addr = chan->descs_phys[tmp].ds_addr;
 	WRITE8(sc, AXI_TAILDESC(data->id), addr);
 
