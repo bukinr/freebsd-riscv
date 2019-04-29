@@ -212,6 +212,7 @@ static MALLOC_DEFINE(M_XDMA, "xdma", "xDMA framework");
 xdma_controller_t *xdma_ofw_get(device_t dev, const char *prop);
 int xdma_put(xdma_controller_t *xdma);
 vmem_t * xdma_get_memory(device_t dev);
+vmem_t * xdma_allocate_memory(device_t dev, int size);
 
 /* xDMA channel ops */
 xdma_channel_t * xdma_channel_alloc(xdma_controller_t *, uint32_t caps);
