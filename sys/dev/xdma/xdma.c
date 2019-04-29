@@ -307,7 +307,7 @@ xdma_ofw_md_data(xdma_controller_t *xdma, pcell_t *cells, int ncells)
 #define FDT_RANGES_SIZE 48
 
 static int
-xdma_memory(vmem_t *vmem, phandle_t memory)
+xdma_handle_mem_node(vmem_t *vmem, phandle_t memory)
 {
 	pcell_t reg[FDT_REG_CELLS * FDT_MEM_REGIONS];
 	pcell_t *regp;
@@ -363,9 +363,11 @@ xdma_get_memory(device_t dev)
 	vmem_t *vmem;
 
 	node = ofw_bus_get_node(dev);
-	if (node <= 0)
+	if (node <= 0) {
 		device_printf(dev,
 		    "%s called on not ofw based device.\n", __func__);
+		return (NULL);
+	}
 
 	/* Get reserved memory */
 	if (OF_hasprop(node, "memory-region")) {
@@ -379,7 +381,7 @@ xdma_get_memory(device_t dev)
 			panic("eee");
 
 		mem_node = OF_node_from_xref(mem_handle);
-		xdma_memory(vmem, mem_node);
+		xdma_handle_mem_node(vmem, mem_node);
 
 		return (vmem);
 	}
