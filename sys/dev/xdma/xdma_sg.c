@@ -267,17 +267,20 @@ xdma_prep_sg(xdma_channel_t *xchan, uint32_t xr_num,
 		return (-1);
 	}
 
-	/* Allocate bufs. */
-	ret = xchan_bufs_alloc(xchan);
-	if (ret != 0) {
-		device_printf(xdma->dev,
-		    "%s: Can't allocate bufs.\n", __func__);
+	/* Allocate bufs if required. */
 
-		/* Cleanup */
-		xchan_sglist_free(xchan);
-		xchan_bank_free(xchan);
+	if (xchan->caps & XDMA_CAP_NOBUFS == 0) {
+		ret = xchan_bufs_alloc(xchan);
+		if (ret != 0) {
+			device_printf(xdma->dev,
+			    "%s: Can't allocate bufs.\n", __func__);
 
-		return (-1);
+			/* Cleanup */
+			xchan_sglist_free(xchan);
+			xchan_bank_free(xchan);
+
+			return (-1);
+		}
 	}
 
 	xchan->flags |= (XCHAN_CONFIGURED | XCHAN_TYPE_SG);
@@ -470,11 +473,17 @@ _xdma_load_data(xdma_channel_t *xchan, struct xdma_request *xr,
 
 	switch (xr->req_type) {
 	case XR_TYPE_MBUF:
-		if (xr->direction == XDMA_MEM_TO_DEV)
-			m_copydata(m, 0, m->m_pkthdr.len,
-			    (void *)xr->buf.vaddr);
-		seg[0].ds_addr = (bus_addr_t)xr->buf.paddr;
-		seg[0].ds_len = m->m_pkthdr.len;
+		if (xchan->vmem) {
+			if (xr->direction == XDMA_MEM_TO_DEV)
+				m_copydata(m, 0, m->m_pkthdr.len,
+				    (void *)xr->buf.vaddr);
+			seg[0].ds_addr = (bus_addr_t)xr->buf.paddr;
+			seg[0].ds_len = m->m_pkthdr.len;
+		} else {
+			printf("no vmem\n");
+			seg[0].ds_addr = mtod(m, bus_addr_t);
+			seg[0].ds_len = m->m_pkthdr.len;
+		}
 		break;
 	case XR_TYPE_BIO:
 	case XR_TYPE_VIRT:
