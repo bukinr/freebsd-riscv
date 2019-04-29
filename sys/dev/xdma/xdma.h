@@ -121,6 +121,7 @@ struct xdma_sglist {
 
 struct xdma_channel {
 	xdma_controller_t		*xdma;
+	vmem_t				*vmem;
 
 	uint32_t			flags;
 #define	XCHAN_BUFS_ALLOCATED		(1 << 0)
@@ -138,7 +139,6 @@ struct xdma_channel {
 
 	/* A real hardware driver channel. */
 	void				*chan;
-	vmem_t				*vmem;
 
 	/* Interrupt handlers. */
 	TAILQ_HEAD(, xdma_intr_handler)	ie_handlers;

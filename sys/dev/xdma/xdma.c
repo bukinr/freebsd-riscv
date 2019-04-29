@@ -67,6 +67,8 @@ static struct sx xdma_sx;
 #define	XDMA_UNLOCK()			sx_xunlock(&xdma_sx)
 #define	XDMA_ASSERT_LOCKED()		sx_xassert(&xdma_sx, MA_OWNED)
 
+#define	FDT_REG_CELLS	4
+
 /*
  * Allocate virtual xDMA channel.
  */
@@ -303,9 +305,6 @@ xdma_ofw_md_data(xdma_controller_t *xdma, pcell_t *cells, int ncells)
 	return (ret);
 }
 
-#define FDT_REG_CELLS   4
-#define FDT_RANGES_SIZE 48
-
 static int
 xdma_handle_mem_node(vmem_t *vmem, phandle_t memory)
 {
@@ -340,15 +339,12 @@ xdma_handle_mem_node(vmem_t *vmem, phandle_t memory)
 	tuples = reg_len / tuple_size;
 	regp = (pcell_t *)&reg;
 	for (i = 0; i < tuples; i++) {
-
 		rv = fdt_data_to_res(regp, addr_cells, size_cells,
 		    &mem_start, &mem_size);
-		printf("memory %x %x\n", mem_start, mem_size);
-		vmem_add(vmem, mem_start, mem_size, 0);
-
 		if (rv != 0)
 			return (rv);
 
+		vmem_add(vmem, mem_start, mem_size, 0);
 		regp += addr_cells + size_cells;
 	}
 

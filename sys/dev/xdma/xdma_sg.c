@@ -77,8 +77,8 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 	xdma = xchan->xdma;
 
 	for (i = 0; i < xchan->xr_num; i++) {
-		size = roundup2(xchan->maxsegsize, PAGE_SIZE);
 		xr = &xchan->xr_mem[i];
+		size = roundup2(xchan->maxsegsize, PAGE_SIZE);
 		if (vmem_alloc(xchan->vmem, size,
 		    M_FIRSTFIT, &addr)) {
 			device_printf(xdma->dev,
