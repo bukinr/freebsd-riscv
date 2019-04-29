@@ -78,15 +78,20 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 
 	for (i = 0; i < xchan->xr_num; i++) {
 		xr = &xchan->xr_mem[i];
-		size = roundup2(xchan->maxsegsize, PAGE_SIZE);
+		size = round_page(xchan->maxsegsize);
 		if (vmem_alloc(xchan->vmem, size,
 		    M_FIRSTFIT, &addr)) {
 			device_printf(xdma->dev,
-			     "%s: Can't allocate memory\n", __func__);
+			    "%s: Can't allocate memory\n", __func__);
 			return (-1);
 		}
 		xr->buf.paddr = addr;
 		xr->buf.vaddr = kva_alloc(size);
+		if (xr->buf.vaddr == 0) {
+			device_printf(xdma->dev,
+			    "%s: Can't allocate memory\n", __func__);
+			return (-1);
+		}
 		pmap_kenter_device(xr->buf.vaddr, size, addr);
 	}
 
@@ -461,17 +466,14 @@ _xdma_load_data(xdma_channel_t *xchan, struct xdma_request *xr,
 
 	switch (xr->req_type) {
 	case XR_TYPE_MBUF:
-		if (xchan->vmem) {
+		if ((xchan->caps & XCHAN_CAP_NOBUFS) == 0) {
 			if (xr->direction == XDMA_MEM_TO_DEV)
 				m_copydata(m, 0, m->m_pkthdr.len,
 				    (void *)xr->buf.vaddr);
 			seg[0].ds_addr = (bus_addr_t)xr->buf.paddr;
-			seg[0].ds_len = m->m_pkthdr.len;
-		} else {
-			printf("no vmem\n");
+		} else
 			seg[0].ds_addr = mtod(m, bus_addr_t);
-			seg[0].ds_len = m->m_pkthdr.len;
-		}
+		seg[0].ds_len = m->m_pkthdr.len;
 		break;
 	case XR_TYPE_BIO:
 	case XR_TYPE_VIRT:
