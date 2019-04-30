@@ -71,7 +71,7 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 	xdma_controller_t *xdma;
 	struct xdma_request *xr;
 	vmem_addr_t addr;
-	int size;
+	vm_size_t size;
 	int i;
 
 	xdma = xchan->xdma;
@@ -85,6 +85,7 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 			    "%s: Can't allocate memory\n", __func__);
 			return (-1);
 		}
+		xr->buf.size = size;
 		xr->buf.paddr = addr;
 		xr->buf.vaddr = kva_alloc(size);
 		if (xr->buf.vaddr == 0) {
@@ -93,6 +94,8 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 			return (-1);
 		}
 		pmap_kenter_device(xr->buf.vaddr, size, addr);
+
+		printf("b%d: p %lx v %lx\n", i, addr, xr->buf.vaddr);
 	}
 
 	return (0);
@@ -180,6 +183,8 @@ xchan_bufs_free(xdma_channel_t *xchan)
 {
 	struct xdma_request *xr;
 	struct xchan_buf *b;
+	vm_offset_t va;
+	vm_size_t size;
 	int i;
 
 	if ((xchan->flags & XCHAN_BUFS_ALLOCATED) == 0)
@@ -195,7 +200,17 @@ xchan_bufs_free(xdma_channel_t *xchan)
 	} else {
 		for (i = 0; i < xchan->xr_num; i++) {
 			xr = &xchan->xr_mem[i];
-			/* TODO: bounce buffer */
+			va = xr->buf.vaddr;
+			size = xr->buf.size;
+
+			printf("d%d: p %lx v %lx\n", i, xr->buf.paddr, va);
+
+			pmap_kremove_device(va, size);
+			kva_free(va, size);
+			vmem_free(xchan->vmem, xr->buf.paddr, size);
+			xr->buf.paddr = 0;
+			xr->buf.vaddr = 0;
+			xr->buf.size = 0;
 		}
 	}
 
