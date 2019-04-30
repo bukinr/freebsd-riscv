@@ -95,6 +95,11 @@ struct axidma_channel {
 	struct axidma_desc	**descs;
 	bus_dma_segment_t	*descs_phys;
 	uint32_t		descs_num;
+
+	vm_size_t		mem_size;
+	vm_offset_t		mem_paddr;
+	vm_offset_t		mem_vaddr;
+
 #if 0
 	bus_dma_tag_t		dma_tag;
 	bus_dmamap_t		*dma_map;
@@ -309,10 +314,12 @@ axidma_attach(device_t dev)
 	xref = OF_xref_from_node(node);
 	OF_device_register_xref(xref, dev);
 
+#if 0
 	if (axidma_reset(sc, 0) != 0)
 		return (-1);
 	if (axidma_reset(sc, 1) != 0)
 		return (-1);
+#endif
 
 	return (0);
 }
@@ -356,11 +363,13 @@ axidma_dmamap_cb(void *arg, bus_dma_segment_t *segs, int nseg, int err)
 static int
 axidma_desc_free(struct axidma_softc *sc, struct axidma_channel *chan)
 {
+	struct xdma_channel *xchan;
 	struct axidma_desc *desc;
 	int nsegments;
 	int i;
 
 	nsegments = chan->descs_num;
+	xchan = chan->xchan;
 
 	for (i = 0; i < nsegments; i++) {
 		desc = chan->descs[i];
@@ -378,6 +387,11 @@ axidma_desc_free(struct axidma_softc *sc, struct axidma_channel *chan)
 	free(chan->dma_map, M_DEVBUF);
 #endif
 	free(chan->descs_phys, M_DEVBUF);
+
+	printf("removing chunk %lx %d\n", chan->mem_paddr, chan->mem_size);
+	pmap_kremove_device(chan->mem_vaddr, chan->mem_size);
+	kva_free(chan->mem_vaddr, chan->mem_size);
+	vmem_free(xchan->vmem, chan->mem_paddr, chan->mem_size);
 
 	return (0);
 }
@@ -432,23 +446,24 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
 #endif
 	dprintf("%s: allocating descs_phys\n", __func__);
+
 	chan->descs_phys = malloc(nsegments * sizeof(bus_dma_segment_t),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
-
-	int size;
-	vm_offset_t paddr;
-	vm_offset_t vaddr;
-	size = desc_size * nsegments;
-	if (vmem_alloc(xchan->vmem, size, M_FIRSTFIT, &paddr)) {
-		printf("failed to alloc memory\n");
+	chan->mem_size = desc_size * nsegments;
+	if (vmem_alloc(xchan->vmem, chan->mem_size, M_FIRSTFIT,
+	    &chan->mem_paddr)) {
+		device_printf(sc->dev, "Failed to allocate memory.\n");
+		return (-1);
 	}
-	vaddr = kva_alloc(size);
-	pmap_kenter_device(vaddr, size, paddr);
+	chan->mem_vaddr = kva_alloc(chan->mem_size);
+	pmap_kenter_device(chan->mem_vaddr, chan->mem_size, chan->mem_paddr);
+
+	printf("allocated chunk %lx %d\n", chan->mem_paddr, chan->mem_size);
 
 	for (i = 0; i < nsegments; i++) {
-		chan->descs[i] =
-		    (struct axidma_desc *)((uint64_t)vaddr + desc_size * i);
-		chan->descs_phys[i].ds_addr = paddr + desc_size * i;
+		chan->descs[i] = (struct axidma_desc *)
+		    ((uint64_t)chan->mem_vaddr + desc_size * i);
+		chan->descs_phys[i].ds_addr = chan->mem_paddr + desc_size * i;
 		chan->descs_phys[i].ds_len = desc_size;
 	}
 
@@ -509,6 +524,8 @@ axidma_channel_alloc(device_t dev, struct xdma_channel *xchan)
 	for (i = 0; i < AXIDMA_NCHANNELS; i++) {
 		chan = &sc->channels[i];
 		if (chan->used == 0) {
+			if (axidma_reset(sc, i) != 0)
+				return (-1);
 			chan->xchan = xchan;
 			xchan->chan = (void *)chan;
 			chan->index = i;
