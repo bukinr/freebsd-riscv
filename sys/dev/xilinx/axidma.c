@@ -172,8 +172,8 @@ axidma_intr(struct axidma_softc *sc,
 		    chan->idx_tail, chan->idx_head);
 
 		desc = chan->descs[chan->idx_tail];
-		dprintf("%s: desc%d status %x (transferred %d)\n", __func__,
-		    chan->idx_tail, desc->status,
+		dprintf("%s: desc%d status %x (transferred %d)\n",
+		    __func__, chan->idx_tail, desc->status,
 		    (desc->status & BD_STATUS_TRANSFERRED_M));
 
 		if ((desc->status & BD_STATUS_CMPLT) == 0)
@@ -274,7 +274,7 @@ axidma_attach(device_t dev)
 	sc->dev = dev;
 
 	if (bus_alloc_resources(dev, axidma_spec, sc->res)) {
-		device_printf(dev, "could not allocate resources for device\n");
+		device_printf(dev, "could not allocate resources.\n");
 		return (ENXIO);
 	}
 
@@ -301,13 +301,6 @@ axidma_attach(device_t dev)
 	node = ofw_bus_get_node(dev);
 	xref = OF_xref_from_node(node);
 	OF_device_register_xref(xref, dev);
-
-#if 0
-	if (axidma_reset(sc, 0) != 0)
-		return (-1);
-	if (axidma_reset(sc, 1) != 0)
-		return (-1);
-#endif
 
 	return (0);
 }
@@ -358,11 +351,6 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 
 	nsegments = chan->descs_num;
 
-	printf("%s: nseg %d, desc_size %d\n",
-	    __func__, nsegments, desc_size);
-
-	dprintf("%s: allocating descriptors\n", __func__);
-
 	/* Descriptors. */
 	chan->descs = malloc(nsegments * sizeof(struct axidma_desc *),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
@@ -372,7 +360,6 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 		return (-1);
 	}
 
-	dprintf("%s: allocating descs_phys\n", __func__);
 	chan->descs_phys = malloc(nsegments * sizeof(bus_dma_segment_t),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
 	chan->mem_size = desc_size * nsegments;
