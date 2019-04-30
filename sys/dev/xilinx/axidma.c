@@ -324,6 +324,10 @@ axidma_detach(device_t dev)
 
 	sc = device_get_softc(dev);
 
+	bus_teardown_intr(dev, sc->res[1], sc->ih);
+	bus_teardown_intr(dev, sc->res[2], sc->ih2);
+	bus_release_resources(dev, axidma_spec, sc->res);
+
 	return (0);
 }
 
