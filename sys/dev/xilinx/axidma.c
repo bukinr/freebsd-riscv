@@ -84,9 +84,7 @@ struct axidma_fdt_data {
 
 struct axidma_channel {
 	struct axidma_softc	*sc;
-	struct mtx		mtx;
 	xdma_channel_t		*xchan;
-	struct proc		*p;
 	int			used;
 	int			index;
 	int			idx_head;
@@ -100,12 +98,6 @@ struct axidma_channel {
 	vm_offset_t		mem_paddr;
 	vm_offset_t		mem_vaddr;
 
-#if 0
-	bus_dma_tag_t		dma_tag;
-	bus_dmamap_t		*dma_map;
-	uint32_t		map_descr;
-	uint8_t			map_err;
-#endif
 	uint32_t		descs_used_count;
 };
 
@@ -178,10 +170,6 @@ axidma_intr(struct axidma_softc *sc,
 	while (chan->idx_tail != chan->idx_head) {
 		dprintf("%s: idx_tail %d idx_head %d\n", __func__,
 		    chan->idx_tail, chan->idx_head);
-#if 0
-		bus_dmamap_sync(chan->dma_tag, chan->dma_map[chan->idx_tail],
-		    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
-#endif
 
 		desc = chan->descs[chan->idx_tail];
 		dprintf("%s: desc%d status %x (transferred %d)\n", __func__,
@@ -338,54 +326,16 @@ axidma_detach(device_t dev)
 	return (0);
 }
 
-#if 0
-static void
-axidma_dmamap_cb(void *arg, bus_dma_segment_t *segs, int nseg, int err)
-{
-	struct axidma_channel *chan;
-
-	chan = (struct axidma_channel *)arg;
-	KASSERT(chan != NULL, ("xchan is NULL"));
-
-	if (err) {
-		chan->map_err = 1;
-		return;
-	}
-
-	chan->descs_phys[chan->map_descr].ds_addr = segs[0].ds_addr;
-	chan->descs_phys[chan->map_descr].ds_len = segs[0].ds_len;
-
-	dprintf("map desc %d: descs phys %lx len %ld\n",
-	    chan->map_descr, segs[0].ds_addr, segs[0].ds_len);
-}
-#endif
-
 static int
 axidma_desc_free(struct axidma_softc *sc, struct axidma_channel *chan)
 {
 	struct xdma_channel *xchan;
-	struct axidma_desc *desc;
 	int nsegments;
-	int i;
 
 	nsegments = chan->descs_num;
 	xchan = chan->xchan;
 
-	for (i = 0; i < nsegments; i++) {
-		desc = chan->descs[i];
-#if 0
-		bus_dmamap_unload(chan->dma_tag, chan->dma_map[i]);
-		bus_dmamem_free(chan->dma_tag, desc, chan->dma_map[i]);
-#endif
-	}
-
-#if 0
-	bus_dma_tag_destroy(chan->dma_tag);
-#endif
 	free(chan->descs, M_DEVBUF);
-#if 0
-	free(chan->dma_map, M_DEVBUF);
-#endif
 	free(chan->descs_phys, M_DEVBUF);
 
 	printf("removing chunk %lx %d\n", chan->mem_paddr, chan->mem_size);
@@ -411,25 +361,6 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 	printf("%s: nseg %d, desc_size %d\n",
 	    __func__, nsegments, desc_size);
 
-#if 0
-	dprintf("%s: creating tag\n", __func__);
-	err = bus_dma_tag_create(
-	    bus_get_dma_tag(sc->dev),
-	    align, 0,			/* alignment, boundary */
-	    BUS_SPACE_MAXADDR_32BIT,	/* lowaddr */
-	    BUS_SPACE_MAXADDR,		/* highaddr */
-	    NULL, NULL,			/* filter, filterarg */
-	    desc_size, 1,		/* maxsize, nsegments*/
-	    desc_size, 0,		/* maxsegsize, flags */
-	    NULL, NULL,			/* lockfunc, lockarg */
-	    &chan->dma_tag);
-	if (err) {
-		device_printf(sc->dev,
-		    "%s: Can't create bus_dma tag.\n", __func__);
-		return (-1);
-	}
-#endif
-
 	dprintf("%s: allocating descriptors\n", __func__);
 
 	/* Descriptors. */
@@ -440,13 +371,8 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 		    "%s: Can't allocate memory.\n", __func__);
 		return (-1);
 	}
-	dprintf("%s: allocating dma_map\n", __func__);
-#if 0
-	chan->dma_map = malloc(nsegments * sizeof(bus_dmamap_t),
-	    M_DEVBUF, (M_WAITOK | M_ZERO));
-#endif
-	dprintf("%s: allocating descs_phys\n", __func__);
 
+	dprintf("%s: allocating descs_phys\n", __func__);
 	chan->descs_phys = malloc(nsegments * sizeof(bus_dma_segment_t),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
 	chan->mem_size = desc_size * nsegments;
@@ -466,42 +392,6 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 		chan->descs_phys[i].ds_addr = chan->mem_paddr + desc_size * i;
 		chan->descs_phys[i].ds_len = desc_size;
 	}
-
-	return (0);
-
-#if 0
-
-	/* Allocate bus_dma memory for each descriptor. */
-	for (i = 0; i < nsegments; i++) {
-		dprintf("%s: bus_dmamem_alloc\n", __func__);
-		err = bus_dmamem_alloc(chan->dma_tag, (void **)&chan->descs[i],
-		    BUS_DMA_WAITOK | BUS_DMA_ZERO, &chan->dma_map[i]);
-		if (err) {
-			device_printf(sc->dev,
-			    "%s: Can't allocate memory for descriptors.\n",
-			    __func__);
-			return (-1);
-		}
-
-		chan->map_err = 0;
-		chan->map_descr = i;
-		dprintf("%s: bus_dmamap_load\n", __func__);
-		err = bus_dmamap_load(chan->dma_tag, chan->dma_map[i],
-		    chan->descs[i], desc_size, axidma_dmamap_cb, chan,
-		    BUS_DMA_WAITOK);
-		if (err) {
-			device_printf(sc->dev,
-			    "%s: Can't load DMA map.\n", __func__);
-			return (-1);
-		}
-
-		if (chan->map_err != 0) {
-			device_printf(sc->dev,
-			    "%s: Can't load DMA map.\n", __func__);
-			return (-1);
-		}
-	}
-#endif
 
 	return (0);
 }
@@ -637,13 +527,6 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 
 		atomic_add_int(&chan->descs_used_count, 1);
 		chan->idx_head = axidma_next_desc(chan, chan->idx_head);
-
-#if 0
-		desc->control |= (CONTROL_OWN | CONTROL_GO);
-
-		bus_dmamap_sync(chan->dma_tag, chan->dma_map[tmp],
-		    BUS_DMASYNC_PREREAD | BUS_DMASYNC_PREWRITE);
-#endif
 	}
 
 	dprintf("%s(%d): _curdesc %x\n", __func__, data->id,
