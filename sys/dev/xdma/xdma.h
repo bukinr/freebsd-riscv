@@ -88,6 +88,7 @@ struct xchan_buf {
 	uint32_t			nsegs_left;
 	vm_offset_t			vaddr;
 	vm_offset_t			paddr;
+	vm_size_t			size;
 };
 
 struct xdma_request {
