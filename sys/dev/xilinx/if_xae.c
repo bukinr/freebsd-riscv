@@ -252,8 +252,6 @@ xae_qflush(struct ifnet *ifp)
 	struct xae_softc *sc;
 
 	sc = ifp->if_softc;
-
-	printf("%s\n", __func__);
 }
 
 static int
@@ -986,6 +984,48 @@ xae_attach(device_t dev)
 	return (0);
 }
 
+static int
+xae_detach(device_t dev)
+{
+	struct xae_softc *sc;
+	struct ifnet *ifp;
+
+	sc = device_get_softc(dev);
+
+	KASSERT(mtx_initialized(&sc->mtx), ("%s: mutex not initialized",
+	    device_get_nameunit(dev)));
+
+	ifp = sc->ifp;
+
+	/* Only cleanup if attach succeeded. */
+	if (device_is_attached(dev)) {
+		XAE_LOCK(sc);
+		xae_stop_locked(sc);
+		XAE_UNLOCK(sc);
+		callout_drain(&sc->xae_callout);
+		ether_ifdetach(ifp);
+	}
+
+	if (sc->miibus != NULL)
+		device_delete_child(dev, sc->miibus);
+
+	if (ifp != NULL)
+		if_free(ifp);
+
+	mtx_destroy(&sc->mtx);
+
+	bus_teardown_intr(dev, sc->res[1], sc->intr_cookie);
+
+	bus_release_resources(dev, xae_spec, sc->res);
+
+	xdma_channel_free(sc->xchan_tx);
+	xdma_channel_free(sc->xchan_rx);
+	xdma_put(sc->xdma_tx);
+	xdma_put(sc->xdma_rx);
+
+	return (0);
+}
+
 static void
 xae_miibus_statchg(device_t dev)
 {
@@ -1036,6 +1076,7 @@ xae_miibus_statchg(device_t dev)
 static device_method_t xae_methods[] = {
 	DEVMETHOD(device_probe,		xae_probe),
 	DEVMETHOD(device_attach,	xae_attach),
+	DEVMETHOD(device_detach,	xae_detach),
 
 	/* MII Interface */
 	DEVMETHOD(miibus_readreg,	xae_miibus_read_reg),
