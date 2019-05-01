@@ -75,6 +75,8 @@ __FBSDID("$FreeBSD$");
 #endif
 
 #define	AXIDMA_NCHANNELS	2
+#define	AXIDMA_TX_CHAN		0
+#define	AXIDMA_RX_CHAN		1
 
 extern struct bus_space memmap_bus;
 
@@ -85,8 +87,7 @@ struct axidma_fdt_data {
 struct axidma_channel {
 	struct axidma_softc	*sc;
 	xdma_channel_t		*xchan;
-	int			used;
-	int			index;
+	bool			used;
 	int			idx_head;
 	int			idx_tail;
 
@@ -203,7 +204,7 @@ axidma_intr_rx(void *arg)
 	dprintf("%s\n", __func__);
 
 	sc = arg;
-	chan = &sc->channels[1];
+	chan = &sc->channels[AXIDMA_RX_CHAN];
 
 	axidma_intr(sc, chan);
 }
@@ -217,7 +218,7 @@ axidma_intr_tx(void *arg)
 	dprintf("%s\n", __func__);
 
 	sc = arg;
-	chan = &sc->channels[0];
+	chan = &sc->channels[AXIDMA_TX_CHAN];
 
 	axidma_intr(sc, chan);
 }
@@ -386,9 +387,10 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 static int
 axidma_channel_alloc(device_t dev, struct xdma_channel *xchan)
 {
+	xdma_controller_t *xdma;
+	struct axidma_fdt_data *data;
 	struct axidma_channel *chan;
 	struct axidma_softc *sc;
-	int i;
 
 	sc = device_get_softc(dev);
 
@@ -398,23 +400,23 @@ axidma_channel_alloc(device_t dev, struct xdma_channel *xchan)
 		return (-1);
 	}
 
-	for (i = 0; i < AXIDMA_NCHANNELS; i++) {
-		chan = &sc->channels[i];
-		if (chan->used == 0) {
-			if (axidma_reset(sc, i) != 0)
-				return (-1);
-			chan->xchan = xchan;
-			xchan->chan = (void *)chan;
-			chan->index = i;
-			chan->sc = sc;
-			chan->used = 1;
-			chan->idx_head = 0;
-			chan->idx_tail = 0;
-			chan->descs_used_count = 0;
-			chan->descs_num = 128;
+	xdma = xchan->xdma;
+	data = xdma->data;
 
-			return (0);
-		}
+	chan = &sc->channels[data->id];
+	if (chan->used == false) {
+		if (axidma_reset(sc, data->id) != 0)
+			return (-1);
+		chan->xchan = xchan;
+		xchan->chan = (void *)chan;
+		chan->sc = sc;
+		chan->used = true;
+		chan->idx_head = 0;
+		chan->idx_tail = 0;
+		chan->descs_used_count = 0;
+		chan->descs_num = 128;
+
+		return (0);
 	}
 
 	return (-1);
@@ -432,7 +434,7 @@ axidma_channel_free(device_t dev, struct xdma_channel *xchan)
 
 	axidma_desc_free(sc, chan);
 
-	chan->used = 0;
+	chan->used = false;
 
 	return (0);
 }
