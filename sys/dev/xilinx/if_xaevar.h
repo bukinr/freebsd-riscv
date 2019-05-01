@@ -40,17 +40,9 @@
 /*
  * Driver data and defines.
  */
-#define	RX_MAX_PACKET	0x7ff
 #define	RX_DESC_COUNT	1024
-#define	RX_DESC_SIZE	(sizeof(struct xae_hwdesc) * RX_DESC_COUNT)
 #define	TX_DESC_COUNT	1024
-#define	TX_DESC_SIZE	(sizeof(struct xae_hwdesc) * TX_DESC_COUNT)
 #define	XAE_MAX_COUNTERS	43
-
-struct xae_bufmap {
-	bus_dmamap_t		map;
-	struct mbuf		*mbuf;
-};
 
 struct xae_softc {
 	struct resource		*res[2];
