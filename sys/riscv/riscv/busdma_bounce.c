@@ -894,14 +894,12 @@ dma_preread_safe(vm_offset_t va, vm_size_t size)
 	 * Write back any partial cachelines immediately before and
 	 * after the DMA region.
 	 */
-#if 0
 	if (va & (dcache_line_size - 1))
 		cpu_dcache_wb_range(va, 1);
 	if ((va + size) & (dcache_line_size - 1))
 		cpu_dcache_wb_range(va + size, 1);
 
 	cpu_dcache_inv_range(va, size);
-#endif
 }
 
 static void
@@ -935,9 +933,7 @@ dma_dcache_sync(struct sync_list *sl, bus_dmasync_op_t op)
 		switch (op) {
 		case BUS_DMASYNC_PREWRITE:
 		case BUS_DMASYNC_PREWRITE | BUS_DMASYNC_PREREAD:
-#if 0
 			cpu_dcache_wb_range(va, len);
-#endif
 			break;
 		case BUS_DMASYNC_PREREAD:
 			/*
@@ -954,9 +950,7 @@ dma_dcache_sync(struct sync_list *sl, bus_dmasync_op_t op)
 			break;
 		case BUS_DMASYNC_POSTREAD:
 		case BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE:
-#if 0
 			cpu_dcache_inv_range(va, len);
-#endif
 			break;
 		default:
 			panic("unsupported combination of sync operations: "
@@ -1005,32 +999,26 @@ bounce_bus_dmamap_sync(bus_dma_tag_t dmat, bus_dmamap_t map,
 				    (void *)bpage->vaddr, bpage->datacount);
 				if (tempvaddr != 0)
 					pmap_quick_remove_page(tempvaddr);
-#if 0
 				if ((dmat->bounce_flags & BF_COHERENT) == 0)
 					cpu_dcache_wb_range(bpage->vaddr,
 					    bpage->datacount);
-#endif
 				bpage = STAILQ_NEXT(bpage, links);
 			}
 			dmat->bounce_zone->total_bounced++;
 		} else if ((op & BUS_DMASYNC_PREREAD) != 0) {
 			while (bpage != NULL) {
-#if 0
 				if ((dmat->bounce_flags & BF_COHERENT) == 0)
 					cpu_dcache_wbinv_range(bpage->vaddr,
 					    bpage->datacount);
-#endif
 				bpage = STAILQ_NEXT(bpage, links);
 			}
 		}
 
 		if ((op & BUS_DMASYNC_POSTREAD) != 0) {
 			while (bpage != NULL) {
-#if 0
 				if ((dmat->bounce_flags & BF_COHERENT) == 0)
 					cpu_dcache_inv_range(bpage->vaddr,
 					    bpage->datacount);
-#endif
 				tempvaddr = 0;
 				datavaddr = bpage->datavaddr;
 				if (datavaddr == 0) {
