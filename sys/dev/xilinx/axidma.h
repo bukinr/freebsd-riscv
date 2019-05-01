@@ -36,7 +36,18 @@
 #define	 DMACR_DLY_IRQEN	(1 << 13) /* Interrupt on Delay Timer Interrupt Enable. */
 #define	 DMACR_ERR_IRQEN	(1 << 14) /* Interrupt on Error Interrupt Enable. */
 #define	AXI_DMASR(n)		(0x04 + 0x30 * (n)) /* DMA Status register */
-#define	 DMACR_HALTED		(1 << 0) /* Halted. */
+#define	 DMACR_HALTED		(1 << 0)
+#define	 DMACR_IDLE		(1 << 1)
+#define	 DMACR_SGINCLD		(1 << 3) /* Scatter Gather Enabled */
+#define	 DMACR_DMAINTERR	(1 << 4) /* DMA Internal Error. */
+#define	 DMACR_DMASLVERR	(1 << 5) /* DMA Slave Error. */
+#define	 DMACR_DMADECOREERR	(1 << 6) /* Decode Error. */
+#define	 DMACR_SGINTERR		(1 << 8) /* Scatter Gather Internal Error. */
+#define	 DMACR_SGSLVERR		(1 << 9) /* Scatter Gather Slave Error. */
+#define	 DMACR_SGDECERR		(1 << 10) /* Scatter Gather Decode Error. */
+#define	 DMACR_IOC_IRQ		(1 << 12) /* Interrupt on Complete. */
+#define	 DMACR_DLY_IRQ		(1 << 13) /* Interrupt on Delay. */
+#define	 DMACR_ERR_IRQ		(1 << 14) /* Interrupt on Error. */
 #define	AXI_CURDESC(n)		(0x08 + 0x30 * (n)) /* Current Descriptor Pointer. Lower 32 bits of the address. */
 #define	AXI_CURDESC_MSB(n)	(0x0C + 0x30 * (n)) /* Current Descriptor Pointer. Upper 32 bits of address. */
 #define	AXI_TAILDESC(n)		(0x10 + 0x30 * (n)) /* Tail Descriptor Pointer. Lower 32 bits. */
