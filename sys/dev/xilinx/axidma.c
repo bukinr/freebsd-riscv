@@ -151,6 +151,7 @@ axidma_intr(struct axidma_softc *sc,
 	struct xdma_channel *xchan;
 	uint32_t tot_copied;
 	int pending;
+	int errors;
 
 	xchan = chan->xchan;
 	xdma = xchan->xdma;
@@ -158,6 +159,10 @@ axidma_intr(struct axidma_softc *sc,
 
 	pending = READ4(sc, AXI_DMASR(data->id));
 	WRITE4(sc, AXI_DMASR(data->id), pending);
+
+	errors = (pending & (DMACR_DMAINTERR | DMACR_DMASLVERR
+			| DMACR_DMADECOREERR | DMACR_SGINTERR
+			| DMACR_SGSLVERR | DMACR_SGDECERR));
 
 	dprintf("%s: AXI_DMASR %x\n", __func__,
 	    READ4(sc, AXI_DMASR(data->id)));
@@ -180,7 +185,6 @@ axidma_intr(struct axidma_softc *sc,
 		if ((desc->status & BD_STATUS_CMPLT) == 0)
 			break;
 
-		st.error = 0;
 		st.transferred = desc->status & BD_CONTROL_LEN_M;
 		tot_copied += st.transferred;
 		xchan_seg_done(xchan, &st);
@@ -190,7 +194,7 @@ axidma_intr(struct axidma_softc *sc,
 	}
 
 	/* Finish operation */
-	status.error = 0;
+	status.error = errors;
 	status.transferred = tot_copied;
 	xdma_callback(chan->xchan, &status);
 }
