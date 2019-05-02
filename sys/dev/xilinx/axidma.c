@@ -113,8 +113,7 @@ struct axidma_softc {
 	struct resource		*res[3];
 	bus_space_tag_t		bst;
 	bus_space_handle_t	bsh;
-	void			*ih;
-	void			*ih2;
+	void			*ih[2];
 	struct axidma_desc	desc;
 	struct axidma_channel	channels[AXIDMA_NCHANNELS];
 };
@@ -297,7 +296,7 @@ axidma_attach(device_t dev)
 
 	/* Setup interrupt handler */
 	err = bus_setup_intr(dev, sc->res[1], INTR_TYPE_MISC | INTR_MPSAFE,
-	    NULL, axidma_intr_tx, sc, &sc->ih);
+	    NULL, axidma_intr_tx, sc, &sc->ih[0]);
 	if (err) {
 		device_printf(dev, "Unable to alloc interrupt resource.\n");
 		return (ENXIO);
@@ -305,7 +304,7 @@ axidma_attach(device_t dev)
 
 	/* Setup interrupt handler */
 	err = bus_setup_intr(dev, sc->res[2], INTR_TYPE_MISC | INTR_MPSAFE,
-	    NULL, axidma_intr_rx, sc, &sc->ih2);
+	    NULL, axidma_intr_rx, sc, &sc->ih[1]);
 	if (err) {
 		device_printf(dev, "Unable to alloc interrupt resource.\n");
 		return (ENXIO);
@@ -325,8 +324,8 @@ axidma_detach(device_t dev)
 
 	sc = device_get_softc(dev);
 
-	bus_teardown_intr(dev, sc->res[1], sc->ih);
-	bus_teardown_intr(dev, sc->res[2], sc->ih2);
+	bus_teardown_intr(dev, sc->res[1], sc->ih[0]);
+	bus_teardown_intr(dev, sc->res[2], sc->ih[1]);
 	bus_release_resources(dev, axidma_spec, sc->res);
 
 	return (0);
