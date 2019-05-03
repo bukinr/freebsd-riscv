@@ -10,7 +10,7 @@ dev/cadence/if_cgem.c		optional	cgem
 dev/uart/uart_cpu_fdt.c		optional	uart fdt
 dev/uart/uart_dev_lowrisc.c	optional	uart_lowrisc
 dev/xilinx/axi_quad_spi.c	optional	xilinx_spi
-dev/xilinx/axidma.c		optional	xae
+dev/xilinx/axidma.c		optional	axidma xdma
 dev/xilinx/if_xae.c		optional	xae
 kern/kern_clocksource.c		standard
 kern/msi_if.m			standard
