@@ -313,32 +313,26 @@ xae_transmit(struct ifnet *ifp, struct mbuf *m)
 
 	XAE_LOCK(sc);
 
-	mtx_lock(&sc->br_mtx);
-
 	if ((ifp->if_drv_flags & (IFF_DRV_RUNNING | IFF_DRV_OACTIVE)) !=
 	    IFF_DRV_RUNNING) {
 		error = drbr_enqueue(ifp, sc->br, m);
-		mtx_unlock(&sc->br_mtx);
 		XAE_UNLOCK(sc);
 		return (error);
 	}
 
 	if (!sc->link_is_up) {
 		error = drbr_enqueue(ifp, sc->br, m);
-		mtx_unlock(&sc->br_mtx);
 		XAE_UNLOCK(sc);
 		return (error);
 	}
 
 	error = drbr_enqueue(ifp, br, m);
 	if (error) {
-		mtx_unlock(&sc->br_mtx);
 		XAE_UNLOCK(sc);
 		return (error);
 	}
 	error = xae_transmit_locked(ifp);
 
-	mtx_unlock(&sc->br_mtx);
 	XAE_UNLOCK(sc);
 
 	return (error);
@@ -898,9 +892,11 @@ xae_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	mtx_init(&sc->br_mtx, "buf ring mtx", NULL, MTX_DEF);
+	mtx_init(&sc->mtx, device_get_nameunit(sc->dev),
+	    MTX_NETWORK_LOCK, MTX_DEF);
+
 	sc->br = buf_ring_alloc(BUFRING_SIZE, M_DEVBUF,
-	    M_NOWAIT, &sc->br_mtx);
+	    M_NOWAIT, &sc->mtx);
 	if (sc->br == NULL)
 		return (ENOMEM);
 
@@ -928,9 +924,6 @@ xae_attach(device_t dev)
 	WRITE4(sc, XAE_MDIO_SETUP, reg);
 	if (mdio_wait(sc))
 		return (ENXIO);
-
-	mtx_init(&sc->mtx, device_get_nameunit(sc->dev),
-	    MTX_NETWORK_LOCK, MTX_DEF);
 
 	callout_init_mtx(&sc->xae_callout, &sc->mtx, 0);
 

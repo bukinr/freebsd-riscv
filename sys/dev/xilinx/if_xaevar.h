@@ -73,7 +73,6 @@ struct xae_softc {
 	void			*ih_rx;
 
 	struct buf_ring		*br;
-	struct mtx		br_mtx;
 
 	/* Counters */
 	uint64_t		counters[XAE_MAX_COUNTERS];
