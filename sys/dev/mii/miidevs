@@ -73,7 +73,6 @@ oui SEEQ			0x00a07d	Seeq Technology
 oui SIS				0x00e006	Silicon Integrated Systems
 oui SMC				0x00800f	SMC
 oui TI				0x080028	Texas Instruments
-oui TI1				0x120016	Texas Instruments
 oui TSC				0x00c039	TDK Semiconductor
 oui VITESSE			0x0001c1	Vitesse Semiconductor
 oui XAQTI			0x00e0ae	XaQti Corp.
@@ -334,7 +333,6 @@ model SIS 900			0x0000 SiS 900 10/100 media interface
 model TI TLAN10T		0x0001 ThunderLAN 10BASE-T media interface
 model TI 100VGPMI		0x0002 ThunderLAN 100VG-AnyLan media interface
 model TI TNETE2101		0x0003 TNETE2101 media interface
-model TI1 DP83867		0x0023 DP83867IR/CR Robust, High Immunity
 
 /* TDK Semiconductor PHYs */
 model xxTSC 78Q2120		0x0014 78Q2120 10/100 media interface
