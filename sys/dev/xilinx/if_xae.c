@@ -303,34 +303,31 @@ static int
 xae_transmit(struct ifnet *ifp, struct mbuf *m)
 {
 	struct xae_softc *sc;
-	struct buf_ring *br;
 	int error;
 
 	dprintf("%s\n", __func__);
 
 	sc = ifp->if_softc;
-	br = sc->br;
 
 	XAE_LOCK(sc);
 
-	if ((ifp->if_drv_flags & (IFF_DRV_RUNNING | IFF_DRV_OACTIVE)) !=
-	    IFF_DRV_RUNNING) {
-		error = drbr_enqueue(ifp, sc->br, m);
-		XAE_UNLOCK(sc);
-		return (error);
-	}
-
-	if (!sc->link_is_up) {
-		error = drbr_enqueue(ifp, sc->br, m);
-		XAE_UNLOCK(sc);
-		return (error);
-	}
-
-	error = drbr_enqueue(ifp, br, m);
+	error = drbr_enqueue(ifp, sc->br, m);
 	if (error) {
 		XAE_UNLOCK(sc);
 		return (error);
 	}
+
+	if ((ifp->if_drv_flags & (IFF_DRV_RUNNING | IFF_DRV_OACTIVE)) !=
+	    IFF_DRV_RUNNING) {
+		XAE_UNLOCK(sc);
+		return (0);
+	}
+
+	if (!sc->link_is_up) {
+		XAE_UNLOCK(sc);
+		return (0);
+	}
+
 	error = xae_transmit_locked(ifp);
 
 	XAE_UNLOCK(sc);
