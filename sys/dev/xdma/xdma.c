@@ -368,8 +368,8 @@ xdma_get_memory(device_t dev)
 
 	/* Get reserved memory */
 	if (OF_hasprop(node, "memory-region")) {
-		vmem = vmem_create("xDMA", 0, 0, PAGE_SIZE,
-		    PAGE_SIZE, M_FIRSTFIT | M_WAITOK);
+		vmem = vmem_create("xDMA vmem", 0, 0, PAGE_SIZE,
+		    PAGE_SIZE, M_BESTFIT | M_WAITOK);
 		if (vmem == NULL)
 			return (NULL);
 
