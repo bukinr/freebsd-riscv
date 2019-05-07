@@ -95,8 +95,6 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 			return (-1);
 		}
 		pmap_kenter_device(xr->buf.vaddr, size, addr);
-
-		printf("b%d: p %lx v %lx\n", i, addr, xr->buf.vaddr);
 	}
 
 	return (0);
@@ -203,8 +201,6 @@ xchan_bufs_free(xdma_channel_t *xchan)
 			xr = &xchan->xr_mem[i];
 			va = xr->buf.vaddr;
 			size = xr->buf.size;
-
-			printf("d%d: p %lx v %lx\n", i, xr->buf.paddr, va);
 
 			pmap_kremove_device(va, size);
 			kva_free(va, size);
