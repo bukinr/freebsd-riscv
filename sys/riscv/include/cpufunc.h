@@ -118,7 +118,7 @@ extern int64_t icache_line_size;
 
 #define	cpu_idcache_wbinv_range(a, s)
 #define	cpu_icache_sync_range(a, s)
-#define cpu_icache_sync_range_checked(a, s)
+#define	cpu_icache_sync_range_checked(a, s)
 
 static __inline void
 load_satp(uint64_t val)
