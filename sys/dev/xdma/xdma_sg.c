@@ -64,8 +64,29 @@ struct seg_load_request {
 	uint32_t error;
 };
 
+static void
+xchan_bufs_free_vmem(xdma_channel_t *xchan)
+{
+	struct xdma_request *xr;
+	vm_size_t size;
+	int i;
+
+	for (i = 0; i < xchan->xr_num; i++) {
+		size = xr->buf.size;
+		if (xr->buf.vaddr) {
+			kva_free(xr->buf.vaddr, size);
+			xr->buf.vaddr = 0;
+		}
+		if (xr->buf.paddr) {
+			vmem_free(xchan->vmem, size, xr->buf.paddr);
+			xr->buf.paddr = 0;
+		}
+		xr->buf.size = 0;
+	}
+}
+
 static int
-_xchan_bufs_alloc(xdma_channel_t *xchan)
+xchan_bufs_alloc_vmem(xdma_channel_t *xchan)
 {
 	xdma_controller_t *xdma;
 	struct xdma_request *xr;
@@ -75,22 +96,27 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 
 	xdma = xchan->xdma;
 
+	if (xchan->vmem == NULL)
+		return (ENOBUFS);
+
 	for (i = 0; i < xchan->xr_num; i++) {
 		xr = &xchan->xr_mem[i];
 		size = round_page(xchan->maxsegsize);
-		if (vmem_alloc(xchan->vmem, size,
-		    M_FIRSTFIT, &addr)) {
+		if (vmem_alloc(xchan->vmem, size, M_BESTFIT, &addr)) {
 			device_printf(xdma->dev,
 			    "%s: Can't allocate memory\n", __func__);
-			return (-1);
+			xchan_bufs_free_vmem(xchan);
+			return (ENOMEM);
 		}
+		
 		xr->buf.size = size;
 		xr->buf.paddr = addr;
 		xr->buf.vaddr = kva_alloc(size);
 		if (xr->buf.vaddr == 0) {
 			device_printf(xdma->dev,
-			    "%s: Can't allocate memory\n", __func__);
-			return (-1);
+			    "%s: Can't allocate KVA memory\n", __func__);
+			xchan_bufs_free_vmem(xchan);
+			return (ENOMEM);
 		}
 		pmap_kenter_device(xr->buf.vaddr, size, addr);
 	}
@@ -99,7 +125,7 @@ _xchan_bufs_alloc(xdma_channel_t *xchan)
 }
 
 static int
-_xchan_bufs_alloc_busdma(xdma_channel_t *xchan)
+xchan_bufs_alloc_busdma(xdma_channel_t *xchan)
 {
 	xdma_controller_t *xdma;
 	struct xdma_request *xr;
@@ -161,9 +187,10 @@ xchan_bufs_alloc(xdma_channel_t *xchan)
 	}
 
 	if (xchan->caps & XCHAN_CAP_BUSDMA)
-		ret = _xchan_bufs_alloc_busdma(xchan);
-	else
-		ret = _xchan_bufs_alloc(xchan);
+		ret = xchan_bufs_alloc_busdma(xchan);
+	else {
+		ret = xchan_bufs_alloc_vmem(xchan);
+	}
 	if (ret != 0) {
 		device_printf(xdma->dev,
 		    "%s: Can't allocate bufs.\n", __func__);
