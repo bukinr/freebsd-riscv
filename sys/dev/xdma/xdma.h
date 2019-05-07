@@ -221,6 +221,7 @@ void xdma_put_memory(vmem_t *vmem);
 xdma_channel_t * xdma_channel_alloc(xdma_controller_t *, uint32_t caps);
 int xdma_channel_free(xdma_channel_t *);
 int xdma_request(xdma_channel_t *xchan, struct xdma_request *r);
+void xchan_set_memory(xdma_channel_t *xchan, vmem_t *vmem);
 
 /* SG interface */
 int xdma_prep_sg(xdma_channel_t *, uint32_t,

@@ -388,6 +388,13 @@ xdma_put_memory(vmem_t *vmem)
 	vmem_destroy(vmem);
 }
 
+void
+xchan_set_memory(xdma_channel_t *xchan, vmem_t *vmem)
+{
+
+	xchan->vmem = vmem;
+}
+
 /*
  * Allocate xdma controller.
  */

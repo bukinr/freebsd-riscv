@@ -831,8 +831,8 @@ setup_xdma(struct xae_softc *sc)
 	/* Setup bounce buffer */
 	vmem = xdma_get_memory(dev);
 	if (vmem) {
-		sc->xchan_tx->vmem = vmem;
-		sc->xchan_rx->vmem = vmem;
+		xchan_set_memory(sc->xchan_tx, vmem);
+		xchan_set_memory(sc->xchan_rx, vmem);
 	}
 
 	xdma_prep_sg(sc->xchan_tx,
