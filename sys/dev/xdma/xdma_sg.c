@@ -72,13 +72,15 @@ xchan_bufs_free_vmem(xdma_channel_t *xchan)
 	int i;
 
 	for (i = 0; i < xchan->xr_num; i++) {
+		xr = &xchan->xr_mem[i];
 		size = xr->buf.size;
 		if (xr->buf.vaddr) {
+			pmap_kremove_device(xr->buf.vaddr, size);
 			kva_free(xr->buf.vaddr, size);
 			xr->buf.vaddr = 0;
 		}
 		if (xr->buf.paddr) {
-			vmem_free(xchan->vmem, size, xr->buf.paddr);
+			vmem_free(xchan->vmem, xr->buf.paddr, size);
 			xr->buf.paddr = 0;
 		}
 		xr->buf.size = 0;
@@ -207,8 +209,6 @@ xchan_bufs_free(xdma_channel_t *xchan)
 {
 	struct xdma_request *xr;
 	struct xchan_buf *b;
-	vm_offset_t va;
-	vm_size_t size;
 	int i;
 
 	if ((xchan->flags & XCHAN_BUFS_ALLOCATED) == 0)
@@ -221,20 +221,8 @@ xchan_bufs_free(xdma_channel_t *xchan)
 			bus_dmamap_destroy(xchan->dma_tag_bufs, b->map);
 		}
 		bus_dma_tag_destroy(xchan->dma_tag_bufs);
-	} else {
-		for (i = 0; i < xchan->xr_num; i++) {
-			xr = &xchan->xr_mem[i];
-			va = xr->buf.vaddr;
-			size = xr->buf.size;
-
-			pmap_kremove_device(va, size);
-			kva_free(va, size);
-			vmem_free(xchan->vmem, xr->buf.paddr, size);
-			xr->buf.paddr = 0;
-			xr->buf.vaddr = 0;
-			xr->buf.size = 0;
-		}
-	}
+	} else
+		xchan_bufs_free_vmem(xchan);
 
 	xchan->flags &= ~XCHAN_BUFS_ALLOCATED;
 
