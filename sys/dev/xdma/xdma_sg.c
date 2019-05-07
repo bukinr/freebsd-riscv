@@ -116,7 +116,7 @@ xchan_bufs_alloc_vmem(xdma_channel_t *xchan)
 		xr->buf.vaddr = kva_alloc(size);
 		if (xr->buf.vaddr == 0) {
 			device_printf(xdma->dev,
-			    "%s: Can't allocate KVA memory\n", __func__);
+			    "%s: Can't allocate KVA\n", __func__);
 			xchan_bufs_free_vmem(xchan);
 			return (ENOMEM);
 		}
