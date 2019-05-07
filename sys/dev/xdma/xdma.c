@@ -366,24 +366,32 @@ xdma_get_memory(device_t dev)
 		return (NULL);
 	}
 
-	/* Get reserved memory */
-	if (OF_hasprop(node, "memory-region")) {
-		vmem = vmem_create("xDMA vmem", 0, 0, PAGE_SIZE,
-		    PAGE_SIZE, M_BESTFIT | M_WAITOK);
-		if (vmem == NULL)
-			return (NULL);
+	if (!OF_hasprop(node, "memory-region"))
+		return (NULL);
 
-		if (OF_getencprop(node, "memory-region", (void *)&mem_handle,
-		    sizeof(mem_handle)) <= 0)
-			panic("eee");
+	if (OF_getencprop(node, "memory-region", (void *)&mem_handle,
+	    sizeof(mem_handle)) <= 0)
+		return (NULL);
 
-		mem_node = OF_node_from_xref(mem_handle);
-		xdma_handle_mem_node(vmem, mem_node);
+	vmem = vmem_create("xDMA vmem", 0, 0, PAGE_SIZE,
+	    PAGE_SIZE, M_BESTFIT | M_WAITOK);
+	if (vmem == NULL)
+		return (NULL);
 
-		return (vmem);
+	mem_node = OF_node_from_xref(mem_handle);
+	if (xdma_handle_mem_node(vmem, mem_node) != 0) {
+		vmem_destroy(vmem);
+		return (NULL);
 	}
 
-	return (NULL);
+	return (vmem);
+}
+
+void
+xdma_put_memory(vmem_t *vmem)
+{
+
+	vmem_destroy(vmem);
 }
 
 /*
