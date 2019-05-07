@@ -46,9 +46,7 @@ __FBSDID("$FreeBSD$");
 
 #include <vm/vm.h>
 #include <vm/vm_extern.h>
-#include <vm/vm_object.h>
 #include <vm/vm_page.h>
-#include <vm/vm_pager.h>
 
 #ifdef FDT
 #include <dev/fdt/fdt_common.h>
@@ -333,10 +331,9 @@ xchan_seg_done(xdma_channel_t *xchan,
 			bus_dmamap_unload(xchan->dma_tag_bufs, b->map);
 		} else {
 			if (xr->req_type == XR_TYPE_MBUF &&
-			    xr->direction == XDMA_DEV_TO_MEM) {
+			    xr->direction == XDMA_DEV_TO_MEM)
 				m_copyback(xr->m, 0, st->transferred,
 				    (void *)xr->buf.vaddr);
-			}
 		}
 		xr->status.error = st->error;
 		xr->status.transferred = st->transferred;
@@ -541,6 +538,7 @@ xdma_process(xdma_channel_t *xchan,
 	xdma = xchan->xdma;
 
 	n = 0;
+	c = 0;
 
 	ret = XDMA_CHANNEL_CAPACITY(xdma->dma_dev, xchan, &capacity);
 	if (ret != 0) {
