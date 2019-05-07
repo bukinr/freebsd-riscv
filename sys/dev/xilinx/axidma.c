@@ -79,6 +79,7 @@ __FBSDID("$FreeBSD$");
 #endif
 
 #define	AXIDMA_NCHANNELS	2
+#define	AXIDMA_DESCS_NUM	512
 #define	AXIDMA_TX_CHAN		0
 #define	AXIDMA_RX_CHAN		1
 
@@ -421,7 +422,7 @@ axidma_channel_alloc(device_t dev, struct xdma_channel *xchan)
 		chan->idx_head = 0;
 		chan->idx_tail = 0;
 		chan->descs_used_count = 0;
-		chan->descs_num = 128;
+		chan->descs_num = AXIDMA_DESCS_NUM;
 
 		return (0);
 	}
