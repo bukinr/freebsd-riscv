@@ -56,9 +56,7 @@ __FBSDID("$FreeBSD$");
 
 #include <vm/vm.h>
 #include <vm/vm_extern.h>
-#include <vm/vm_object.h>
 #include <vm/vm_page.h>
-#include <vm/vm_pager.h>
 
 #ifdef FDT
 #include <dev/fdt/fdt_common.h>
@@ -98,7 +96,7 @@ struct axidma_channel {
 	int			idx_tail;
 
 	struct axidma_desc	**descs;
-	bus_dma_segment_t	*descs_phys;
+	vm_paddr_t		*descs_phys;
 	uint32_t		descs_num;
 
 	vm_size_t		mem_size;
@@ -353,17 +351,15 @@ axidma_desc_free(struct axidma_softc *sc, struct axidma_channel *chan)
 
 static int
 axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
-    uint32_t desc_size, uint32_t align)
+    uint32_t desc_size)
 {
 	struct axidma_channel *chan;
 	int nsegments;
 	int i;
 
 	chan = (struct axidma_channel *)xchan->chan;
-
 	nsegments = chan->descs_num;
 
-	/* Descriptors. */
 	chan->descs = malloc(nsegments * sizeof(struct axidma_desc *),
 	    M_DEVBUF, (M_WAITOK | M_ZERO));
 	if (chan->descs == NULL) {
@@ -383,13 +379,13 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 	chan->mem_vaddr = kva_alloc(chan->mem_size);
 	pmap_kenter_device(chan->mem_vaddr, chan->mem_size, chan->mem_paddr);
 
-	printf("allocated chunk %lx %d\n", chan->mem_paddr, chan->mem_size);
+	device_printf(sc->dev, "Allocated chunk %lx %d\n",
+	    chan->mem_paddr, chan->mem_size);
 
 	for (i = 0; i < nsegments; i++) {
 		chan->descs[i] = (struct axidma_desc *)
 		    ((uint64_t)chan->mem_vaddr + desc_size * i);
-		chan->descs_phys[i].ds_addr = chan->mem_paddr + desc_size * i;
-		chan->descs_phys[i].ds_len = desc_size;
+		chan->descs_phys[i] = chan->mem_paddr + desc_size * i;
 	}
 
 	return (0);
@@ -536,7 +532,7 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	dprintf("%s(%d): status %x\n", __func__, data->id,
 	    READ4(sc, AXI_DMASR(data->id)));
 
-	addr = chan->descs_phys[tmp].ds_addr;
+	addr = chan->descs_phys[tmp];
 	WRITE8(sc, AXI_TAILDESC(data->id), addr);
 
 	dprintf("%s(%d): taildesc %x %x\n", __func__,
@@ -570,7 +566,7 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 
 	dprintf("%s(%d)\n", __func__, data->id);
 
-	ret = axidma_desc_alloc(sc, xchan, sizeof(struct axidma_desc), 16);
+	ret = axidma_desc_alloc(sc, xchan, sizeof(struct axidma_desc));
 	if (ret != 0) {
 		device_printf(sc->dev,
 		    "%s: Can't allocate descriptors.\n", __func__);
@@ -582,9 +578,9 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 		bzero(desc, sizeof(struct axidma_desc));
 
 		if (i == (chan->descs_num - 1))
-			desc->next = chan->descs_phys[0].ds_addr;
+			desc->next = chan->descs_phys[0];
 		else
-			desc->next = chan->descs_phys[i+1].ds_addr;
+			desc->next = chan->descs_phys[i + 1];
 		desc->status = 0;
 		desc->control = 0;
 
@@ -592,7 +588,7 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 		    data->id, i, (uint64_t)desc, le32toh(desc->next));
 	}
 
-	addr = chan->descs_phys[0].ds_addr;
+	addr = chan->descs_phys[0];
 	printf("%s(%d): curdesc %x\n", __func__, data->id, addr);
 	WRITE8(sc, AXI_CURDESC(data->id), addr);
 
