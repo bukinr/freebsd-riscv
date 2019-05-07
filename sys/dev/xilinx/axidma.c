@@ -167,7 +167,6 @@ axidma_intr(struct axidma_softc *sc,
 	errors = (pending & (DMASR_DMAINTERR | DMASR_DMASLVERR
 			| DMASR_DMADECOREERR | DMASR_SGINTERR
 			| DMASR_SGSLVERR | DMASR_SGDECERR));
-	dprintf("%s: errors %x\n", __func__, errors);
 
 	dprintf("%s: AXI_DMASR %x\n", __func__,
 	    READ4(sc, AXI_DMASR(data->id)));
@@ -179,14 +178,7 @@ axidma_intr(struct axidma_softc *sc,
 	tot_copied = 0;
 
 	while (chan->idx_tail != chan->idx_head) {
-		dprintf("%s: idx_tail %d idx_head %d\n", __func__,
-		    chan->idx_tail, chan->idx_head);
-
 		desc = chan->descs[chan->idx_tail];
-		dprintf("%s: desc%d status %x (transferred %d)\n",
-		    __func__, chan->idx_tail, desc->status,
-		    (desc->status & BD_STATUS_TRANSFERRED_M));
-
 		if ((desc->status & BD_STATUS_CMPLT) == 0)
 			break;
 
@@ -473,8 +465,8 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	struct axidma_channel *chan;
 	struct axidma_desc *desc;
 	struct axidma_softc *sc;
-	uint32_t src_addr_lo;
-	uint32_t dst_addr_lo;
+	uint32_t src_addr;
+	uint32_t dst_addr;
 	uint32_t addr;
 	uint32_t len;
 	uint32_t tmp;
@@ -497,28 +489,24 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 	tmp = 0;
 
 	for (i = 0; i < sg_n; i++) {
-		src_addr_lo = (uint32_t)sg[i].src_addr;
-		dst_addr_lo = (uint32_t)sg[i].dst_addr;
+		src_addr = (uint32_t)sg[i].src_addr;
+		dst_addr = (uint32_t)sg[i].dst_addr;
 		len = (uint32_t)sg[i].len;
 
 		dprintf("%s(%d): src %x dst %x len %d\n", __func__,
-		    data->id, src_addr_lo, dst_addr_lo, len);
+		    data->id, src_addr, dst_addr, len);
 
 		desc = chan->descs[chan->idx_head];
 		if (sg[i].direction == XDMA_MEM_TO_DEV)
-			desc->phys = src_addr_lo;
+			desc->phys = src_addr;
 		else
-			desc->phys = dst_addr_lo;
-		dprintf("%s(%d): desc->phys %x\n",
-		    __func__, data->id, desc->phys);
+			desc->phys = dst_addr;
 		desc->status = 0;
 		desc->control = len;
 		if (sg[i].first == 1)
 			desc->control |= BD_CONTROL_TXSOF;
 		if (sg[i].last == 1)
 			desc->control |= BD_CONTROL_TXEOF;
-		dprintf("%s(%d): desc->control %x\n",
-		    __func__, data->id, desc->control);
 
 		tmp = chan->idx_head;
 
@@ -535,13 +523,6 @@ axidma_channel_submit_sg(device_t dev, struct xdma_channel *xchan,
 
 	addr = chan->descs_phys[tmp];
 	WRITE8(sc, AXI_TAILDESC(data->id), addr);
-
-	dprintf("%s(%d): taildesc %x %x\n", __func__,
-	    data->id, addr, READ8(sc, AXI_TAILDESC(data->id)));
-	dprintf("%s(%d): curdesc %x\n", __func__, data->id,
-	    READ8(sc, AXI_CURDESC(data->id)));
-	dprintf("%s(%d): status %x\n", __func__,
-	    data->id, READ4(sc, AXI_DMASR(data->id)));
 
 	return (0);
 }
