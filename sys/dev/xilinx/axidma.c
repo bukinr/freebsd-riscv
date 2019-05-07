@@ -37,20 +37,12 @@ __FBSDID("$FreeBSD$");
 
 #include "opt_platform.h"
 #include <sys/param.h>
-#include <sys/endian.h>
 #include <sys/systm.h>
 #include <sys/conf.h>
 #include <sys/bus.h>
 #include <sys/kernel.h>
-#include <sys/kthread.h>
-#include <sys/sglist.h>
 #include <sys/module.h>
-#include <sys/lock.h>
-#include <sys/mutex.h>
-#include <sys/resource.h>
 #include <sys/rman.h>
-#include <sys/rwlock.h>
-#include <sys/sx.h>
 
 #include <machine/bus.h>
 
@@ -65,9 +57,9 @@ __FBSDID("$FreeBSD$");
 #endif
 
 #include <dev/xdma/xdma.h>
-#include "xdma_if.h"
-
 #include <dev/xilinx/axidma.h>
+
+#include "xdma_if.h"
 
 #define AXIDMA_DEBUG
 #undef AXIDMA_DEBUG

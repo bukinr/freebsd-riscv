@@ -76,8 +76,6 @@ __FBSDID("$FreeBSD$");
 #define	WRITE8(_sc, _reg, _val) \
 	bus_write_8((_sc)->res[0], _reg, _val)
 
-#define	MDIO_CLK_DIV_DEFAULT	29
-
 #define	XAE_LOCK(sc)			mtx_lock(&(sc)->mtx)
 #define	XAE_UNLOCK(sc)			mtx_unlock(&(sc)->mtx)
 #define	XAE_ASSERT_LOCKED(sc)		mtx_assert(&(sc)->mtx, MA_OWNED)
@@ -96,6 +94,7 @@ __FBSDID("$FreeBSD$");
 #define	TX_QUEUE_SIZE		64
 #define	NUM_RX_MBUF		16
 #define	BUFRING_SIZE		8192
+#define	MDIO_CLK_DIV_DEFAULT	29
 
 #define	PHY1_RD(sc, _r)		\
 	xae_miibus_read_reg(sc->dev, 1, _r)
@@ -511,6 +510,7 @@ xae_media_change(struct ifnet * ifp)
 	XAE_LOCK(sc);
 	error = xae_media_change_locked(sc);
 	XAE_UNLOCK(sc);
+
 	return (error);
 }
 
