@@ -312,38 +312,32 @@ xdma_handle_mem_node(vmem_t *vmem, phandle_t memory)
 	pcell_t reg[FDT_REG_CELLS * FDT_MEM_REGIONS];
 	pcell_t *regp;
 	int addr_cells, size_cells;
-	int i, reg_len, rv, tuple_size, tuples;
-	uint64_t mem_start;
-	uint64_t mem_size;
+	int i, reg_len, ret, tuple_size, tuples;
+	vmem_addr_t mem_start;
+	vmem_size_t mem_size;
 
-	if ((rv = fdt_addrsize_cells(OF_parent(memory), &addr_cells,
+	if ((ret = fdt_addrsize_cells(OF_parent(memory), &addr_cells,
 	    &size_cells)) != 0)
-		return (rv);
+		return (ret);
 
-	if (addr_cells > 2) {
-		rv = ERANGE;
-		return (rv);
-	}
+	if (addr_cells > 2)
+		return (ERANGE);
 
 	tuple_size = sizeof(pcell_t) * (addr_cells + size_cells);
 	reg_len = OF_getproplen(memory, "reg");
-	if (reg_len <= 0 || reg_len > sizeof(reg)) {
-		rv = ERANGE;
-		return (rv);
-	}
+	if (reg_len <= 0 || reg_len > sizeof(reg))
+		return (ERANGE);
 
-	if (OF_getprop(memory, "reg", reg, reg_len) <= 0) {
-		rv = ENXIO;
-		return (rv);
-	}
+	if (OF_getprop(memory, "reg", reg, reg_len) <= 0)
+		return (ENXIO);
 
 	tuples = reg_len / tuple_size;
 	regp = (pcell_t *)&reg;
 	for (i = 0; i < tuples; i++) {
-		rv = fdt_data_to_res(regp, addr_cells, size_cells,
+		ret = fdt_data_to_res(regp, addr_cells, size_cells,
 		    &mem_start, &mem_size);
-		if (rv != 0)
-			return (rv);
+		if (ret != 0)
+			return (ret);
 
 		vmem_add(vmem, mem_start, mem_size, 0);
 		regp += addr_cells + size_cells;
