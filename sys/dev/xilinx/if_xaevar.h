@@ -42,7 +42,6 @@
  */
 #define	RX_DESC_COUNT	1024
 #define	TX_DESC_COUNT	1024
-#define	XAE_MAX_COUNTERS	43
 
 struct xae_softc {
 	struct resource		*res[2];

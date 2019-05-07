@@ -117,4 +117,6 @@
 #define	TX_LATE_COLLISIONS		37
 #define	TX_EXCESS_COLLISIONS		38
 
+#define	XAE_MAX_COUNTERS		43
+
 #endif	/* _DEV_XILINX_IF_XAE_H_ */
