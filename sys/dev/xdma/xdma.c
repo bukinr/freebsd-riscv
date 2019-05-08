@@ -44,7 +44,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/lock.h>
 #include <sys/sysctl.h>
 #include <sys/systm.h>
-#include <sys/sx.h>
 
 #include <machine/bus.h>
 
@@ -62,11 +61,11 @@ __FBSDID("$FreeBSD$");
  * Multiple xDMA controllers may work with single DMA device,
  * so we have global lock for physical channel management.
  */
-static struct sx xdma_sx;
+static struct mtx xdma_mtx;
 
-#define	XDMA_LOCK()			sx_xlock(&xdma_sx)
-#define	XDMA_UNLOCK()			sx_xunlock(&xdma_sx)
-#define	XDMA_ASSERT_LOCKED()		sx_xassert(&xdma_sx, MA_OWNED)
+#define	XDMA_LOCK()			mtx_lock(&xdma_mtx)
+#define	XDMA_UNLOCK()			mtx_unlock(&xdma_mtx)
+#define	XDMA_ASSERT_LOCKED()		mtx_assert(&xdma_mtx, MA_OWNED)
 
 #define	FDT_REG_CELLS	4
 
@@ -98,11 +97,11 @@ xdma_channel_alloc(xdma_controller_t *xdma, uint32_t caps)
 
 	TAILQ_INIT(&xchan->ie_handlers);
 
-	sx_init(&xchan->sx_lock, "xDMA chan");
-	sx_init(&xchan->sx_qin_lock, "xDMA qin");
-	sx_init(&xchan->sx_qout_lock, "xDMA qout");
-	sx_init(&xchan->sx_bank_lock, "xDMA bank");
-	sx_init(&xchan->sx_proc_lock, "xDMA proc");
+	mtx_init(&xchan->mtx_lock, "xDMA chan", NULL, MTX_DEF);
+	mtx_init(&xchan->mtx_qin_lock, "xDMA qin", NULL, MTX_DEF);
+	mtx_init(&xchan->mtx_qout_lock, "xDMA qout", NULL, MTX_DEF);
+	mtx_init(&xchan->mtx_bank_lock, "xDMA bank", NULL, MTX_DEF);
+	mtx_init(&xchan->mtx_proc_lock, "xDMA proc", NULL, MTX_DEF);
 
 	TAILQ_INIT(&xchan->bank);
 	TAILQ_INIT(&xchan->queue_in);
@@ -141,11 +140,11 @@ xdma_channel_free(xdma_channel_t *xchan)
 
 	xdma_teardown_all_intr(xchan);
 
-	sx_destroy(&xchan->sx_lock);
-	sx_destroy(&xchan->sx_qin_lock);
-	sx_destroy(&xchan->sx_qout_lock);
-	sx_destroy(&xchan->sx_bank_lock);
-	sx_destroy(&xchan->sx_proc_lock);
+	mtx_destroy(&xchan->mtx_lock);
+	mtx_destroy(&xchan->mtx_qin_lock);
+	mtx_destroy(&xchan->mtx_qout_lock);
+	mtx_destroy(&xchan->mtx_bank_lock);
+	mtx_destroy(&xchan->mtx_proc_lock);
 
 	TAILQ_REMOVE(&xdma->channels, xchan, xchan_next);
 
@@ -492,7 +491,7 @@ static void
 xdma_init(void)
 {
 
-	sx_init(&xdma_sx, "xDMA");
+	mtx_init(&xdma_mtx, "xDMA", NULL, MTX_DEF);
 }
 
 SYSINIT(xdma, SI_SUB_DRIVERS, SI_ORDER_FIRST, xdma_init, NULL);

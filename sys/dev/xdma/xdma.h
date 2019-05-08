@@ -146,11 +146,11 @@ struct xdma_channel {
 	TAILQ_HEAD(, xdma_intr_handler)	ie_handlers;
 	TAILQ_ENTRY(xdma_channel)	xchan_next;
 
-	struct sx			sx_lock;
-	struct sx			sx_qin_lock;
-	struct sx			sx_qout_lock;
-	struct sx			sx_bank_lock;
-	struct sx			sx_proc_lock;
+	struct mtx			mtx_lock;
+	struct mtx			mtx_qin_lock;
+	struct mtx			mtx_qout_lock;
+	struct mtx			mtx_bank_lock;
+	struct mtx			mtx_proc_lock;
 
 	/* Request queue. */
 	bus_dma_tag_t			dma_tag_bufs;
@@ -183,30 +183,30 @@ struct xdma_intr_handler {
 
 static MALLOC_DEFINE(M_XDMA, "xdma", "xDMA framework");
 
-#define	XCHAN_LOCK(xchan)		sx_xlock(&(xchan)->sx_lock)
-#define	XCHAN_UNLOCK(xchan)		sx_xunlock(&(xchan)->sx_lock)
+#define	XCHAN_LOCK(xchan)		mtx_lock(&(xchan)->mtx_lock)
+#define	XCHAN_UNLOCK(xchan)		mtx_unlock(&(xchan)->mtx_lock)
 #define	XCHAN_ASSERT_LOCKED(xchan)	\
-    sx_assert(&(xchan)->sx_lock, SX_XLOCKED)
+    mtx_assert(&(xchan)->mtx_lock, MA_OWNED)
 
-#define	QUEUE_IN_LOCK(xchan)		sx_xlock(&(xchan)->sx_qin_lock)
-#define	QUEUE_IN_UNLOCK(xchan)		sx_xunlock(&(xchan)->sx_qin_lock)
+#define	QUEUE_IN_LOCK(xchan)		mtx_lock(&(xchan)->mtx_qin_lock)
+#define	QUEUE_IN_UNLOCK(xchan)		mtx_unlock(&(xchan)->mtx_qin_lock)
 #define	QUEUE_IN_ASSERT_LOCKED(xchan)	\
-    sx_assert(&(xchan)->sx_qin_lock, SX_XLOCKED)
+    mtx_assert(&(xchan)->mtx_qin_lock, MA_OWNED)
 
-#define	QUEUE_OUT_LOCK(xchan)		sx_xlock(&(xchan)->sx_qout_lock)
-#define	QUEUE_OUT_UNLOCK(xchan)		sx_xunlock(&(xchan)->sx_qout_lock)
+#define	QUEUE_OUT_LOCK(xchan)		mtx_lock(&(xchan)->mtx_qout_lock)
+#define	QUEUE_OUT_UNLOCK(xchan)		mtx_unlock(&(xchan)->mtx_qout_lock)
 #define	QUEUE_OUT_ASSERT_LOCKED(xchan)	\
-    sx_assert(&(xchan)->sx_qout_lock, SX_XLOCKED)
+    mtx_assert(&(xchan)->mtx_qout_lock, MA_OWNED)
 
-#define	QUEUE_BANK_LOCK(xchan)		sx_xlock(&(xchan)->sx_bank_lock)
-#define	QUEUE_BANK_UNLOCK(xchan)	sx_xunlock(&(xchan)->sx_bank_lock)
+#define	QUEUE_BANK_LOCK(xchan)		mtx_lock(&(xchan)->mtx_bank_lock)
+#define	QUEUE_BANK_UNLOCK(xchan)	mtx_unlock(&(xchan)->mtx_bank_lock)
 #define	QUEUE_BANK_ASSERT_LOCKED(xchan)	\
-    sx_assert(&(xchan)->sx_bank_lock, SX_XLOCKED)
+    mtx_assert(&(xchan)->mtx_bank_lock, MA_OWNED)
 
-#define	QUEUE_PROC_LOCK(xchan)		sx_xlock(&(xchan)->sx_proc_lock)
-#define	QUEUE_PROC_UNLOCK(xchan)	sx_xunlock(&(xchan)->sx_proc_lock)
+#define	QUEUE_PROC_LOCK(xchan)		mtx_lock(&(xchan)->mtx_proc_lock)
+#define	QUEUE_PROC_UNLOCK(xchan)	mtx_unlock(&(xchan)->mtx_proc_lock)
 #define	QUEUE_PROC_ASSERT_LOCKED(xchan)	\
-    sx_assert(&(xchan)->sx_proc_lock, SX_XLOCKED)
+    mtx_assert(&(xchan)->mtx_proc_lock, MA_OWNED)
 
 #define	XDMA_SGLIST_MAXLEN	2048
 #define	XDMA_MAX_SEG		128
