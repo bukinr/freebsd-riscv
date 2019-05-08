@@ -326,7 +326,6 @@ axidma_desc_free(struct axidma_softc *sc, struct axidma_channel *chan)
 	free(chan->descs, M_DEVBUF);
 	free(chan->descs_phys, M_DEVBUF);
 
-	printf("removing chunk %lx %d\n", chan->mem_paddr, chan->mem_size);
 	pmap_kremove_device(chan->mem_vaddr, chan->mem_size);
 	kva_free(chan->mem_vaddr, chan->mem_size);
 	vmem_free(xchan->vmem, chan->mem_paddr, chan->mem_size);
@@ -563,7 +562,6 @@ axidma_channel_prep_sg(device_t dev, struct xdma_channel *xchan)
 	}
 
 	addr = chan->descs_phys[0];
-	printf("%s(%d): curdesc %x\n", __func__, data->id, addr);
 	WRITE8(sc, AXI_CURDESC(data->id), addr);
 
 	reg = READ4(sc, AXI_DMACR(data->id));
