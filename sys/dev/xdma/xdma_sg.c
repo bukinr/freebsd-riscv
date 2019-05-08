@@ -65,7 +65,7 @@ struct seg_load_request {
 };
 
 static void
-xchan_bufs_free_vmem(xdma_channel_t *xchan)
+xchan_bufs_free_reserved(xdma_channel_t *xchan)
 {
 	struct xdma_request *xr;
 	vm_size_t size;
@@ -88,7 +88,7 @@ xchan_bufs_free_vmem(xdma_channel_t *xchan)
 }
 
 static int
-xchan_bufs_alloc_vmem(xdma_channel_t *xchan)
+xchan_bufs_alloc_reserved(xdma_channel_t *xchan)
 {
 	xdma_controller_t *xdma;
 	struct xdma_request *xr;
@@ -104,10 +104,11 @@ xchan_bufs_alloc_vmem(xdma_channel_t *xchan)
 	for (i = 0; i < xchan->xr_num; i++) {
 		xr = &xchan->xr_mem[i];
 		size = round_page(xchan->maxsegsize);
-		if (vmem_alloc(xchan->vmem, size, M_BESTFIT, &addr)) {
+		if (vmem_alloc(xchan->vmem, size,
+		    M_BESTFIT | M_NOWAIT, &addr)) {
 			device_printf(xdma->dev,
 			    "%s: Can't allocate memory\n", __func__);
-			xchan_bufs_free_vmem(xchan);
+			xchan_bufs_free_reserved(xchan);
 			return (ENOMEM);
 		}
 		
@@ -117,7 +118,7 @@ xchan_bufs_alloc_vmem(xdma_channel_t *xchan)
 		if (xr->buf.vaddr == 0) {
 			device_printf(xdma->dev,
 			    "%s: Can't allocate KVA\n", __func__);
-			xchan_bufs_free_vmem(xchan);
+			xchan_bufs_free_reserved(xchan);
 			return (ENOMEM);
 		}
 		pmap_kenter_device(xr->buf.vaddr, size, addr);
@@ -191,7 +192,7 @@ xchan_bufs_alloc(xdma_channel_t *xchan)
 	if (xchan->caps & XCHAN_CAP_BUSDMA)
 		ret = xchan_bufs_alloc_busdma(xchan);
 	else {
-		ret = xchan_bufs_alloc_vmem(xchan);
+		ret = xchan_bufs_alloc_reserved(xchan);
 	}
 	if (ret != 0) {
 		device_printf(xdma->dev,
@@ -222,7 +223,7 @@ xchan_bufs_free(xdma_channel_t *xchan)
 		}
 		bus_dma_tag_destroy(xchan->dma_tag_bufs);
 	} else
-		xchan_bufs_free_vmem(xchan);
+		xchan_bufs_free_reserved(xchan);
 
 	xchan->flags &= ~XCHAN_BUFS_ALLOCATED;
 

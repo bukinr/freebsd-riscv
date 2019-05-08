@@ -346,7 +346,7 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 	nsegments = chan->descs_num;
 
 	chan->descs = malloc(nsegments * sizeof(struct axidma_desc *),
-	    M_DEVBUF, (M_WAITOK | M_ZERO));
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
 	if (chan->descs == NULL) {
 		device_printf(sc->dev,
 		    "%s: Can't allocate memory.\n", __func__);
@@ -354,9 +354,9 @@ axidma_desc_alloc(struct axidma_softc *sc, struct xdma_channel *xchan,
 	}
 
 	chan->descs_phys = malloc(nsegments * sizeof(bus_dma_segment_t),
-	    M_DEVBUF, (M_WAITOK | M_ZERO));
+	    M_DEVBUF, M_NOWAIT | M_ZERO);
 	chan->mem_size = desc_size * nsegments;
-	if (vmem_alloc(xchan->vmem, chan->mem_size, M_FIRSTFIT,
+	if (vmem_alloc(xchan->vmem, chan->mem_size, M_FIRSTFIT | M_NOWAIT,
 	    &chan->mem_paddr)) {
 		device_printf(sc->dev, "Failed to allocate memory.\n");
 		return (-1);
