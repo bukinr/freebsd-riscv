@@ -1,7 +1,7 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-3-Clause
  *
- * Copyright (C) 1999-2000 by Maksim Yevmenkin <m_evmenkin@yahoo.com>
+ * Copyright (c) 2017-2019 Mellanox Technologies.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -12,6 +12,9 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the name of Mellanox nor the names of contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -25,47 +28,32 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * BASED ON:
- * -------------------------------------------------------------------------
- *
- * Copyright (c) 1998 Brian Somers <brian@Awfulhak.org>
- * All rights reserved.
- *
- * Copyright (c) 1988, Julian Onions <jpo@cs.nott.ac.uk>
- * Nottingham University 1987.
- */
-
-/*
  * $FreeBSD$
- * $Id: if_tapvar.h,v 0.6 2000/07/11 02:16:08 max Exp $
  */
 
-#ifndef _NET_IF_TAPVAR_H_
-#define _NET_IF_TAPVAR_H_
+#ifndef _MLXFW_MFA2_FILE_H
+#define _MLXFW_MFA2_FILE_H
 
-/*
- * tap_mtx locks tap_flags, tap_pid.  tap_next locked with global tapmtx.
- * Other fields locked by owning subsystems.
- */
-struct tap_softc {
-	struct ifnet	*tap_ifp;
-	u_short		tap_flags;		/* misc flags                */
-#define	TAP_OPEN	(1 << 0)
-#define	TAP_INITED	(1 << 1)
-#define	TAP_RWAIT	(1 << 2)
-#define	TAP_ASYNC	(1 << 3)
-#define TAP_READY       (TAP_OPEN|TAP_INITED)
-#define	TAP_VMNET	(1 << 4)
+#include "mlxfw.h"
+#include <linux/kernel.h>
 
-	u_int8_t 	ether_addr[ETHER_ADDR_LEN]; /* ether addr of the remote side */
-
-	pid_t		 tap_pid;		/* PID of process to open    */
-	struct sigio	*tap_sigio;		/* information for async I/O */
-	struct selinfo	 tap_rsel;		/* read select               */
-
-	SLIST_ENTRY(tap_softc)	tap_next;	/* next device in chain      */
-	struct cdev *tap_dev;
-	struct mtx	 tap_mtx;		/* per-softc mutex */
+struct mlxfw_mfa2_file {
+	const struct firmware *fw;
+	const struct mlxfw_mfa2_tlv *first_dev;
+	u16 dev_count;
+	const struct mlxfw_mfa2_tlv *first_component;
+	u16 component_count;
+	const void *cb; /* components block */
+	u32 cb_archive_size; /* size of compressed components block */
 };
 
-#endif /* !_NET_IF_TAPVAR_H_ */
+static inline bool mlxfw_mfa2_valid_ptr(const struct mlxfw_mfa2_file *mfa2_file,
+					const u8 *ptr)
+{
+	const u8 *valid_to = (const u8 *) mfa2_file->fw->data + mfa2_file->fw->datasize;
+	const u8 *valid_from = mfa2_file->fw->data;
+
+	return ptr > valid_from && ptr < valid_to;
+}
+
+#endif
