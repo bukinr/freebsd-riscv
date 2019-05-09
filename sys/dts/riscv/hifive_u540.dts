@@ -23,34 +23,26 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 		timebase-frequency = <1000000>;
-		L12: cpu@0 {
+		L9: cpu@0 {
 			clock-frequency = <0>;
 			compatible = "sifive,rocket0", "riscv";
-			d-cache-block-size = <64>;
-			d-cache-sets = <64>;
-			d-cache-size = <32768>;
-			d-tlb-sets = <1>;
-			d-tlb-size = <32>;
 			device_type = "cpu";
 			i-cache-block-size = <64>;
-			i-cache-sets = <64>;
-			i-cache-size = <32768>;
-			i-tlb-sets = <1>;
-			i-tlb-size = <32>;
-			mmu-type = "riscv,sv39";
+			i-cache-sets = <128>;
+			i-cache-size = <16384>;
 			next-level-cache = <&L24 &L0>;
 			reg = <0>;
-			riscv,isa = "rv64imafdc";
-			sifive,itim = <&L11>;
+			riscv,isa = "rv64imac";
+			sifive,dtim = <&L8>;
+			sifive,itim = <&L7>;
 			status = "okay";
-			tlb-split;
-			L13: interrupt-controller {
+			L10: interrupt-controller {
 				#interrupt-cells = <1>;
 				compatible = "riscv,cpu-intc";
 				interrupt-controller;
 			};
 		};
-		L15: cpu@1 {
+		L12: cpu@1 {
 			clock-frequency = <0>;
 			compatible = "sifive,rocket0", "riscv";
 			d-cache-block-size = <64>;
@@ -68,16 +60,16 @@
 			next-level-cache = <&L24 &L0>;
 			reg = <1>;
 			riscv,isa = "rv64imafdc";
-			sifive,itim = <&L14>;
+			sifive,itim = <&L11>;
 			status = "okay";
 			tlb-split;
-			L16: interrupt-controller {
+			L13: interrupt-controller {
 				#interrupt-cells = <1>;
 				compatible = "riscv,cpu-intc";
 				interrupt-controller;
 			};
 		};
-		L18: cpu@2 {
+		L15: cpu@2 {
 			clock-frequency = <0>;
 			compatible = "sifive,rocket0", "riscv";
 			d-cache-block-size = <64>;
@@ -95,16 +87,16 @@
 			next-level-cache = <&L24 &L0>;
 			reg = <2>;
 			riscv,isa = "rv64imafdc";
-			sifive,itim = <&L17>;
+			sifive,itim = <&L14>;
 			status = "okay";
 			tlb-split;
-			L19: interrupt-controller {
+			L16: interrupt-controller {
 				#interrupt-cells = <1>;
 				compatible = "riscv,cpu-intc";
 				interrupt-controller;
 			};
 		};
-		L21: cpu@3 {
+		L18: cpu@3 {
 			clock-frequency = <0>;
 			compatible = "sifive,rocket0", "riscv";
 			d-cache-block-size = <64>;
@@ -121,6 +113,33 @@
 			mmu-type = "riscv,sv39";
 			next-level-cache = <&L24 &L0>;
 			reg = <3>;
+			riscv,isa = "rv64imafdc";
+			sifive,itim = <&L17>;
+			status = "okay";
+			tlb-split;
+			L19: interrupt-controller {
+				#interrupt-cells = <1>;
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+			};
+		};
+		L21: cpu@4 {
+			clock-frequency = <0>;
+			compatible = "sifive,rocket0", "riscv";
+			d-cache-block-size = <64>;
+			d-cache-sets = <64>;
+			d-cache-size = <32768>;
+			d-tlb-sets = <1>;
+			d-tlb-size = <32>;
+			device_type = "cpu";
+			i-cache-block-size = <64>;
+			i-cache-sets = <64>;
+			i-cache-size = <32768>;
+			i-tlb-sets = <1>;
+			i-tlb-size = <32>;
+			mmu-type = "riscv,sv39";
+			next-level-cache = <&L24 &L0>;
+			reg = <4>;
 			riscv,isa = "rv64imafdc";
 			sifive,itim = <&L20>;
 			status = "okay";
@@ -198,13 +217,13 @@
 		};
 		L5: clint@2000000 {
 			compatible = "riscv,clint0";
-			interrupts-extended = <&L13 3 &L13 7 &L16 3 &L16 7 &L19 3 &L19 7 &L22 3 &L22 7>;
+			interrupts-extended = <&L10 3 &L10 7 &L13 3 &L13 7 &L16 3 &L16 7 &L19 3 &L19 7 &L22 3 &L22 7>;
 			reg = <0x0 0x2000000 0x0 0x10000>;
 			reg-names = "control";
 		};
 		L6: debug-controller@0 {
 			compatible = "sifive,debug-013", "riscv,debug-013";
-			interrupts-extended = <&L13 65535 &L16 65535 &L19 65535 &L22 65535>;
+			interrupts-extended = <&L10 65535 &L13 65535 &L16 65535 &L19 65535 &L22 65535>;
 			reg = <0x0 0x0 0x0 0x1000>;
 			reg-names = "control";
 		};
@@ -327,7 +346,7 @@
 			#interrupt-cells = <1>;
 			compatible = "riscv,plic0";
 			interrupt-controller;
-			interrupts-extended = <&L13 11 &L13 9 &L16 11 &L16 9 &L19 11 &L19 9 &L22 11 &L22 9>;
+			interrupts-extended = <&L10 11 &L13 11 &L13 9 &L16 11 &L16 9 &L19 11 &L19 9 &L22 11 &L22 9>;
 			reg = <0x0 0xc000000 0x0 0x4000000>;
 			reg-names = "control";
 			riscv,max-priority = <7>;
