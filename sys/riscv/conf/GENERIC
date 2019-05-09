@@ -103,13 +103,13 @@ device		uart_lowrisc	# lowRISC UART driver
 device		uart_ns8250	# ns8250-type UART driver
 
 
-# Networking support
-device		miibus
-device		xae		# Xilinx AXI Ethernet
+# Ethernet drivers
+device		miibus		# MII bus support
 device		cgem		# Cadence Gigabit Ethernet MAC
+device		xae		# Xilinx AXI Ethernet MAC
 
 # DMA support
-device		xdma
+device		xdma		# DMA interface
 device		axidma		# Xilinx AXI DMA Controller
 
 # Uncomment for memory disk
