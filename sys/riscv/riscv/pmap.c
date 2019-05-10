@@ -233,6 +233,8 @@ CTASSERT((DMAP_MAX_ADDRESS  & ~L1_OFFSET) == DMAP_MAX_ADDRESS);
 static struct rwlock_padalign pvh_global_lock;
 static struct mtx_padalign allpmaps_lock;
 
+extern uint32_t cpuid_to_hart[MAXCPU];
+
 static SYSCTL_NODE(_vm, OID_AUTO, pmap, CTLFLAG_RD, 0,
     "VM/pmap parameters");
 
@@ -723,6 +725,21 @@ pmap_init(void)
 }
 
 #ifdef SMP
+static cpuset_t
+pmap_cpu_to_hart(cpuset_t mask)
+{
+	cpuset_t harts;
+	u_int cpu;
+
+	CPU_ZERO(&harts);
+
+	CPU_FOREACH(cpu)
+		if (CPU_ISSET(cpu, &mask))
+			CPU_SET(cpuid_to_hart[cpu], &harts);
+
+	return (harts);
+}
+
 /*
  * For SMP, these functions have to use IPIs for coherence.
  *
@@ -734,13 +751,15 @@ static void
 pmap_invalidate_page(pmap_t pmap, vm_offset_t va)
 {
 	cpuset_t mask;
+	cpuset_t harts;
 
 	sched_pin();
 	mask = pmap->pm_active;
 	CPU_CLR(PCPU_GET(cpuid), &mask);
 	fence();
-	if (!CPU_EMPTY(&mask) && smp_started)
-		sbi_remote_sfence_vma(mask.__bits, va, 1);
+	harts = pmap_cpu_to_hart(mask);
+	if (!CPU_EMPTY(&harts) && smp_started)
+		sbi_remote_sfence_vma(harts.__bits, va, 1);
 	sfence_vma_page(va);
 	sched_unpin();
 }
@@ -749,13 +768,15 @@ static void
 pmap_invalidate_range(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 {
 	cpuset_t mask;
+	cpuset_t harts;
 
 	sched_pin();
 	mask = pmap->pm_active;
 	CPU_CLR(PCPU_GET(cpuid), &mask);
 	fence();
-	if (!CPU_EMPTY(&mask) && smp_started)
-		sbi_remote_sfence_vma(mask.__bits, sva, eva - sva + 1);
+	harts = pmap_cpu_to_hart(mask);
+	if (!CPU_EMPTY(&harts) && smp_started)
+		sbi_remote_sfence_vma(harts.__bits, sva, eva - sva + 1);
 
 	/*
 	 * Might consider a loop of sfence_vma_page() for a small
@@ -769,6 +790,7 @@ static void
 pmap_invalidate_all(pmap_t pmap)
 {
 	cpuset_t mask;
+	cpuset_t harts;
 
 	sched_pin();
 	mask = pmap->pm_active;
@@ -780,8 +802,9 @@ pmap_invalidate_all(pmap_t pmap)
 	 * all sfence_vma requests as global however.
 	 */
 	fence();
-	if (!CPU_EMPTY(&mask) && smp_started)
-		sbi_remote_sfence_vma(mask.__bits, 0, 0);
+	harts = pmap_cpu_to_hart(mask);
+	if (!CPU_EMPTY(&harts) && smp_started)
+		sbi_remote_sfence_vma(harts.__bits, 0, 0);
 	sfence_vma();
 	sched_unpin();
 }
@@ -4302,7 +4325,9 @@ pmap_activate_boot(pmap_t pmap)
 void
 pmap_sync_icache(pmap_t pmap, vm_offset_t va, vm_size_t sz)
 {
+#ifdef SMP
 	cpuset_t mask;
+	cpuset_t harts;
 
 	/*
 	 * From the RISC-V User-Level ISA V2.2:
@@ -4316,9 +4341,13 @@ pmap_sync_icache(pmap_t pmap, vm_offset_t va, vm_size_t sz)
 	mask = all_cpus;
 	CPU_CLR(PCPU_GET(cpuid), &mask);
 	fence();
-	if (!CPU_EMPTY(&mask) && smp_started)
-		sbi_remote_fence_i(mask.__bits);
+	harts = pmap_cpu_to_hart(mask);
+	if (!CPU_EMPTY(&harts) && smp_started)
+		sbi_remote_fence_i(harts.__bits);
 	sched_unpin();
+#else
+	fence();
+#endif
 }
 
 /*

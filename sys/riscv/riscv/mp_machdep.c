@@ -74,6 +74,8 @@ boolean_t ofw_cpu_reg(phandle_t node, u_int, cell_t *);
 extern struct pcpu __pcpu[];
 
 uint32_t __riscv_boot_ap[MAXCPU];
+uint32_t boot_hart;	/* The hart we booted on. */
+uint32_t cpuid_to_hart[MAXCPU];
 
 static enum {
 	CPUS_UNKNOWN,
@@ -99,7 +101,7 @@ static device_t cpu_list[MAXCPU];
 void mpentry(unsigned long cpuid);
 void init_secondary(uint64_t);
 
-uint8_t secondary_stacks[MAXCPU - 1][PAGE_SIZE * KSTACK_PAGES] __aligned(16);
+uint8_t secondary_stacks[MAXCPU][PAGE_SIZE * KSTACK_PAGES] __aligned(16);
 
 /* Set to 1 once we're ready to let the APs out of the pen. */
 volatile int aps_ready = 0;
@@ -196,8 +198,11 @@ release_aps(void *dummy __unused)
 	/* Wake up the other CPUs */
 	mask = 0;
 
-	for (i = 1; i < mp_ncpus; i++)
-		mask |= (1 << i);
+	for (i = 0; i < mp_ncpus; i++) {
+		if (cpuid_to_hart[i] == boot_hart)
+			continue;
+		mask |= (1 << cpuid_to_hart[i]);
+	}
 
 	sbi_send_ipi(&mask);
 
@@ -219,12 +224,19 @@ release_aps(void *dummy __unused)
 SYSINIT(start_aps, SI_SUB_SMP, SI_ORDER_FIRST, release_aps, NULL);
 
 void
-init_secondary(uint64_t cpu)
+init_secondary(uint64_t hart)
 {
 	struct pcpu *pcpup;
+	u_int cpuid;
+
+	/* Renumber this cpu */
+	cpuid = hart;
+	if (cpuid < boot_hart)
+		cpuid += mp_maxid + 1;
+	cpuid -= boot_hart;
 
 	/* Setup the pcpu pointer */
-	pcpup = &__pcpu[cpu];
+	pcpup = &__pcpu[cpuid];
 	__asm __volatile("mv gp, %0" :: "r"(pcpup));
 
 	/* Workaround: make sure wfi doesn't halt the hart */
@@ -366,11 +378,12 @@ cpu_mp_probe(void)
 static boolean_t
 cpu_init_fdt(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
 {
-	uint64_t target_cpu;
 	struct pcpu *pcpup;
+	uint64_t hart;
+	u_int cpuid;
 
-	/* Check we are able to start this cpu */
-	if (id > mp_maxid)
+	/* Check if this hart supports MMU. */
+	if (OF_getproplen(node, "mmu-type") < 0)
 		return (0);
 
 	KASSERT(id < MAXCPU, ("Too many CPUs"));
@@ -382,28 +395,40 @@ cpu_init_fdt(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
 		cpu_reg[id][1] = reg[1];
 #endif
 
-	target_cpu = reg[0];
+	hart = reg[0];
 	if (addr_size == 2) {
-		target_cpu <<= 32;
-		target_cpu |= reg[1];
+		hart <<= 32;
+		hart |= reg[1];
 	}
 
-	pcpup = &__pcpu[id];
-
-	/* We are already running on cpu 0 */
-	if (id == 0) {
+	/* We are already running on this cpu */
+	if (hart == boot_hart)
 		return (1);
-	}
 
-	pcpu_init(pcpup, id, sizeof(struct pcpu));
+	/*
+	 * Rotate the CPU IDs to put the boot CPU as CPU 0.
+	 * We keep the other CPUs ordered.
+	 */
+	cpuid = hart;
+	if (cpuid < boot_hart)
+		cpuid += mp_maxid + 1;
+	cpuid -= boot_hart;
+	cpuid_to_hart[cpuid] = hart;
 
-	dpcpu[id - 1] = (void *)kmem_malloc(DPCPU_SIZE, M_WAITOK | M_ZERO);
-	dpcpu_init(dpcpu[id - 1], id);
+	/* Check if we are able to start this cpu */
+	if (cpuid > mp_maxid)
+		return (0);
 
-	printf("Starting CPU %u (%lx)\n", id, target_cpu);
-	__riscv_boot_ap[id] = 1;
+	pcpup = &__pcpu[cpuid];
+	pcpu_init(pcpup, cpuid, sizeof(struct pcpu));
 
-	CPU_SET(id, &all_cpus);
+	dpcpu[cpuid - 1] = (void *)kmem_malloc(DPCPU_SIZE, M_WAITOK | M_ZERO);
+	dpcpu_init(dpcpu[cpuid - 1], cpuid);
+
+	printf("Starting CPU %u (hart %lx)\n", cpuid, hart);
+	__riscv_boot_ap[hart] = 1;
+
+	CPU_SET(cpuid, &all_cpus);
 
 	return (1);
 }
@@ -416,6 +441,7 @@ cpu_mp_start(void)
 
 	mtx_init(&ap_boot_mtx, "ap boot", NULL, MTX_SPIN);
 
+	cpuid_to_hart[0] = boot_hart;
 	CPU_SET(0, &all_cpus);
 
 	switch(cpu_enum_method) {
@@ -435,13 +461,24 @@ cpu_mp_announce(void)
 {
 }
 
+static boolean_t
+cpu_check_mmu(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
+{
+
+	/* Check if this hart supports MMU. */
+	if (OF_getproplen(node, "mmu-type") < 0)
+		return (0);
+
+	return (1);
+}
+
 void
 cpu_mp_setmaxid(void)
 {
 #ifdef FDT
 	int cores;
 
-	cores = ofw_cpu_early_foreach(NULL, false);
+	cores = ofw_cpu_early_foreach(cpu_check_mmu, true);
 	if (cores > 0) {
 		cores = MIN(cores, MAXCPU);
 		if (bootverbose)
