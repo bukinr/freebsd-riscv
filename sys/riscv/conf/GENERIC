@@ -156,6 +156,6 @@ device		firmware	# firmware assist module
 device		bpf		# Berkeley packet filter
 
 options 	FDT
-options 	FDT_DTB_STATIC
+#options 	FDT_DTB_STATIC
 #makeoptions	FDT_DTS_FILE=p2.dts
-makeoptions	FDT_DTS_FILE=hifive_u540.dts
+#makeoptions	FDT_DTS_FILE=hifive_u540.dts
