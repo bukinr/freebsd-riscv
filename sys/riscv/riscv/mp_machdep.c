@@ -185,8 +185,7 @@ riscv64_cpu_attach(device_t dev)
 static void
 release_aps(void *dummy __unused)
 {
-	struct pcpu *pcpup;
-	u_long mask;
+	cpuset_t mask;
 	int cpu, i;
 
 	if (mp_ncpus == 1)
@@ -198,18 +197,12 @@ release_aps(void *dummy __unused)
 	atomic_store_rel_int(&aps_ready, 1);
 
 	/* Wake up the other CPUs */
-	mask = 0;
-
-	for (i = 0; i < mp_ncpus; i++) {
-		pcpup = &__pcpu[i];
-		if (pcpup->pc_hart == boot_hart)
-			continue;
-		mask |= (1 << pcpup->pc_hart);
-	}
-
-	sbi_send_ipi(&mask);
+	mask = all_harts;
+	CPU_CLR(boot_hart, &mask);
 
 	printf("Release APs\n");
+
+	sbi_send_ipi(mask.__bits);
 
 	for (i = 0; i < 2000; i++) {
 		if (smp_started) {
