@@ -4257,7 +4257,7 @@ void
 pmap_activate_sw(struct thread *td)
 {
 	pmap_t oldpmap, pmap;
-	u_int cpu;
+	u_int hart;
 
 	oldpmap = PCPU_GET(curpmap);
 	pmap = vmspace_pmap(td->td_proc->p_vmspace);
@@ -4265,13 +4265,13 @@ pmap_activate_sw(struct thread *td)
 		return;
 	load_satp(pmap->pm_satp);
 
-	cpu = PCPU_GET(hart);
+	hart = PCPU_GET(hart);
 #ifdef SMP
-	CPU_SET_ATOMIC(cpu, &pmap->pm_active);
-	CPU_CLR_ATOMIC(cpu, &oldpmap->pm_active);
+	CPU_SET_ATOMIC(hart, &pmap->pm_active);
+	CPU_CLR_ATOMIC(hart, &oldpmap->pm_active);
 #else
-	CPU_SET(cpu, &pmap->pm_active);
-	CPU_CLR(cpu, &oldpmap->pm_active);
+	CPU_SET(hart, &pmap->pm_active);
+	CPU_CLR(hart, &oldpmap->pm_active);
 #endif
 	PCPU_SET(curpmap, pmap);
 
@@ -4290,13 +4290,13 @@ pmap_activate(struct thread *td)
 void
 pmap_activate_boot(pmap_t pmap)
 {
-	u_int cpu;
+	u_int hart;
 
-	cpu = PCPU_GET(hart);
+	hart = PCPU_GET(hart);
 #ifdef SMP
-	CPU_SET_ATOMIC(cpu, &pmap->pm_active);
+	CPU_SET_ATOMIC(hart, &pmap->pm_active);
 #else
-	CPU_SET(cpu, &pmap->pm_active);
+	CPU_SET(hart, &pmap->pm_active);
 #endif
 	PCPU_SET(curpmap, pmap);
 }
