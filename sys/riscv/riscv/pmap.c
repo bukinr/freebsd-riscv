@@ -569,7 +569,7 @@ pmap_bootstrap(vm_offset_t l1pt, vm_paddr_t kernstart, vm_size_t kernlen)
 
 	rw_init(&pvh_global_lock, "pmap pv global");
 
-	kernel_pmap->pm_active = all_harts;
+	CPU_FILL(&kernel_pmap->pm_active);
 
 	/* Assume the address we were loaded to is a valid physical address. */
 	min_pa = max_pa = kernstart;
