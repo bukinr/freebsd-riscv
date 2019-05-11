@@ -397,6 +397,8 @@ cpu_init_fdt(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
 		hart |= reg[1];
 	}
 
+	KASSERT(hart < MAXCPU, ("Too many harts."));
+
 	/* We are already running on this cpu */
 	if (hart == boot_hart)
 		return (1);
