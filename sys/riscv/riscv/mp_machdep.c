@@ -74,8 +74,6 @@ boolean_t ofw_cpu_reg(phandle_t node, u_int, cell_t *);
 extern struct pcpu __pcpu[];
 
 uint32_t __riscv_boot_ap[MAXCPU];
-uint32_t boot_hart;	/* The hart we booted on. */
-uint32_t cpuid_to_hart[MAXCPU];
 
 static enum {
 	CPUS_UNKNOWN,
@@ -92,6 +90,9 @@ static int ipi_handler(void *);
 
 struct mtx ap_boot_mtx;
 struct pcb stoppcbs[MAXCPU];
+
+extern uint32_t boot_hart;
+extern cpuset_t all_harts;
 
 #ifdef INVARIANTS
 static uint32_t cpu_reg[MAXCPU][2];
@@ -184,6 +185,7 @@ riscv64_cpu_attach(device_t dev)
 static void
 release_aps(void *dummy __unused)
 {
+	struct pcpu *pcpup;
 	u_long mask;
 	int cpu, i;
 
@@ -199,9 +201,10 @@ release_aps(void *dummy __unused)
 	mask = 0;
 
 	for (i = 0; i < mp_ncpus; i++) {
-		if (cpuid_to_hart[i] == boot_hart)
+		pcpup = &__pcpu[i];
+		if (pcpup->pc_hart == boot_hart)
 			continue;
-		mask |= (1 << cpuid_to_hart[i]);
+		mask |= (1 << pcpup->pc_hart);
 	}
 
 	sbi_send_ipi(&mask);
@@ -413,7 +416,6 @@ cpu_init_fdt(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
 	if (cpuid < boot_hart)
 		cpuid += mp_maxid + 1;
 	cpuid -= boot_hart;
-	cpuid_to_hart[cpuid] = hart;
 
 	/* Check if we are able to start this cpu */
 	if (cpuid > mp_maxid)
@@ -421,6 +423,7 @@ cpu_init_fdt(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
 
 	pcpup = &__pcpu[cpuid];
 	pcpu_init(pcpup, cpuid, sizeof(struct pcpu));
+	pcpup->pc_hart = hart;
 
 	dpcpu[cpuid - 1] = (void *)kmem_malloc(DPCPU_SIZE, M_WAITOK | M_ZERO);
 	dpcpu_init(dpcpu[cpuid - 1], cpuid);
@@ -429,6 +432,7 @@ cpu_init_fdt(u_int id, phandle_t node, u_int addr_size, pcell_t *reg)
 	__riscv_boot_ap[hart] = 1;
 
 	CPU_SET(cpuid, &all_cpus);
+	CPU_SET(hart, &all_harts);
 
 	return (1);
 }
@@ -441,8 +445,8 @@ cpu_mp_start(void)
 
 	mtx_init(&ap_boot_mtx, "ap boot", NULL, MTX_SPIN);
 
-	cpuid_to_hart[0] = boot_hart;
 	CPU_SET(0, &all_cpus);
+	CPU_SET(boot_hart, &all_harts);
 
 	switch(cpu_enum_method) {
 #ifdef FDT
