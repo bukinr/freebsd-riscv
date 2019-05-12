@@ -65,8 +65,8 @@ _start:
 	 * a1 = dtbp
 	 */
 
-	/* Pick a cpu to run the boot process. */
-	la	t0, cpu_lottery
+	/* Pick a hart to run the boot process. */
+	la	t0, hart_lottery
 	li	t1, 1
 	amoadd.w t0, t1, 0(t0)
 	bnez	t0, mpentry
@@ -248,7 +248,7 @@ pagetable_l2_devmap:
 	.align 3
 virt_map:
 	.quad   virt_map
-cpu_lottery:
+hart_lottery:
 	.space	4
 
 	/* Not in use, but required for linking. */
