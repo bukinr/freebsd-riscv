@@ -1372,6 +1372,7 @@ OLD_FILES+=usr/bin/clang++
 OLD_FILES+=usr/bin/clang-cpp
 OLD_FILES+=usr/bin/clang-tblgen
 OLD_FILES+=usr/bin/llvm-objdump
+OLD_FILES+=usr/bin/llvm-symbolizer
 OLD_FILES+=usr/bin/llvm-tblgen
 OLD_FILES+=usr/lib/clang/8.0.0/include/sanitizer/allocator_interface.h
 OLD_FILES+=usr/lib/clang/8.0.0/include/sanitizer/asan_interface.h
@@ -1561,7 +1562,6 @@ OLD_FILES+=usr/bin/llvm-objcopy
 OLD_FILES+=usr/bin/llvm-pdbutil
 OLD_FILES+=usr/bin/llvm-ranlib
 OLD_FILES+=usr/bin/llvm-rtdyld
-OLD_FILES+=usr/bin/llvm-symbolizer
 OLD_FILES+=usr/bin/llvm-xray
 OLD_FILES+=usr/bin/opt
 OLD_FILES+=usr/share/man/man1/bugpoint.1.gz
@@ -2746,12 +2746,16 @@ OLD_FILES+=usr/include/omp.h
 .endif
 OLD_FILES+=usr/lib/libgcov.a
 OLD_FILES+=usr/lib/libgomp.a
+.if ${MK_OPENMP} == no
 OLD_FILES+=usr/lib/libgomp.so
+.endif
 OLD_LIBS+=usr/lib/libgomp.so.1
 OLD_FILES+=usr/lib/libgomp_p.a
 OLD_FILES+=usr/lib32/libgcov.a
 OLD_FILES+=usr/lib32/libgomp.a
+.if ${MK_OPENMP} == no
 OLD_FILES+=usr/lib32/libgomp.so
+.endif
 OLD_LIBS+=usr/lib32/libgomp.so.1
 OLD_FILES+=usr/lib32/libgomp_p.a
 OLD_FILES+=usr/libexec/cc1
@@ -7749,11 +7753,14 @@ OLD_FILES+=usr/share/man/man8/smpquery.8.gz
 OLD_FILES+=usr/share/man/man8/vendstat.8.gz
 .endif
 
-.if ${MK_OPENSSH} == no
+.if ${MK_OPENMP} == no
 .if ${MK_GCC} == no
 OLD_FILES+=usr/include/omp.h
+OLD_LIBS+=usr/lib/libgomp.so
+OLD_LIBS+=usr/lib32/libgomp.so
 .endif
 OLD_LIBS+=usr/lib/libomp.so
+OLD_LIBS+=usr/lib32/libomp.so
 .endif
 
 .if ${MK_OPENSSH} == no
