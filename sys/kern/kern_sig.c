@@ -3398,10 +3398,16 @@ corefile_open_last(struct thread *td, char *name, int indexpos,
 	}
 
 	if (oldvp != NULL) {
-		if (nextvp == NULL)
-			nextvp = oldvp;
-		else
+		if (nextvp == NULL) {
+			if ((td->td_proc->p_flag & P_SUGID) != 0) {
+				error = EFAULT;
+				vnode_close_locked(td, oldvp);
+			} else {
+				nextvp = oldvp;
+			}
+		} else {
 			vnode_close_locked(td, oldvp);
+		}
 	}
 	if (error != 0) {
 		if (nextvp != NULL)
@@ -3427,7 +3433,7 @@ corefile_open_last(struct thread *td, char *name, int indexpos,
  */
 static int
 corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
-    int compress, struct vnode **vpp, char **namep)
+    int compress, int signum, struct vnode **vpp, char **namep)
 {
 	struct sbuf sb;
 	struct nameidata nd;
@@ -3476,6 +3482,9 @@ corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
 			case 'P':	/* process id */
 				sbuf_printf(&sb, "%u", pid);
 				break;
+			case 'S':	/* signal number */
+				sbuf_printf(&sb, "%i", signum);
+				break;
 			case 'U':	/* user id */
 				sbuf_printf(&sb, "%u", uid);
 				break;
@@ -3521,6 +3530,8 @@ corefile_open(const char *comm, uid_t uid, pid_t pid, struct thread *td,
 		oflags = VN_OPEN_NOAUDIT | VN_OPEN_NAMECACHE |
 		    (capmode_coredump ? VN_OPEN_NOCAPCHECK : 0);
 		flags = O_CREAT | FWRITE | O_NOFOLLOW;
+		if ((td->td_proc->p_flag & P_SUGID) != 0)
+			flags |= O_EXCL;
 
 		NDINIT(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, name, td);
 		error = vn_open_cred(&nd, &flags, cmode, oflags, td->td_ucred,
@@ -3591,16 +3602,17 @@ coredump(struct thread *td)
 	PROC_UNLOCK(p);
 
 	error = corefile_open(p->p_comm, cred->cr_uid, p->p_pid, td,
-	    compress_user_cores, &vp, &name);
+	    compress_user_cores, p->p_sig, &vp, &name);
 	if (error != 0)
 		return (error);
 
 	/*
 	 * Don't dump to non-regular files or files with links.
-	 * Do not dump into system files.
+	 * Do not dump into system files. Effective user must own the corefile.
 	 */
 	if (vp->v_type != VREG || VOP_GETATTR(vp, &vattr, cred) != 0 ||
-	    vattr.va_nlink != 1 || (vp->v_vflag & VV_SYSTEM) != 0) {
+	    vattr.va_nlink != 1 || (vp->v_vflag & VV_SYSTEM) != 0 ||
+	    vattr.va_uid != cred->cr_uid) {
 		VOP_UNLOCK(vp, 0);
 		error = EFAULT;
 		goto out;

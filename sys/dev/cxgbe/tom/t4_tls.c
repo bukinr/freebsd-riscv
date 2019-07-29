@@ -1193,7 +1193,6 @@ t4_push_tls_records(struct adapter *sc, struct toepcb *toep, int drop)
 
 		/* Read the header of the next TLS record. */
 		sndptr = sbsndmbuf(sb, tls_ofld->sb_off, &sndptroff);
-		MPASS(!IS_AIOTX_MBUF(sndptr));
 		m_copydata(sndptr, sndptroff, sizeof(thdr), (caddr_t)&thdr);
 		tls_size = htons(thdr.length);
 		plen = TLS_HEADER_LENGTH + tls_size;
@@ -1585,8 +1584,8 @@ do_rx_tls_cmp(struct sge_iq *iq, const struct rss_header *rss, struct mbuf *m)
 	sbappendstream_locked(sb, m, 0);
 	rx_credits = sbspace(sb) > tp->rcv_wnd ? sbspace(sb) - tp->rcv_wnd : 0;
 #ifdef VERBOSE_TRACES
-	CTR5(KTR_CXGBE, "%s: tid %u PDU overhead %d rx_credits %u rcv_wnd %u",
-	    __func__, tid, pdu_overhead, rx_credits, tp->rcv_wnd);
+	CTR4(KTR_CXGBE, "%s: tid %u rx_credits %u rcv_wnd %u",
+	    __func__, tid, rx_credits, tp->rcv_wnd);
 #endif
 	if (rx_credits > 0 && sbused(sb) + tp->rcv_wnd < sb->sb_lowat) {
 		rx_credits = send_rx_credits(sc, toep, rx_credits);
