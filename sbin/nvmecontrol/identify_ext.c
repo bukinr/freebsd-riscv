@@ -3,6 +3,7 @@
  *
  * Copyright (C) 2012-2013 Intel Corporation
  * All rights reserved.
+ * Copyright (C) 2018-2019 Alexander Motin <mav@FreeBSD.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -121,7 +122,7 @@ nvme_print_controller(struct nvme_controller_data *cdata)
 		printf("Unlimited\n");
 	else
 		printf("%ld\n", PAGE_SIZE * (1L << cdata->mdts));
-	printf("Controller ID:               0x%02x\n", cdata->ctrlr_id);
+	printf("Controller ID:               0x%04x\n", cdata->ctrlr_id);
 	printf("Version:                     %d.%d.%d\n",
 	    (cdata->ver >> 16) & 0xffff, (cdata->ver >> 8) & 0xff,
 	    cdata->ver & 0xff);
@@ -159,11 +160,11 @@ nvme_print_controller(struct nvme_controller_data *cdata)
 	if (cdata->sanicap != 0) {
 		printf("%s%s%s\n",
 		    ((cdata->sanicap >> NVME_CTRLR_DATA_SANICAP_CES_SHIFT) &
-		     NVME_CTRLR_DATA_SANICAP_CES_SHIFT) ? "crypto, " : "",
+		     NVME_CTRLR_DATA_SANICAP_CES_MASK) ? "crypto, " : "",
 		    ((cdata->sanicap >> NVME_CTRLR_DATA_SANICAP_BES_SHIFT) &
-		     NVME_CTRLR_DATA_SANICAP_BES_SHIFT) ? "block, " : "",
+		     NVME_CTRLR_DATA_SANICAP_BES_MASK) ? "block, " : "",
 		    ((cdata->sanicap >> NVME_CTRLR_DATA_SANICAP_OWS_SHIFT) &
-		     NVME_CTRLR_DATA_SANICAP_OWS_SHIFT) ? "overwrite" : "");
+		     NVME_CTRLR_DATA_SANICAP_OWS_MASK) ? "overwrite" : "");
 	} else {
 		printf("Not Supported\n");
 	}

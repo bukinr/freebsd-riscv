@@ -104,6 +104,7 @@ __FBSDID("$FreeBSD$");
  */
 
 #include <sys/param.h>
+#include <sys/capsicum.h>
 #include <sys/uio.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -117,6 +118,10 @@ __FBSDID("$FreeBSD$");
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
 #include <netdb.h>
+
+#include <capsicum_helpers.h>
+#include <casper/cap_dns.h>
+#include <libcasper.h>
 
 #include <ctype.h>
 #include <err.h>
@@ -193,7 +198,7 @@ struct tv32 {
 #define F_DONTFRAG	0x1000000
 #define F_NOUSERDATA	(F_NODEADDR | F_FQDN | F_FQDNOLD | F_SUPTYPES)
 #define	F_WAITTIME	0x2000000
-u_int options;
+static u_int options;
 
 #define IN6LEN		sizeof(struct in6_addr)
 #define SA6LEN		sizeof(struct sockaddr_in6)
@@ -214,7 +219,8 @@ static struct sockaddr_in6 dst;	/* who to ping6 */
 static struct sockaddr_in6 src;	/* src addr of this packet */
 static socklen_t srclen;
 static size_t datalen = DEFDATALEN;
-static int s;			/* socket file descriptor */
+static int ssend;		/* send socket file descriptor */
+static int srecv;		/* receive socket file descriptor */
 static u_char outpack[MAXPACKETLEN];
 static char BSPACE = '\b';	/* characters written for flood */
 static char BBELL = '\a';	/* characters written for AUDIBLE */
@@ -224,6 +230,7 @@ static int ident;		/* process id to identify our packets */
 static u_int8_t nonce[8];	/* nonce field for node information */
 static int hoplimit = -1;	/* hoplimit */
 static u_char *packet = NULL;
+static cap_channel_t *capdns;
 
 /* counters */
 static long nmissedmax;		/* max value of ntransmitted - nreceived - 1 */
@@ -256,6 +263,7 @@ static volatile sig_atomic_t seeninfo;
 #endif
 
 int	 main(int, char *[]);
+static cap_channel_t *capdns_setup(void);
 static void	 fill(char *, char *);
 static int	 get_hoplim(struct msghdr *);
 static int	 get_pathmtu(struct msghdr *);
@@ -271,7 +279,7 @@ static void	 pr_suptypes(struct icmp6_nodeinfo *, size_t);
 static void	 pr_nodeaddr(struct icmp6_nodeinfo *, int);
 static int	 myechoreply(const struct icmp6_hdr *);
 static int	 mynireply(const struct icmp6_nodeinfo *);
-static char *dnsdecode(const u_char **, const u_char *, const u_char *,
+static char *dnsdecode(const u_char *, const u_char *, const u_char *,
     char *, size_t);
 static void	 pr_pack(u_char *, int, struct msghdr *);
 static void	 pr_exthdrs(struct msghdr *);
@@ -318,6 +326,9 @@ main(int argc, char *argv[])
 #ifdef IPV6_USE_MIN_MTU
 	int mflag = 0;
 #endif
+	cap_rights_t rights_srecv;
+	cap_rights_t rights_ssend;
+	cap_rights_t rights_stdin;
 
 	/* just to be sure */
 	memset(&smsghdr, 0, sizeof(smsghdr));
@@ -325,6 +336,7 @@ main(int argc, char *argv[])
 
 	alarmtimeout = preload = 0;
 	datap = &outpack[ICMP6ECHOLEN + ICMP6ECHOTMLEN];
+	capdns = capdns_setup();
 #ifndef IPSEC
 #define ADDOPTS
 #else
@@ -503,7 +515,7 @@ main(int argc, char *argv[])
 			hints.ai_socktype = SOCK_RAW;
 			hints.ai_protocol = IPPROTO_ICMPV6;
 
-			error = getaddrinfo(optarg, NULL, &hints, &res);
+			error = cap_getaddrinfo(capdns, optarg, NULL, &hints, &res);
 			if (error) {
 				errx(1, "invalid source address: %s",
 				     gai_strerror(error));
@@ -619,14 +631,14 @@ main(int argc, char *argv[])
 	} else
 		target = argv[argc - 1];
 
-	/* getaddrinfo */
+	/* cap_getaddrinfo */
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_flags = AI_CANONNAME;
 	hints.ai_family = AF_INET6;
 	hints.ai_socktype = SOCK_RAW;
 	hints.ai_protocol = IPPROTO_ICMPV6;
 
-	error = getaddrinfo(target, NULL, &hints, &res);
+	error = cap_getaddrinfo(capdns, target, NULL, &hints, &res);
 	if (error)
 		errx(1, "%s", gai_strerror(error));
 	if (res->ai_canonname)
@@ -635,14 +647,23 @@ main(int argc, char *argv[])
 		hostname = target;
 
 	if (!res->ai_addr)
-		errx(1, "getaddrinfo failed");
+		errx(1, "cap_getaddrinfo failed");
 
 	(void)memcpy(&dst, res->ai_addr, res->ai_addrlen);
 
-	if ((s = socket(res->ai_family, res->ai_socktype,
+	if ((ssend = socket(res->ai_family, res->ai_socktype,
 	    res->ai_protocol)) < 0)
-		err(1, "socket");
+		err(1, "socket ssend");
+	if ((srecv = socket(res->ai_family, res->ai_socktype,
+	    res->ai_protocol)) < 0)
+		err(1, "socket srecv");
 	freeaddrinfo(res);
+
+	/* revoke root privilege */
+	if (seteuid(getuid()) != 0)
+		err(1, "seteuid() failed");
+	if (setuid(getuid()) != 0)
+		err(1, "setuid() failed");
 
 	/* set the source address if specified. */
 	if ((options & F_SRCADDR) != 0) {
@@ -656,7 +677,7 @@ main(int argc, char *argv[])
 			if (dst.sin6_scope_id == 0)
 				dst.sin6_scope_id = src.sin6_scope_id;
 		}
-		if (bind(s, (struct sockaddr *)&src, srclen) != 0)
+		if (bind(ssend, (struct sockaddr *)&src, srclen) != 0)
 			err(1, "bind");
 	}
 	/* set the gateway (next hop) if specified */
@@ -666,15 +687,15 @@ main(int argc, char *argv[])
 		hints.ai_socktype = SOCK_RAW;
 		hints.ai_protocol = IPPROTO_ICMPV6;
 
-		error = getaddrinfo(gateway, NULL, &hints, &res);
+		error = cap_getaddrinfo(capdns, gateway, NULL, &hints, &res);
 		if (error) {
-			errx(1, "getaddrinfo for the gateway %s: %s",
+			errx(1, "cap_getaddrinfo for the gateway %s: %s",
 			     gateway, gai_strerror(error));
 		}
 		if (res->ai_next && (options & F_VERBOSE))
 			warnx("gateway resolves to multiple addresses");
 
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_NEXTHOP,
+		if (setsockopt(ssend, IPPROTO_IPV6, IPV6_NEXTHOP,
 		    res->ai_addr, res->ai_addrlen)) {
 			err(1, "setsockopt(IPV6_NEXTHOP)");
 		}
@@ -690,35 +711,29 @@ main(int argc, char *argv[])
 		int opton = 1;
 
 #ifdef IPV6_RECVHOPOPTS
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVHOPOPTS, &opton,
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_RECVHOPOPTS, &opton,
 		    sizeof(opton)))
 			err(1, "setsockopt(IPV6_RECVHOPOPTS)");
 #else  /* old adv. API */
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_HOPOPTS, &opton,
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_HOPOPTS, &opton,
 		    sizeof(opton)))
 			err(1, "setsockopt(IPV6_HOPOPTS)");
 #endif
 #ifdef IPV6_RECVDSTOPTS
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVDSTOPTS, &opton,
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_RECVDSTOPTS, &opton,
 		    sizeof(opton)))
 			err(1, "setsockopt(IPV6_RECVDSTOPTS)");
 #else  /* old adv. API */
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_DSTOPTS, &opton,
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_DSTOPTS, &opton,
 		    sizeof(opton)))
 			err(1, "setsockopt(IPV6_DSTOPTS)");
 #endif
 #ifdef IPV6_RECVRTHDRDSTOPTS
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVRTHDRDSTOPTS, &opton,
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_RECVRTHDRDSTOPTS, &opton,
 		    sizeof(opton)))
 			err(1, "setsockopt(IPV6_RECVRTHDRDSTOPTS)");
 #endif
 	}
-
-	/* revoke root privilege */
-	if (seteuid(getuid()) != 0)
-		err(1, "seteuid() failed");
-	if (setuid(getuid()) != 0)
-		err(1, "setuid() failed");
 
 	if ((options & F_FLOOD) && (options & F_INTERVAL))
 		errx(1, "-f and -i incompatible options");
@@ -751,31 +766,34 @@ main(int argc, char *argv[])
 	arc4random_buf(nonce, sizeof(nonce));
 	optval = 1;
 	if (options & F_DONTFRAG)
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_DONTFRAG,
+		if (setsockopt(ssend, IPPROTO_IPV6, IPV6_DONTFRAG,
 		    &optval, sizeof(optval)) == -1)
 			err(1, "IPV6_DONTFRAG");
 	hold = 1;
 
-	if (options & F_SO_DEBUG)
-		(void)setsockopt(s, SOL_SOCKET, SO_DEBUG, (char *)&hold,
+	if (options & F_SO_DEBUG) {
+		(void)setsockopt(ssend, SOL_SOCKET, SO_DEBUG, (char *)&hold,
 		    sizeof(hold));
+		(void)setsockopt(srecv, SOL_SOCKET, SO_DEBUG, (char *)&hold,
+		    sizeof(hold));
+	}
 	optval = IPV6_DEFHLIM;
 	if (IN6_IS_ADDR_MULTICAST(&dst.sin6_addr))
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+		if (setsockopt(ssend, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
 		    &optval, sizeof(optval)) == -1)
 			err(1, "IPV6_MULTICAST_HOPS");
 #ifdef IPV6_USE_MIN_MTU
 	if (mflag != 1) {
 		optval = mflag > 1 ? 0 : 1;
 
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_USE_MIN_MTU,
+		if (setsockopt(ssend, IPPROTO_IPV6, IPV6_USE_MIN_MTU,
 		    &optval, sizeof(optval)) == -1)
 			err(1, "setsockopt(IPV6_USE_MIN_MTU)");
 	}
 #ifdef IPV6_RECVPATHMTU
 	else {
 		optval = 1;
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVPATHMTU,
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_RECVPATHMTU,
 		    &optval, sizeof(optval)) == -1)
 			err(1, "setsockopt(IPV6_RECVPATHMTU)");
 	}
@@ -785,27 +803,36 @@ main(int argc, char *argv[])
 #ifdef IPSEC
 #ifdef IPSEC_POLICY_IPSEC
 	if (options & F_POLICY) {
-		if (setpolicy(s, policy_in) < 0)
+		if (setpolicy(srecv, policy_in) < 0)
 			errx(1, "%s", ipsec_strerror());
-		if (setpolicy(s, policy_out) < 0)
+		if (setpolicy(ssend, policy_out) < 0)
 			errx(1, "%s", ipsec_strerror());
 	}
 #else
 	if (options & F_AUTHHDR) {
 		optval = IPSEC_LEVEL_REQUIRE;
 #ifdef IPV6_AUTH_TRANS_LEVEL
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_AUTH_TRANS_LEVEL,
+		if (setsockopt(ssend, IPPROTO_IPV6, IPV6_AUTH_TRANS_LEVEL,
 		    &optval, sizeof(optval)) == -1)
 			err(1, "setsockopt(IPV6_AUTH_TRANS_LEVEL)");
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_AUTH_TRANS_LEVEL,
+		     &optval, sizeof(optval)) == -1)
+			err(1, "setsockopt(IPV6_AUTH_TRANS_LEVEL)");
 #else /* old def */
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_AUTH_LEVEL,
+		if (setsockopt(ssend, IPPROTO_IPV6, IPV6_AUTH_LEVEL,
+		    &optval, sizeof(optval)) == -1)
+			err(1, "setsockopt(IPV6_AUTH_LEVEL)");
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_AUTH_LEVEL,
 		    &optval, sizeof(optval)) == -1)
 			err(1, "setsockopt(IPV6_AUTH_LEVEL)");
 #endif
 	}
 	if (options & F_ENCRYPT) {
 		optval = IPSEC_LEVEL_REQUIRE;
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_ESP_TRANS_LEVEL,
+		if (setsockopt(ssend, IPPROTO_IPV6, IPV6_ESP_TRANS_LEVEL,
+		    &optval, sizeof(optval)) == -1)
+			err(1, "setsockopt(IPV6_ESP_TRANS_LEVEL)");
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_ESP_TRANS_LEVEL,
 		    &optval, sizeof(optval)) == -1)
 			err(1, "setsockopt(IPV6_ESP_TRANS_LEVEL)");
 	}
@@ -825,7 +852,7 @@ main(int argc, char *argv[])
 	} else {
 		ICMP6_FILTER_SETPASSALL(&filt);
 	}
-	if (setsockopt(s, IPPROTO_ICMPV6, ICMP6_FILTER, &filt,
+	if (setsockopt(srecv, IPPROTO_ICMPV6, ICMP6_FILTER, &filt,
 	    sizeof(filt)) < 0)
 		err(1, "setsockopt(ICMP6_FILTER)");
     }
@@ -836,11 +863,11 @@ main(int argc, char *argv[])
 		int opton = 1;
 
 #ifdef IPV6_RECVRTHDR
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVRTHDR, &opton,
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_RECVRTHDR, &opton,
 		    sizeof(opton)))
 			err(1, "setsockopt(IPV6_RECVRTHDR)");
 #else  /* old adv. API */
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_RTHDR, &opton,
+		if (setsockopt(srecv, IPPROTO_IPV6, IPV6_RTHDR, &opton,
 		    sizeof(opton)))
 			err(1, "setsockopt(IPV6_RTHDR)");
 #endif
@@ -849,7 +876,7 @@ main(int argc, char *argv[])
 /*
 	optval = 1;
 	if (IN6_IS_ADDR_MULTICAST(&dst.sin6_addr))
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
+		if (setsockopt(ssend, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
 		    &optval, sizeof(optval)) == -1)
 			err(1, "IPV6_MULTICAST_LOOP");
 */
@@ -916,7 +943,7 @@ main(int argc, char *argv[])
 			memset(&hints, 0, sizeof(hints));
 			hints.ai_family = AF_INET6;
 
-			if ((error = getaddrinfo(argv[hops], NULL, &hints,
+			if ((error = cap_getaddrinfo(capdns, argv[hops], NULL, &hints,
 			    &res)))
 				errx(1, "%s", gai_strerror(error));
 			if (res->ai_addr->sa_family != AF_INET6)
@@ -929,6 +956,15 @@ main(int argc, char *argv[])
 		}
 
 		scmsgp = CMSG_NXTHDR(&smsghdr, scmsgp);
+	}
+
+	/* From now on we will use only reverse DNS lookups. */
+	if (capdns != NULL) {
+		const char *types[1];
+
+		types[0] = "ADDR2NAME";
+		if (cap_dns_type_limit(capdns, types, nitems(types)) < 0)
+			err(1, "unable to limit access to system.dns service");
 	}
 
 	if (!(options & F_SRCADDR)) {
@@ -976,14 +1012,36 @@ main(int argc, char *argv[])
 		close(dummy);
 	}
 
+	if (connect(ssend, (struct sockaddr *)&dst, sizeof(dst)) != 0)
+		err(1, "connect() ssend");
+
+	caph_cache_catpages();
+	if (caph_enter_casper() < 0)
+		err(1, "caph_enter_casper");
+
+	cap_rights_init(&rights_stdin);
+	if (cap_rights_limit(STDIN_FILENO, &rights_stdin) < 0)
+		err(1, "cap_rights_limit stdin");
+	if (caph_limit_stdout() < 0)
+		err(1, "caph_limit_stdout");
+	if (caph_limit_stderr() < 0)
+		err(1, "caph_limit_stderr");
+
+	cap_rights_init(&rights_srecv, CAP_RECV, CAP_EVENT, CAP_SETSOCKOPT);
+	if (caph_rights_limit(srecv, &rights_srecv) < 0)
+		err(1, "cap_rights_limit srecv");
+	cap_rights_init(&rights_ssend, CAP_SEND, CAP_SETSOCKOPT);
+	if (caph_rights_limit(ssend, &rights_ssend) < 0)
+		err(1, "cap_rights_limit ssend");
+
 #if defined(SO_SNDBUF) && defined(SO_RCVBUF)
 	if (sockbufsize) {
 		if (datalen > (size_t)sockbufsize)
 			warnx("you need -b to increase socket buffer size");
-		if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, &sockbufsize,
+		if (setsockopt(ssend, SOL_SOCKET, SO_SNDBUF, &sockbufsize,
 		    sizeof(sockbufsize)) < 0)
 			err(1, "setsockopt(SO_SNDBUF)");
-		if (setsockopt(s, SOL_SOCKET, SO_RCVBUF, &sockbufsize,
+		if (setsockopt(srecv, SOL_SOCKET, SO_RCVBUF, &sockbufsize,
 		    sizeof(sockbufsize)) < 0)
 			err(1, "setsockopt(SO_RCVBUF)");
 	}
@@ -997,7 +1055,7 @@ main(int argc, char *argv[])
 		 * to get some stuff for /etc/ethers.
 		 */
 		hold = 48 * 1024;
-		setsockopt(s, SOL_SOCKET, SO_RCVBUF, (char *)&hold,
+		setsockopt(srecv, SOL_SOCKET, SO_RCVBUF, (char *)&hold,
 		    sizeof(hold));
 	}
 #endif
@@ -1005,24 +1063,31 @@ main(int argc, char *argv[])
 	optval = 1;
 #ifndef USE_SIN6_SCOPE_ID
 #ifdef IPV6_RECVPKTINFO
-	if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVPKTINFO, &optval,
+	if (setsockopt(srecv, IPPROTO_IPV6, IPV6_RECVPKTINFO, &optval,
 	    sizeof(optval)) < 0)
 		warn("setsockopt(IPV6_RECVPKTINFO)"); /* XXX err? */
 #else  /* old adv. API */
-	if (setsockopt(s, IPPROTO_IPV6, IPV6_PKTINFO, &optval,
+	if (setsockopt(srecv, IPPROTO_IPV6, IPV6_PKTINFO, &optval,
 	    sizeof(optval)) < 0)
 		warn("setsockopt(IPV6_PKTINFO)"); /* XXX err? */
 #endif
 #endif /* USE_SIN6_SCOPE_ID */
 #ifdef IPV6_RECVHOPLIMIT
-	if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &optval,
+	if (setsockopt(srecv, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &optval,
 	    sizeof(optval)) < 0)
 		warn("setsockopt(IPV6_RECVHOPLIMIT)"); /* XXX err? */
 #else  /* old adv. API */
-	if (setsockopt(s, IPPROTO_IPV6, IPV6_HOPLIMIT, &optval,
+	if (setsockopt(srecv, IPPROTO_IPV6, IPV6_HOPLIMIT, &optval,
 	    sizeof(optval)) < 0)
 		warn("setsockopt(IPV6_HOPLIMIT)"); /* XXX err? */
 #endif
+
+	cap_rights_clear(&rights_srecv, CAP_SETSOCKOPT);
+	if (caph_rights_limit(srecv, &rights_srecv) < 0)
+		err(1, "cap_rights_limit srecv setsockopt");
+	cap_rights_clear(&rights_ssend, CAP_SETSOCKOPT);
+	if (caph_rights_limit(ssend, &rights_ssend) < 0)
+		err(1, "cap_rights_limit ssend setsockopt");
 
 	printf("PING6(%lu=40+8+%lu bytes) ", (unsigned long)(40 + pingerlen()),
 	    (unsigned long)(pingerlen() - 8));
@@ -1081,7 +1146,7 @@ main(int argc, char *argv[])
 		}
 #endif
 		FD_ZERO(&rfds);
-		FD_SET(s, &rfds);
+		FD_SET(srecv, &rfds);
 		gettimeofday(&now, NULL);
 		timeout.tv_sec = last.tv_sec + intvl.tv_sec - now.tv_sec;
 		timeout.tv_usec = last.tv_usec + intvl.tv_usec - now.tv_usec;
@@ -1096,7 +1161,7 @@ main(int argc, char *argv[])
 		if (timeout.tv_sec < 0)
 			timeout.tv_sec = timeout.tv_usec = 0;
 
-		n = select(s + 1, &rfds, NULL, NULL, &timeout);
+		n = select(srecv + 1, &rfds, NULL, NULL, &timeout);
 		if (n < 0)
 			continue;	/* EINTR */
 		if (n == 1) {
@@ -1111,7 +1176,7 @@ main(int argc, char *argv[])
 			m.msg_control = (void *)cm;
 			m.msg_controllen = CONTROLLEN;
 
-			cc = recvmsg(s, &m, 0);
+			cc = recvmsg(srecv, &m, 0);
 			if (cc < 0) {
 				if (errno != EINTR) {
 					warn("recvmsg");
@@ -1325,15 +1390,13 @@ pinger(void)
 		errx(1, "internal error; length mismatch");
 #endif
 
-	smsghdr.msg_name = (caddr_t)&dst;
-	smsghdr.msg_namelen = sizeof(dst);
 	memset(&iov, 0, sizeof(iov));
 	iov[0].iov_base = (caddr_t)outpack;
 	iov[0].iov_len = cc;
 	smsghdr.msg_iov = iov;
 	smsghdr.msg_iovlen = 1;
 
-	i = sendmsg(s, &smsghdr, 0);
+	i = sendmsg(ssend, &smsghdr, 0);
 
 	if (i < 0 || i != cc)  {
 		if (i < 0)
@@ -1368,7 +1431,7 @@ mynireply(const struct icmp6_nodeinfo *nip)
 }
 
 static char *
-dnsdecode(const u_char **sp, const u_char *ep, const u_char *base, char *buf,
+dnsdecode(const u_char *sp, const u_char *ep, const u_char *base, char *buf,
 	size_t bufsiz)
 	/*base for compressed name*/
 {
@@ -1378,14 +1441,14 @@ dnsdecode(const u_char **sp, const u_char *ep, const u_char *base, char *buf,
 	const u_char *comp;
 	int l;
 
-	cp = *sp;
+	cp = sp;
 	*buf = '\0';
 
 	if (cp >= ep)
 		return NULL;
 	while (cp < ep) {
 		i = *cp;
-		if (i == 0 || cp != *sp) {
+		if (i == 0 || cp != sp) {
 			if (strlcat((char *)buf, ".", bufsiz) >= bufsiz)
 				return NULL;	/*result overrun*/
 		}
@@ -1399,7 +1462,7 @@ dnsdecode(const u_char **sp, const u_char *ep, const u_char *base, char *buf,
 				return NULL;
 
 			comp = base + (i & 0x3f);
-			if (dnsdecode(&comp, cp, base, cresult,
+			if (dnsdecode(comp, cp, base, cresult,
 			    sizeof(cresult)) == NULL)
 				return NULL;
 			if (strlcat(buf, cresult, bufsiz) >= bufsiz)
@@ -1423,7 +1486,7 @@ dnsdecode(const u_char **sp, const u_char *ep, const u_char *base, char *buf,
 	if (i != 0)
 		return NULL;	/*not terminated*/
 	cp++;
-	*sp = cp;
+	sp = cp;
 	return buf;
 }
 
@@ -1616,7 +1679,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 			} else {
 				i = 0;
 				while (cp < end) {
-					if (dnsdecode((const u_char **)&cp, end,
+					if (dnsdecode((const u_char *)cp, end,
 					    (const u_char *)(ni + 1), dnsname,
 					    sizeof(dnsname)) == NULL) {
 						printf("???");
@@ -2398,7 +2461,7 @@ pr_icmph(struct icmp6_hdr *icp, u_char *end)
 				}
 				printf(", subject=%s", niqcode[ni->ni_code]);
 				cp = (const u_char *)(ni + 1);
-				if (dnsdecode(&cp, end, NULL, dnsname,
+				if (dnsdecode(cp, end, NULL, dnsname,
 				    sizeof(dnsname)) != NULL)
 					printf("(%s)", dnsname);
 				else
@@ -2497,7 +2560,8 @@ pr_addr(struct sockaddr *addr, int addrlen)
 	if ((options & F_HOSTNAME) == 0)
 		flag |= NI_NUMERICHOST;
 
-	if (getnameinfo(addr, addrlen, buf, sizeof(buf), NULL, 0, flag) == 0)
+	if (cap_getnameinfo(capdns, addr, addrlen, buf, sizeof(buf), NULL, 0,
+		flag) == 0)
 		return (buf);
 	else
 		return "?";
@@ -2631,7 +2695,7 @@ setpolicy(int so __unused, char *policy)
 	buf = ipsec_set_policy(policy, strlen(policy));
 	if (buf == NULL)
 		errx(1, "%s", ipsec_strerror());
-	if (setsockopt(s, IPPROTO_IPV6, IPV6_IPSEC_POLICY, buf,
+	if (setsockopt(ssend, IPPROTO_IPV6, IPV6_IPSEC_POLICY, buf,
 	    ipsec_get_policylen(buf)) < 0)
 		warnx("Unable to set IPsec policy");
 	free(buf);
@@ -2727,4 +2791,30 @@ usage(void)
 	    "[-x waittime]\n"
 	    "             [-X timeout] [hops ...] host\n");
 	exit(1);
+}
+
+static cap_channel_t *
+capdns_setup(void)
+{
+	cap_channel_t *capcas, *capdnsloc;
+	const char *types[2];
+	int families[1];
+
+	capcas = cap_init();
+	if (capcas == NULL)
+		err(1, "unable to create casper process");
+	capdnsloc = cap_service_open(capcas, "system.dns");
+	/* Casper capability no longer needed. */
+	cap_close(capcas);
+	if (capdnsloc == NULL)
+		err(1, "unable to open system.dns service");
+	types[0] = "NAME2ADDR";
+	types[1] = "ADDR2NAME";
+	if (cap_dns_type_limit(capdnsloc, types, nitems(types)) < 0)
+		err(1, "unable to limit access to system.dns service");
+	families[0] = AF_INET6;
+	if (cap_dns_family_limit(capdnsloc, families, nitems(families)) < 0)
+		err(1, "unable to limit access to system.dns service");
+
+	return (capdnsloc);
 }

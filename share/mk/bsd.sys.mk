@@ -186,6 +186,9 @@ FORMAT_EXTENSIONS=	-fformat-extensions
 CWARNFLAGS+=	-Wno-unknown-pragmas
 .endif # IGNORE_PRAGMA
 
+# This warning is utter nonsense
+CFLAGS+=	-Wno-format-zero-length
+
 # We need this conditional because many places that use it
 # only enable it for some files with CLFAGS.$FILE+=${CLANG_NO_IAS}.
 # unconditionally, and can't easily use the CFLAGS.clang=
@@ -234,6 +237,8 @@ DEBUG_FILES_CFLAGS?= -g
 .if ${MK_WARNS} != "no"
 CFLAGS+=	${CWARNFLAGS:M*} ${CWARNFLAGS.${COMPILER_TYPE}}
 CFLAGS+=	${CWARNFLAGS.${.IMPSRC:T}}
+CXXFLAGS+=	${CXXWARNFLAGS:M*} ${CXXWARNFLAGS.${COMPILER_TYPE}}
+CXXFLAGS+=	${CXXWARNFLAGS.${.IMPSRC:T}}
 .endif
 
 CFLAGS+=	 ${CFLAGS.${COMPILER_TYPE}}

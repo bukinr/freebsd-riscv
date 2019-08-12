@@ -221,8 +221,11 @@ __FBSDID("$FreeBSD$");
  * The presence of this flag indicates that the mapping is writeable.
  * If the ATTR_AP_RO bit is also set, then the mapping is clean, otherwise it is
  * dirty.  This flag may only be set on managed mappings.
+ *
+ * The DBM bit is reserved on ARMv8.0 but it seems we can safely treat it
+ * as a software managed bit.
  */
-static pt_entry_t ATTR_SW_DBM;
+#define	ATTR_SW_DBM	ATTR_DBM
 
 struct pmap kernel_pmap_store;
 
@@ -784,15 +787,6 @@ pmap_bootstrap(vm_offset_t l0pt, vm_offset_t l1pt, vm_paddr_t kernstart,
 	uint64_t kern_delta;
 	int i;
 
-#ifdef notyet
-	/* Determine whether the hardware implements DBM management. */
-	uint64_t reg = READ_SPECIALREG(ID_AA64MMFR1_EL1);
-	ATTR_SW_DBM = ID_AA64MMFR1_HAFDBS(reg) == ID_AA64MMFR1_HAFDBS_AF_DBS ?
-	    ATTR_DBM : _ATTR_SW_DBM;
-#else
-	ATTR_SW_DBM = _ATTR_SW_DBM;
-#endif
-
 	kern_delta = KERNBASE - kernstart;
 
 	printf("pmap_bootstrap %lx %lx %lx\n", l1pt, kernstart, kernlen);
@@ -1134,40 +1128,35 @@ vm_paddr_t
 pmap_kextract(vm_offset_t va)
 {
 	pt_entry_t *pte, tpte;
-	vm_paddr_t pa;
-	int lvl;
 
-	if (va >= DMAP_MIN_ADDRESS && va < DMAP_MAX_ADDRESS) {
-		pa = DMAP_TO_PHYS(va);
-	} else {
-		pa = 0;
-		pte = pmap_pte(kernel_pmap, va, &lvl);
-		if (pte != NULL) {
-			tpte = pmap_load(pte);
-			pa = tpte & ~ATTR_MASK;
-			switch(lvl) {
-			case 1:
-				KASSERT((tpte & ATTR_DESCR_MASK) == L1_BLOCK,
-				    ("pmap_kextract: Invalid L1 pte found: %lx",
-				    tpte & ATTR_DESCR_MASK));
-				pa |= (va & L1_OFFSET);
-				break;
-			case 2:
-				KASSERT((tpte & ATTR_DESCR_MASK) == L2_BLOCK,
-				    ("pmap_kextract: Invalid L2 pte found: %lx",
-				    tpte & ATTR_DESCR_MASK));
-				pa |= (va & L2_OFFSET);
-				break;
-			case 3:
-				KASSERT((tpte & ATTR_DESCR_MASK) == L3_PAGE,
-				    ("pmap_kextract: Invalid L3 pte found: %lx",
-				    tpte & ATTR_DESCR_MASK));
-				pa |= (va & L3_OFFSET);
-				break;
-			}
-		}
-	}
-	return (pa);
+	if (va >= DMAP_MIN_ADDRESS && va < DMAP_MAX_ADDRESS)
+		return (DMAP_TO_PHYS(va));
+	pte = pmap_l1(kernel_pmap, va);
+	if (pte == NULL)
+		return (0);
+
+	/*
+	 * A concurrent pmap_update_entry() will clear the entry's valid bit
+	 * but leave the rest of the entry unchanged.  Therefore, we treat a
+	 * non-zero entry as being valid, and we ignore the valid bit when
+	 * determining whether the entry maps a block, page, or table.
+	 */
+	tpte = pmap_load(pte);
+	if (tpte == 0)
+		return (0);
+	if ((tpte & ATTR_DESCR_TYPE_MASK) == ATTR_DESCR_TYPE_BLOCK)
+		return ((tpte & ~ATTR_MASK) | (va & L1_OFFSET));
+	pte = pmap_l1_to_l2(&tpte, va);
+	tpte = pmap_load(pte);
+	if (tpte == 0)
+		return (0);
+	if ((tpte & ATTR_DESCR_TYPE_MASK) == ATTR_DESCR_TYPE_BLOCK)
+		return ((tpte & ~ATTR_MASK) | (va & L2_OFFSET));
+	pte = pmap_l2_to_l3(&tpte, va);
+	tpte = pmap_load(pte);
+	if (tpte == 0)
+		return (0);
+	return ((tpte & ~ATTR_MASK) | (va & L3_OFFSET));
 }
 
 /***************************************************
@@ -1531,6 +1520,16 @@ _pmap_alloc_l3(pmap_t pmap, vm_pindex_t ptepindex, struct rwlock **lockp)
 		pmap_zero_page(m);
 
 	/*
+	 * Because of AArch64's weak memory consistency model, we must have a
+	 * barrier here to ensure that the stores for zeroing "m", whether by
+	 * pmap_zero_page() or an earlier function, are visible before adding
+	 * "m" to the page table.  Otherwise, a page table walk by another
+	 * processor's MMU could see the mapping to "m" and a stale, non-zero
+	 * PTE within "m".
+	 */
+	dmb(ishst);
+
+	/*
 	 * Map the pagetable page into the process address space, if
 	 * it isn't already there.
 	 */
@@ -1781,12 +1780,14 @@ pmap_growkernel(vm_offset_t addr)
 				panic("pmap_growkernel: no memory to grow kernel");
 			if ((nkpg->flags & PG_ZERO) == 0)
 				pmap_zero_page(nkpg);
+			/* See the dmb() in _pmap_alloc_l3(). */
+			dmb(ishst);
 			paddr = VM_PAGE_TO_PHYS(nkpg);
 			pmap_store(l1, paddr | L1_TABLE);
 			continue; /* try again */
 		}
 		l2 = pmap_l1_to_l2(l1, kernel_vm_end);
-		if ((pmap_load(l2) & ATTR_AF) != 0) {
+		if (pmap_load(l2) != 0) {
 			kernel_vm_end = (kernel_vm_end + L2_SIZE) & ~L2_OFFSET;
 			if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
 				kernel_vm_end = vm_map_max(kernel_map);
@@ -1802,9 +1803,10 @@ pmap_growkernel(vm_offset_t addr)
 			panic("pmap_growkernel: no memory to grow kernel");
 		if ((nkpg->flags & PG_ZERO) == 0)
 			pmap_zero_page(nkpg);
+		/* See the dmb() in _pmap_alloc_l3(). */
+		dmb(ishst);
 		paddr = VM_PAGE_TO_PHYS(nkpg);
-		pmap_load_store(l2, paddr | L2_TABLE);
-		pmap_invalidate_page(kernel_pmap, kernel_vm_end);
+		pmap_store(l2, paddr | L2_TABLE);
 
 		kernel_vm_end = (kernel_vm_end + L2_SIZE) & ~L2_OFFSET;
 		if (kernel_vm_end - 1 >= vm_map_max(kernel_map)) {
@@ -3014,8 +3016,12 @@ pmap_update_entry(pmap_t pmap, pd_entry_t *pte, pd_entry_t newpte,
 	intr = intr_disable();
 	critical_enter();
 
-	/* Clear the old mapping */
-	pmap_clear(pte);
+	/*
+	 * Clear the old mapping's valid bit, but leave the rest of the entry
+	 * unchanged, so that a lockless, concurrent pmap_kextract() can still
+	 * lookup the physical address.
+	 */
+	pmap_clear_bits(pte, ATTR_DESCR_VALID);
 	pmap_invalidate_range_nopin(pmap, va, va + size);
 
 	/* Create the new mapping */
@@ -3418,8 +3424,7 @@ validate:
 	}
 
 #if VM_NRESERVLEVEL > 0
-	if (pmap != pmap_kernel() &&
-	    (mpte == NULL || mpte->wire_count == NL3PG) &&
+	if ((mpte == NULL || mpte->wire_count == NL3PG) &&
 	    pmap_ps_enabled(pmap) &&
 	    (m->flags & PG_FICTITIOUS) == 0 &&
 	    vm_reserv_level_iffullpop(m) == 0) {
@@ -4888,15 +4893,23 @@ pmap_advise(pmap_t pmap, vm_offset_t sva, vm_offset_t eva, int advice)
 			/*
 			 * Unless the page mappings are wired, remove the
 			 * mapping to a single page so that a subsequent
-			 * access may repromote.  Since the underlying page
-			 * table page is fully populated, this removal never
-			 * frees a page table page.
+			 * access may repromote.  Choosing the last page
+			 * within the address range [sva, min(va_next, eva))
+			 * generally results in more repromotions.  Since the
+			 * underlying page table page is fully populated, this
+			 * removal never frees a page table page.
 			 */
 			if ((oldl2 & ATTR_SW_WIRED) == 0) {
-				l3 = pmap_l2_to_l3(l2, sva);
+				va = eva;
+				if (va > va_next)
+					va = va_next;
+				va -= PAGE_SIZE;
+				KASSERT(va >= sva,
+				    ("pmap_advise: no address gap"));
+				l3 = pmap_l2_to_l3(l2, va);
 				KASSERT(pmap_load(l3) != 0,
 				    ("pmap_advise: invalid PTE"));
-				pmap_remove_l3(pmap, l3, sva, pmap_load(l2),
+				pmap_remove_l3(pmap, l3, va, pmap_load(l2),
 				    NULL, &lock);
 			}
 			if (lock != NULL)
@@ -5529,6 +5542,10 @@ pmap_demote_l2_locked(pmap_t pmap, pt_entry_t *l2, vm_offset_t va,
 	/*
 	 * If the page table page is not leftover from an earlier promotion,
 	 * or the mapping attributes have changed, (re)initialize the L3 table.
+	 *
+	 * When pmap_update_entry() clears the old L2 mapping, it (indirectly)
+	 * performs a dsb().  That dsb() ensures that the stores for filling
+	 * "l3" are visible before "l3" is added to the page table.
 	 */
 	if (ml3->valid == 0 || (l3[0] & ATTR_MASK) != (newl3 & ATTR_MASK))
 		pmap_fill_l3(l3, newl3);
@@ -5743,7 +5760,7 @@ pmap_sync_icache(pmap_t pmap, vm_offset_t va, vm_size_t sz)
 int
 pmap_fault(pmap_t pmap, uint64_t esr, uint64_t far)
 {
-	pt_entry_t *pte;
+	pt_entry_t pte, *ptep;
 	register_t intr;
 	uint64_t ec, par;
 	int lvl, rv;
@@ -5767,9 +5784,9 @@ pmap_fault(pmap_t pmap, uint64_t esr, uint64_t far)
 	case ISS_DATA_DFSC_AFF_L2:
 	case ISS_DATA_DFSC_AFF_L3:
 		PMAP_LOCK(pmap);
-		pte = pmap_pte(pmap, far, &lvl);
-		if (pte != NULL) {
-			pmap_set_bits(pte, ATTR_AF);
+		ptep = pmap_pte(pmap, far, &lvl);
+		if (ptep != NULL) {
+			pmap_set_bits(ptep, ATTR_AF);
 			rv = KERN_SUCCESS;
 			/*
 			 * XXXMJ as an optimization we could mark the entry
@@ -5785,12 +5802,13 @@ pmap_fault(pmap_t pmap, uint64_t esr, uint64_t far)
 		    (esr & ISS_DATA_WnR) == 0)
 			return (rv);
 		PMAP_LOCK(pmap);
-		pte = pmap_pte(pmap, far, &lvl);
-		if (pte != NULL &&
-		    (pmap_load(pte) & (ATTR_AP_RW_BIT | ATTR_SW_DBM)) ==
-		    (ATTR_AP(ATTR_AP_RO) | ATTR_SW_DBM)) {
-			pmap_clear_bits(pte, ATTR_AP_RW_BIT);
-			pmap_invalidate_page(pmap, trunc_page(far));
+		ptep = pmap_pte(pmap, far, &lvl);
+		if (ptep != NULL &&
+		    ((pte = pmap_load(ptep)) & ATTR_SW_DBM) != 0) {
+			if ((pte & ATTR_AP_RW_BIT) == ATTR_AP(ATTR_AP_RO)) {
+				pmap_clear_bits(ptep, ATTR_AP_RW_BIT);
+				pmap_invalidate_page(pmap, far);
+			}
 			rv = KERN_SUCCESS;
 		}
 		PMAP_UNLOCK(pmap);

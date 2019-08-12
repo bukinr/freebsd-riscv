@@ -90,7 +90,10 @@ struct pvo_entry {
 #ifndef __powerpc64__
 	LIST_ENTRY(pvo_entry) pvo_olink;	/* Link to overflow entry */
 #endif
-	RB_ENTRY(pvo_entry) pvo_plink;	/* Link to pmap entries */
+	union {
+		RB_ENTRY(pvo_entry) pvo_plink;	/* Link to pmap entries */
+		SLIST_ENTRY(pvo_entry) pvo_dlink; /* Link to delete enty */
+	};
 	struct {
 #ifndef __powerpc64__
 		/* 32-bit fields */
@@ -106,6 +109,7 @@ struct pvo_entry {
 	uint64_t	pvo_vpn;		/* Virtual page number */
 };
 LIST_HEAD(pvo_head, pvo_entry);
+SLIST_HEAD(pvo_dlist, pvo_entry);
 RB_HEAD(pvo_tree, pvo_entry);
 int pvo_vaddr_compare(struct pvo_entry *, struct pvo_entry *);
 RB_PROTOTYPE(pvo_tree, pvo_entry, pvo_plink, pvo_vaddr_compare);
@@ -136,7 +140,6 @@ struct	pmap {
 	struct	mtx	pm_mtx;
 	cpuset_t	pm_active;
 	union {
-#ifdef AIM
 		struct {
 			
 		    #ifdef __powerpc64__
@@ -150,8 +153,6 @@ struct	pmap {
 			struct pmap	*pmap_phys;
 			struct pvo_tree pmap_pvo;
 		};
-#endif
-#ifdef BOOKE
 		struct {
 			/* TID to identify this pmap entries in TLB */
 			tlbtid_t	pm_tid[MAXCPU];	
@@ -161,22 +162,18 @@ struct	pmap {
 			 * Page table directory,
 			 * array of pointers to page directories.
 			 */
-			pte_t **pm_pp2d[PP2D_NENTRIES];
-
-			/* List of allocated pdir bufs (pdir kva regions). */
-			TAILQ_HEAD(, ptbl_buf)	pm_pdir_list;
+			pte_t ***pm_pp2d;
 #else
 			/*
 			 * Page table directory,
 			 * array of pointers to page tables.
 			 */
-			pte_t		*pm_pdir[PDIR_NENTRIES];
-#endif
+			pte_t		**pm_pdir;
 
 			/* List of allocated ptbl bufs (ptbl kva regions). */
 			TAILQ_HEAD(, ptbl_buf)	pm_ptbl_list;
-		};
 #endif
+		};
 	};
 };
 
