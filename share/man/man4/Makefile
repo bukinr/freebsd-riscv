@@ -21,6 +21,7 @@ MAN=	aac.4 \
 	${_acpi_wmi.4} \
 	ada.4 \
 	adm6996fc.4 \
+	ads111x.4 \
 	ae.4 \
 	${_aesni.4} \
 	age.4 \
@@ -165,7 +166,6 @@ MAN=	aac.4 \
 	gdb.4 \
 	gem.4 \
 	geom.4 \
-	geom_fox.4 \
 	geom_linux_lvm.4 \
 	geom_map.4 \
 	geom_uzip.4 \
@@ -568,7 +568,13 @@ MAN=	aac.4 \
 	xpt.4 \
 	zero.4
 
-MLINKS=	ae.4 if_ae.4
+MLINKS=	ads111x.4 ads1013.4 \
+	ads111x.4 ads1014.4 \
+	ads111x.4 ads1015.4 \
+	ads111x.4 ads1113.4 \
+	ads111x.4 ads1114.4 \
+	ads111x.4 ads1115.4
+MLINKS+=ae.4 if_ae.4
 MLINKS+=age.4 if_age.4
 MLINKS+=agp.4 agpgart.4
 MLINKS+=alc.4 if_alc.4
@@ -784,6 +790,11 @@ _nda.4=		nda.4
 _ndis.4=	ndis.4
 _nfe.4=		nfe.4
 _nfsmb.4=	nfsmb.4
+_if_ntb.4=	if_ntb.4
+_ntb.4=		ntb.4
+_ntb_hw_intel.4=	ntb_hw_intel.4
+_ntb_hw_plx.4=	ntb_hw_plx.4
+_ntb_transport.4=ntb_transport.4
 _nvd.4=		nvd.4
 _nvme.4=	nvme.4
 _nvram.4=	nvram.4
@@ -811,12 +822,7 @@ _xnb.4=		xnb.4
 .endif
 
 .if ${MACHINE_CPUARCH} == "amd64"
-_if_ntb.4=	if_ntb.4
 _ioat.4=	ioat.4
-_ntb.4=		ntb.4
-_ntb_hw_intel.4=	ntb_hw_intel.4
-_ntb_hw_plx.4=	ntb_hw_plx.4
-_ntb_transport.4=ntb_transport.4
 _qlxge.4=	qlxge.4
 _qlxgb.4=	qlxgb.4
 _qlxgbe.4=	qlxgbe.4

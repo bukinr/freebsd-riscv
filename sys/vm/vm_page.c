@@ -135,7 +135,11 @@ static int vm_pageproc_waiters;
  */
 vm_page_t bogus_page;
 
+#ifdef PMAP_HAS_PAGE_ARRAY
+vm_page_t vm_page_array = (vm_page_t)PA_MIN_ADDRESS;
+#else
 vm_page_t vm_page_array;
+#endif
 long vm_page_array_size;
 long first_page;
 
@@ -522,6 +526,31 @@ vm_page_init_page(vm_page_t m, vm_paddr_t pa, int segind)
 	pmap_page_init(m);
 }
 
+#ifndef PMAP_HAS_PAGE_ARRAY
+static vm_paddr_t
+vm_page_array_alloc(vm_offset_t *vaddr, vm_paddr_t end, vm_paddr_t page_range)
+{
+	vm_paddr_t new_end;
+
+	/*
+	 * Reserve an unmapped guard page to trap access to vm_page_array[-1].
+	 * However, because this page is allocated from KVM, out-of-bounds
+	 * accesses using the direct map will not be trapped.
+	 */
+	*vaddr += PAGE_SIZE;
+
+	/*
+	 * Allocate physical memory for the page structures, and map it.
+	 */
+	new_end = trunc_page(end - page_range * sizeof(struct vm_page));
+	vm_page_array = (vm_page_t)pmap_map(vaddr, new_end, end,
+	    VM_PROT_READ | VM_PROT_WRITE);
+	vm_page_array_size = page_range;
+
+	return (new_end);
+}
+#endif
+
 /*
  *	vm_page_startup:
  *
@@ -538,7 +567,7 @@ vm_page_startup(vm_offset_t vaddr)
 	char *list, *listend;
 	vm_offset_t mapped;
 	vm_paddr_t end, high_avail, low_avail, new_end, page_range, size;
-	vm_paddr_t biggestsize, last_pa, pa;
+	vm_paddr_t last_pa, pa;
 	u_long pagecount;
 	int biggestone, i, segind;
 #ifdef WITNESS
@@ -548,22 +577,10 @@ vm_page_startup(vm_offset_t vaddr)
 	long ii;
 #endif
 
-	biggestsize = 0;
-	biggestone = 0;
 	vaddr = round_page(vaddr);
 
-	for (i = 0; phys_avail[i + 1]; i += 2) {
-		phys_avail[i] = round_page(phys_avail[i]);
-		phys_avail[i + 1] = trunc_page(phys_avail[i + 1]);
-	}
-	for (i = 0; phys_avail[i + 1]; i += 2) {
-		size = phys_avail[i + 1] - phys_avail[i];
-		if (size > biggestsize) {
-			biggestone = i;
-			biggestsize = size;
-		}
-	}
-
+	vm_phys_early_startup();
+	biggestone = vm_phys_avail_largest();
 	end = phys_avail[biggestone+1];
 
 	/*
@@ -705,6 +722,11 @@ vm_page_startup(vm_offset_t vaddr)
 #error "Either VM_PHYSSEG_DENSE or VM_PHYSSEG_SPARSE must be defined."
 #endif
 
+#ifdef PMAP_HAS_PAGE_ARRAY
+	pmap_page_array_startup(size / PAGE_SIZE);
+	biggestone = vm_phys_avail_largest();
+	end = new_end = phys_avail[biggestone + 1];
+#else
 #ifdef VM_PHYSSEG_DENSE
 	/*
 	 * In the VM_PHYSSEG_DENSE case, the number of pages can account for
@@ -735,31 +757,15 @@ vm_page_startup(vm_offset_t vaddr)
 		}
 	}
 	end = new_end;
-
-	/*
-	 * Reserve an unmapped guard page to trap access to vm_page_array[-1].
-	 * However, because this page is allocated from KVM, out-of-bounds
-	 * accesses using the direct map will not be trapped.
-	 */
-	vaddr += PAGE_SIZE;
-
-	/*
-	 * Allocate physical memory for the page structures, and map it.
-	 */
-	new_end = trunc_page(end - page_range * sizeof(struct vm_page));
-	mapped = pmap_map(&vaddr, new_end, end,
-	    VM_PROT_READ | VM_PROT_WRITE);
-	vm_page_array = (vm_page_t)mapped;
-	vm_page_array_size = page_range;
+	new_end = vm_page_array_alloc(&vaddr, end, page_range);
+#endif
 
 #if VM_NRESERVLEVEL > 0
 	/*
 	 * Allocate physical memory for the reservation management system's
 	 * data structures, and map it.
 	 */
-	if (high_avail == end)
-		high_avail = new_end;
-	new_end = vm_reserv_startup(&vaddr, new_end, high_avail);
+	new_end = vm_reserv_startup(&vaddr, new_end);
 #endif
 #if defined(__aarch64__) || defined(__amd64__) || defined(__mips__) || \
     defined(__riscv)
@@ -776,7 +782,8 @@ vm_page_startup(vm_offset_t vaddr)
 	 * physical pages.
 	 */
 	for (i = 0; phys_avail[i + 1] != 0; i += 2)
-		vm_phys_add_seg(phys_avail[i], phys_avail[i + 1]);
+		if (vm_phys_avail_size(i) != 0)
+			vm_phys_add_seg(phys_avail[i], phys_avail[i + 1]);
 
 	/*
 	 * Initialize the physical memory allocator.
@@ -3032,7 +3039,7 @@ vm_domain_alloc_fail(struct vm_domain *vmd, vm_object_t object, int req)
  *	  this balance without careful testing first.
  */
 void
-vm_waitpfault(struct domainset *dset)
+vm_waitpfault(struct domainset *dset, int timo)
 {
 
 	/*
@@ -3044,7 +3051,7 @@ vm_waitpfault(struct domainset *dset)
 	if (vm_page_count_min_set(&dset->ds_mask)) {
 		vm_min_waiters++;
 		msleep(&vm_min_domains, &vm_domainset_lock, PUSER | PDROP,
-		    "pfault", 0);
+		    "pfault", timo);
 	} else
 		mtx_unlock(&vm_domainset_lock);
 }
