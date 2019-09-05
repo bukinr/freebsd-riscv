@@ -58,6 +58,7 @@
 enum vtype	{ VNON, VREG, VDIR, VBLK, VCHR, VLNK, VSOCK, VFIFO, VBAD,
 		  VMARKER };
 
+enum vgetstate	{ VGET_HOLDCNT, VGET_USECOUNT };
 /*
  * Each underlying filesystem allocates its own private area and hangs
  * it from v_data.  If non-null, this area is freed in getnewvnode().
@@ -652,11 +653,14 @@ int	vcount(struct vnode *vp);
 #define	vdropl(vp)	_vdrop((vp), 1)
 void	_vdrop(struct vnode *, bool);
 int	vflush(struct mount *mp, int rootrefs, int flags, struct thread *td);
-int	vget(struct vnode *vp, int lockflag, struct thread *td);
+int	vget(struct vnode *vp, int flags, struct thread *td);
+enum vgetstate	vget_prep(struct vnode *vp);
+int	vget_finish(struct vnode *vp, int flags, enum vgetstate vs);
 void	vgone(struct vnode *vp);
 #define	vhold(vp)	_vhold((vp), 0)
 #define	vholdl(vp)	_vhold((vp), 1)
 void	_vhold(struct vnode *, bool);
+void	vholdnz(struct vnode *);
 void	vinactive(struct vnode *, struct thread *);
 int	vinvalbuf(struct vnode *vp, int save, int slpflag, int slptimeo);
 int	vtruncbuf(struct vnode *vp, off_t length, int blksize);
@@ -681,6 +685,7 @@ int	vn_generic_copy_file_range(struct vnode *invp, off_t *inoffp,
 	    struct vnode *outvp, off_t *outoffp, size_t *lenp,
 	    unsigned int flags, struct ucred *incred, struct ucred *outcred,
 	    struct thread *fsize_td);
+int	vn_need_pageq_flush(struct vnode *vp);
 int	vn_isdisk(struct vnode *vp, int *errp);
 int	_vn_lock(struct vnode *vp, int flags, char *file, int line);
 #define vn_lock(vp, flags) _vn_lock(vp, flags, __FILE__, __LINE__)
@@ -752,6 +757,7 @@ int	vop_stdfsync(struct vop_fsync_args *);
 int	vop_stdgetwritemount(struct vop_getwritemount_args *);
 int	vop_stdgetpages(struct vop_getpages_args *);
 int	vop_stdinactive(struct vop_inactive_args *);
+int	vop_stdneed_inactive(struct vop_need_inactive_args *);
 int	vop_stdislocked(struct vop_islocked_args *);
 int	vop_stdkqfilter(struct vop_kqfilter_args *);
 int	vop_stdlock(struct vop_lock1_args *);
@@ -810,14 +816,18 @@ int	vop_sigdefer(struct vop_vector *vop, struct vop_generic_args *a);
 void	vop_strategy_pre(void *a);
 void	vop_lock_pre(void *a);
 void	vop_lock_post(void *a, int rc);
-void	vop_unlock_post(void *a, int rc);
 void	vop_unlock_pre(void *a);
+void	vop_unlock_post(void *a, int rc);
+void	vop_need_inactive_pre(void *a);
+void	vop_need_inactive_post(void *a, int rc);
 #else
 #define	vop_strategy_pre(x)	do { } while (0)
 #define	vop_lock_pre(x)		do { } while (0)
 #define	vop_lock_post(x, y)	do { } while (0)
-#define	vop_unlock_post(x, y)	do { } while (0)
 #define	vop_unlock_pre(x)	do { } while (0)
+#define	vop_unlock_post(x, y)	do { } while (0)
+#define	vop_need_inactive_pre(x)	do { } while (0)
+#define	vop_need_inactive_post(x, y)	do { } while (0)
 #endif
 
 void	vop_rename_fail(struct vop_rename_args *ap);

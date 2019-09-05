@@ -2279,18 +2279,32 @@ MLINKS+=vrele.9 vput.9 \
 	vrele.9 vunref.9
 MLINKS+=vslock.9 vsunlock.9
 MLINKS+=zone.9 uma.9 \
+	zone.9 uma_prealloc.9 \
+	zone.9 uma_reclaim.9 \
 	zone.9 uma_zalloc.9 \
 	zone.9 uma_zalloc_arg.9 \
 	zone.9 uma_zalloc_domain.9 \
+	zone.9 uma_zalloc_pcpu.9 \
+	zone.9 uma_zalloc_pcpu_arg.9 \
+	zone.9 uma_zcache_create.9 \
 	zone.9 uma_zcreate.9 \
 	zone.9 uma_zdestroy.9 \
 	zone.9 uma_zfree.9 \
 	zone.9 uma_zfree_arg.9 \
 	zone.9 uma_zfree_domain.9 \
+	zone.9 uma_zfree_pcpu.9 \
+	zone.9 uma_zfree_pcpu_arg.9 \
 	zone.9 uma_zone_get_cur.9 \
 	zone.9 uma_zone_get_max.9 \
+	zone.9 uma_zone_reclaim.9 \
+	zone.9 uma_zone_reserve.9 \
+	zone.9 uma_zone_reserve_kva.9 \
+	zone.9 uma_zone_set_allocf.9 \
+	zone.9 uma_zone_set_freef.9 \
 	zone.9 uma_zone_set_max.9 \
+	zone.9 uma_zone_set_maxaction.9 \
+	zone.9 uma_zone_set_maxcache.9 \
 	zone.9 uma_zone_set_warning.9 \
-	zone.9 uma_zone_set_maxaction.9
+	zone.9 uma_zsecond_create.9
 
 .include <bsd.prog.mk>

@@ -745,6 +745,8 @@ interpret:
 	p->p_flag |= P_EXEC;
 	if ((p->p_flag2 & P2_NOTRACE_EXEC) == 0)
 		p->p_flag2 &= ~P2_NOTRACE;
+	if ((p->p_flag2 & P2_STKGAP_DISABLE_EXEC) == 0)
+		p->p_flag2 &= ~P2_STKGAP_DISABLE;
 	if (p->p_flag & P_PPWAIT) {
 		p->p_flag &= ~(P_PPWAIT | P_PPTRACE);
 		cv_broadcast(&p->p_pwait);
@@ -972,11 +974,13 @@ exec_map_first_page(struct image_params *imgp)
 #if VM_NRESERVLEVEL > 0
 	vm_object_color(object, 0);
 #endif
-	ma[0] = vm_page_grab(object, 0, VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY);
+	ma[0] = vm_page_grab(object, 0, VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY |
+	    VM_ALLOC_WIRED);
 	if (ma[0]->valid != VM_PAGE_BITS_ALL) {
 		vm_page_xbusy(ma[0]);
 		if (!vm_pager_has_page(object, 0, NULL, &after)) {
 			vm_page_lock(ma[0]);
+			vm_page_unwire_noq(ma[0]);
 			vm_page_free(ma[0]);
 			vm_page_unlock(ma[0]);
 			VM_OBJECT_WUNLOCK(object);
@@ -1004,6 +1008,8 @@ exec_map_first_page(struct image_params *imgp)
 		if (rv != VM_PAGER_OK) {
 			for (i = 0; i < initial_pagein; i++) {
 				vm_page_lock(ma[i]);
+				if (i == 0)
+					vm_page_unwire_noq(ma[i]);
 				vm_page_free(ma[i]);
 				vm_page_unlock(ma[i]);
 			}
@@ -1014,9 +1020,6 @@ exec_map_first_page(struct image_params *imgp)
 		for (i = 1; i < initial_pagein; i++)
 			vm_page_readahead_finish(ma[i]);
 	}
-	vm_page_lock(ma[0]);
-	vm_page_wire(ma[0]);
-	vm_page_unlock(ma[0]);
 	VM_OBJECT_WUNLOCK(object);
 
 	imgp->firstpage = sf_buf_alloc(ma[0], 0);

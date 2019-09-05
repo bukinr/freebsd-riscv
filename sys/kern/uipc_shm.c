@@ -188,7 +188,8 @@ uiomove_object_page(vm_object_t obj, size_t len, struct uio *uio)
 	 * lock to page out tobj's pages because tobj is a OBJT_SWAP
 	 * type object.
 	 */
-	m = vm_page_grab(obj, idx, VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY);
+	m = vm_page_grab(obj, idx, VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY |
+	    VM_ALLOC_WIRED);
 	if (m->valid != VM_PAGE_BITS_ALL) {
 		vm_page_xbusy(m);
 		if (vm_pager_has_page(obj, idx, NULL, NULL)) {
@@ -198,6 +199,7 @@ uiomove_object_page(vm_object_t obj, size_t len, struct uio *uio)
 	    "uiomove_object: vm_obj %p idx %jd valid %x pager error %d\n",
 				    obj, idx, m->valid, rv);
 				vm_page_lock(m);
+				vm_page_unwire_noq(m);
 				vm_page_free(m);
 				vm_page_unlock(m);
 				VM_OBJECT_WUNLOCK(obj);
@@ -207,9 +209,6 @@ uiomove_object_page(vm_object_t obj, size_t len, struct uio *uio)
 			vm_page_zero_invalid(m, TRUE);
 		vm_page_xunbusy(m);
 	}
-	vm_page_lock(m);
-	vm_page_wire(m);
-	vm_page_unlock(m);
 	VM_OBJECT_WUNLOCK(obj);
 	error = uiomove_fromphys(&m, offset, tlen, uio);
 	if (uio->uio_rw == UIO_WRITE && error == 0) {
@@ -550,7 +549,7 @@ shm_alloc(struct ucred *ucred, mode_t mode)
 	shmfd->shm_uid = ucred->cr_uid;
 	shmfd->shm_gid = ucred->cr_gid;
 	shmfd->shm_mode = mode;
-	shmfd->shm_object = vm_pager_allocate(OBJT_DEFAULT, NULL,
+	shmfd->shm_object = vm_pager_allocate(OBJT_SWAP, NULL,
 	    shmfd->shm_size, VM_PROT_DEFAULT, 0, ucred);
 	KASSERT(shmfd->shm_object != NULL, ("shm_create: vm_pager_allocate"));
 	shmfd->shm_object->pg_color = 0;
@@ -896,6 +895,7 @@ shm_mmap(struct file *fp, vm_map_t map, vm_offset_t *addr, vm_size_t objsize,
 	struct shmfd *shmfd;
 	vm_prot_t maxprot;
 	int error;
+	bool writecnt;
 
 	shmfd = fp->f_data;
 	maxprot = VM_PROT_NONE;
@@ -906,10 +906,10 @@ shm_mmap(struct file *fp, vm_map_t map, vm_offset_t *addr, vm_size_t objsize,
 	if ((fp->f_flag & FWRITE) != 0)
 		maxprot |= VM_PROT_WRITE;
 
+	writecnt = (flags & MAP_SHARED) != 0 && (prot & VM_PROT_WRITE) != 0;
+
 	/* Don't permit shared writable mappings on read-only descriptors. */
-	if ((flags & MAP_SHARED) != 0 &&
-	    (maxprot & VM_PROT_WRITE) == 0 &&
-	    (prot & VM_PROT_WRITE) != 0)
+	if (writecnt && (maxprot & VM_PROT_WRITE) == 0)
 		return (EACCES);
 	maxprot &= cap_maxprot;
 
@@ -932,10 +932,16 @@ shm_mmap(struct file *fp, vm_map_t map, vm_offset_t *addr, vm_size_t objsize,
 	mtx_unlock(&shm_timestamp_lock);
 	vm_object_reference(shmfd->shm_object);
 
+	if (writecnt)
+		vm_pager_update_writecount(shmfd->shm_object, 0, objsize);
 	error = vm_mmap_object(map, addr, objsize, prot, maxprot, flags,
-	    shmfd->shm_object, foff, FALSE, td);
-	if (error != 0)
+	    shmfd->shm_object, foff, writecnt, td);
+	if (error != 0) {
+		if (writecnt)
+			vm_pager_release_writecount(shmfd->shm_object, 0,
+			    objsize);
 		vm_object_deallocate(shmfd->shm_object);
+	}
 	return (error);
 }
 
