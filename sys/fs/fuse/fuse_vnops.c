@@ -504,7 +504,7 @@ fuse_vnop_bmap(struct vop_bmap_args *ap)
 	if (runp != NULL) {
 		error = fuse_vnode_size(vp, &filesize, td->td_ucred, td);
 		if (error == 0)
-			*runp = MIN(MAX(0, filesize / biosize - lbn - 1),
+			*runp = MIN(MAX(0, filesize / (off_t)biosize - lbn - 1),
 				    maxrun);
 		else
 			*runp = 0;
@@ -1525,11 +1525,10 @@ fuse_vnop_reclaim(struct vop_reclaim_args *ap)
 		fuse_filehandle_close(vp, fufh, td, NULL);
 	}
 
-	if ((!fuse_isdeadfs(vp)) && (fvdat->nlookup)) {
+	if (!fuse_isdeadfs(vp) && fvdat->nlookup > 0) {
 		fuse_internal_forget_send(vnode_mount(vp), td, NULL, VTOI(vp),
 		    fvdat->nlookup);
 	}
-	fuse_vnode_setparent(vp, NULL);
 	cache_purge(vp);
 	vfs_hash_remove(vp);
 	fuse_vnode_destroy(vp);

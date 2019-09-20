@@ -55,8 +55,11 @@ const static mode_t c_umask = 022;
 
 public:
 
-virtual void SetUp() {
+Mknod() {
 	m_oldmask = umask(c_umask);
+}
+
+virtual void SetUp() {
 	if (geteuid() != 0) {
 		GTEST_SKIP() << "Only root may use most mknod(2) variations";
 	}
@@ -214,8 +217,11 @@ TEST_F(Mknod, socket)
 	ASSERT_LE(0, fd) << strerror(errno);
 	sa.sun_family = AF_UNIX;
 	strlcpy(sa.sun_path, FULLPATH, sizeof(sa.sun_path));
+	sa.sun_len = sizeof(FULLPATH);
 	ASSERT_EQ(0, bind(fd, (struct sockaddr*)&sa, sizeof(sa)))
 		<< strerror(errno);
+
+	leak(fd);
 }
 
 /* 

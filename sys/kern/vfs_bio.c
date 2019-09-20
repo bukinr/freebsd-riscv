@@ -67,6 +67,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/kthread.h>
 #include <sys/proc.h>
 #include <sys/racct.h>
+#include <sys/refcount.h>
 #include <sys/resourcevar.h>
 #include <sys/rwlock.h>
 #include <sys/smp.h>
@@ -2225,8 +2226,6 @@ bufwrite(struct buf *bp)
 
 	oldflags = bp->b_flags;
 
-	BUF_ASSERT_HELD(bp);
-
 	KASSERT(!(bp->b_vflags & BV_BKGRDINPROG),
 	    ("FFS background buffer should not get here %p", bp));
 
@@ -2353,7 +2352,6 @@ bdwrite(struct buf *bp)
 	KASSERT(bp->b_bufobj != NULL, ("No b_bufobj %p", bp));
 	KASSERT((bp->b_flags & B_BARRIER) == 0,
 	    ("Barrier request in delayed write %p", bp));
-	BUF_ASSERT_HELD(bp);
 
 	if (bp->b_flags & B_INVAL) {
 		brelse(bp);
@@ -2445,7 +2443,6 @@ bdirty(struct buf *bp)
 	KASSERT(bp->b_bufobj != NULL, ("No b_bufobj %p", bp));
 	KASSERT(bp->b_flags & B_REMFREE || bp->b_qindex == QUEUE_NONE,
 	    ("bdirty: buffer %p still on queue %d", bp, bp->b_qindex));
-	BUF_ASSERT_HELD(bp);
 	bp->b_flags &= ~(B_RELBUF);
 	bp->b_iocmd = BIO_WRITE;
 
@@ -2475,7 +2472,6 @@ bundirty(struct buf *bp)
 	KASSERT(bp->b_bufobj != NULL, ("No b_bufobj %p", bp));
 	KASSERT(bp->b_flags & B_REMFREE || bp->b_qindex == QUEUE_NONE,
 	    ("bundirty: buffer %p still on queue %d", bp, bp->b_qindex));
-	BUF_ASSERT_HELD(bp);
 
 	if (bp->b_flags & B_DELWRI) {
 		bp->b_flags &= ~B_DELWRI;
@@ -2619,6 +2615,19 @@ brelse(struct buf *bp)
 		BO_UNLOCK(bp->b_bufobj);
 		bdirty(bp);
 	}
+
+	if (bp->b_iocmd == BIO_WRITE && (bp->b_ioflags & BIO_ERROR) &&
+	    (bp->b_flags & B_INVALONERR)) {
+		/*
+		 * Forced invalidation of dirty buffer contents, to be used
+		 * after a failed write in the rare case that the loss of the
+		 * contents is acceptable.  The buffer is invalidated and
+		 * freed.
+		 */
+		bp->b_flags |= B_INVAL | B_RELBUF | B_NOCACHE;
+		bp->b_flags &= ~(B_ASYNC | B_CACHE);
+	}
+
 	if (bp->b_iocmd == BIO_WRITE && (bp->b_ioflags & BIO_ERROR) &&
 	    (bp->b_error != ENXIO || !LIST_EMPTY(&bp->b_dep)) &&
 	    !(bp->b_flags & B_INVAL)) {
@@ -2834,9 +2843,9 @@ vfs_vmio_iodone(struct buf *bp)
 	bool bogus;
 
 	obj = bp->b_bufobj->bo_object;
-	KASSERT(obj->paging_in_progress >= bp->b_npages,
+	KASSERT(REFCOUNT_COUNT(obj->paging_in_progress) >= bp->b_npages,
 	    ("vfs_vmio_iodone: paging in progress(%d) < b_npages(%d)",
-	    obj->paging_in_progress, bp->b_npages));
+	    REFCOUNT_COUNT(obj->paging_in_progress), bp->b_npages));
 
 	vp = bp->b_vp;
 	KASSERT(vp->v_holdcnt > 0,
@@ -2936,12 +2945,8 @@ vfs_vmio_invalidate(struct buf *bp)
 		presid = resid > (PAGE_SIZE - poffset) ?
 		    (PAGE_SIZE - poffset) : resid;
 		KASSERT(presid >= 0, ("brelse: extra page"));
-		while (vm_page_xbusied(m)) {
-			vm_page_lock(m);
-			VM_OBJECT_WUNLOCK(obj);
-			vm_page_busy_sleep(m, "mbncsh", true);
-			VM_OBJECT_WLOCK(obj);
-		}
+		while (vm_page_xbusied(m))
+			vm_page_sleep_if_xbusy(m, "mbncsh");
 		if (pmap_page_wired_mappings(m) == 0)
 			vm_page_set_invalid(m, poffset, presid);
 		vm_page_release_locked(m, flags);
@@ -4090,7 +4095,6 @@ loop:
 		bp->b_flags &= ~B_DONE;
 	}
 	CTR4(KTR_BUF, "getblk(%p, %ld, %d) = %p", vp, (long)blkno, size, bp);
-	BUF_ASSERT_HELD(bp);
 end:
 	buf_track(bp, __func__);
 	KASSERT(bp->b_bufobj == bo,
@@ -4118,7 +4122,6 @@ geteblk(int size, int flags)
 	allocbuf(bp, size);
 	bufspace_release(bufdomain(bp), maxsize);
 	bp->b_flags |= B_INVAL;	/* b_dep cleared by getnewbuf() */
-	BUF_ASSERT_HELD(bp);
 	return (bp);
 }
 
@@ -4214,8 +4217,6 @@ int
 allocbuf(struct buf *bp, int size)
 {
 	int newbsize;
-
-	BUF_ASSERT_HELD(bp);
 
 	if (bp->b_bcount == size)
 		return (1);
@@ -4402,7 +4403,6 @@ bufdone(struct buf *bp)
 	dropobj = NULL;
 
 	KASSERT(!(bp->b_flags & B_DONE), ("biodone: bp %p already done", bp));
-	BUF_ASSERT_HELD(bp);
 
 	runningbufwakeup(bp);
 	if (bp->b_iocmd == BIO_WRITE)
@@ -4575,10 +4575,7 @@ vfs_drain_busy_pages(struct buf *bp)
 			for (; last_busied < i; last_busied++)
 				vm_page_sbusy(bp->b_pages[last_busied]);
 			while (vm_page_xbusied(m)) {
-				vm_page_lock(m);
-				VM_OBJECT_WUNLOCK(bp->b_bufobj->bo_object);
-				vm_page_busy_sleep(m, "vbpage", true);
-				VM_OBJECT_WLOCK(bp->b_bufobj->bo_object);
+				vm_page_sleep_if_xbusy(m, "vbpage");
 			}
 		}
 	}

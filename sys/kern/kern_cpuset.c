@@ -796,7 +796,7 @@ cpuset_modify_domain(struct cpuset *set, struct domainset *domain)
 		/*
 		 * Verify that we have access to this set of domains.
 		 */
-		if (root && !domainset_valid(dset, domain)) {
+		if (!domainset_valid(dset, domain)) {
 			error = EINVAL;
 			goto out;
 		}
@@ -1507,7 +1507,7 @@ cpuset_thread0(void)
 	/*
 	 * Initialize the unit allocator. 0 and 1 are allocated above.
 	 */
-	cpuset_unr = new_unrhdr(2, INT_MAX, NULL);
+	cpuset_unr = new_unrhdr(3, INT_MAX, NULL);
 
 	/*
 	 * If MD code has not initialized per-domain cpusets, place all

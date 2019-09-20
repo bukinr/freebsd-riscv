@@ -3064,38 +3064,28 @@ pmap_extract_and_hold(pmap_t pmap, vm_offset_t va, vm_prot_t prot)
 {
 	pd_entry_t pde, *pdep;
 	pt_entry_t pte, PG_RW, PG_V;
-	vm_paddr_t pa;
 	vm_page_t m;
 
-	pa = 0;
 	m = NULL;
 	PG_RW = pmap_rw_bit(pmap);
 	PG_V = pmap_valid_bit(pmap);
+
 	PMAP_LOCK(pmap);
-retry:
 	pdep = pmap_pde(pmap, va);
 	if (pdep != NULL && (pde = *pdep)) {
 		if (pde & PG_PS) {
-			if ((pde & PG_RW) || (prot & VM_PROT_WRITE) == 0) {
-				if (vm_page_pa_tryrelock(pmap, (pde &
-				    PG_PS_FRAME) | (va & PDRMASK), &pa))
-					goto retry;
-				m = PHYS_TO_VM_PAGE(pa);
-			}
+			if ((pde & PG_RW) != 0 || (prot & VM_PROT_WRITE) == 0)
+				m = PHYS_TO_VM_PAGE((pde & PG_PS_FRAME) |
+				    (va & PDRMASK));
 		} else {
 			pte = *pmap_pde_to_pte(pdep, va);
-			if ((pte & PG_V) &&
-			    ((pte & PG_RW) || (prot & VM_PROT_WRITE) == 0)) {
-				if (vm_page_pa_tryrelock(pmap, pte & PG_FRAME,
-				    &pa))
-					goto retry;
-				m = PHYS_TO_VM_PAGE(pa);
-			}
+			if ((pte & PG_V) != 0 &&
+			    ((pte & PG_RW) != 0 || (prot & VM_PROT_WRITE) == 0))
+				m = PHYS_TO_VM_PAGE(pte & PG_FRAME);
 		}
-		if (m != NULL)
-			vm_page_wire(m);
+		if (m != NULL && !vm_page_wire_mapped(m))
+			m = NULL;
 	}
-	PA_UNLOCK_COND(pa);
 	PMAP_UNLOCK(pmap);
 	return (m);
 }

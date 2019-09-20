@@ -190,8 +190,6 @@ tmpfs_alloc_node(struct mount *mp, struct tmpfs_mount *tmp, enum vtype type,
 	/* If the root directory of the 'tmp' file system is not yet
 	 * allocated, this must be the request to do it. */
 	MPASS(IMPLIES(tmp->tm_root == NULL, parent == NULL && type == VDIR));
-	KASSERT(tmp->tm_root == NULL || mp->mnt_writeopcount > 0,
-	    ("creating node not under vn_start_write"));
 
 	MPASS(IFF(type == VLNK, target != NULL));
 	MPASS(IFF(type == VBLK || type == VCHR, rdev != VNOVAL));
@@ -1418,7 +1416,6 @@ retry:
 					goto retry;
 				rv = vm_pager_get_pages(uobj, &m, 1, NULL,
 				    NULL);
-				vm_page_lock(m);
 				if (rv == VM_PAGER_OK) {
 					/*
 					 * Since the page was not resident,
@@ -1428,12 +1425,12 @@ retry:
 					 * current operation is not regarded
 					 * as an access.
 					 */
+					vm_page_lock(m);
 					vm_page_launder(m);
 					vm_page_unlock(m);
 					vm_page_xunbusy(m);
 				} else {
 					vm_page_free(m);
-					vm_page_unlock(m);
 					if (ignerr)
 						m = NULL;
 					else {
