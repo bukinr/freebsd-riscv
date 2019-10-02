@@ -2,7 +2,6 @@
  * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
  *
  * Copyright (c) 2019 Kyle Evans <kevans@FreeBSD.org>
- * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -88,9 +87,6 @@ memfd_create(const char *name, unsigned int flags)
 		return (EINVAL);
 	if ((flags & ~(MFD_CLOEXEC | MFD_ALLOW_SEALING | MFD_HUGETLB |
 	    MFD_HUGE_MASK)) != 0)
-		return (EINVAL);
-	/* HUGETLB set with no size specified. */
-	if ((flags & MFD_HUGETLB) != 0 && (flags & MFD_HUGE_MASK) == 0)
 		return (EINVAL);
 	/* Size specified but no HUGETLB. */
 	if ((flags & MFD_HUGE_MASK) != 0 && (flags & MFD_HUGETLB) == 0)
