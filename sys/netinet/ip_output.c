@@ -1078,7 +1078,7 @@ in_delayed_cksum(struct mbuf *m)
 int
 ip_ctloutput(struct socket *so, struct sockopt *sopt)
 {
-	struct	inpcb *inp = sotoinpcb(so);
+	struct inpcb *inp = sotoinpcb(so);
 	int	error, optval;
 #ifdef	RSS
 	uint32_t rss_bucket;

@@ -949,7 +949,33 @@ _sanity_check: .PHONY .MAKE
 # replacing generated files.  Handle these cases here in an ad-hoc fashion.
 _cleanobj_fast_depend_hack: .PHONY
 # Syscall stubs rewritten in C and obsolete MD assembly implementations
-# Date      SVN Rev  Syscalls
+# Date      SVN Rev  Syscalls/Changes
+# 20191009  r353340  removal of opensolaris_atomic.S (also r353381)
+.if ${MACHINE} != i386
+.for f in opensolaris_atomic
+	@if [ -e "${OBJTOP}/cddl/lib/libzpool/.depend.${f}.o" ] && \
+	    egrep -qw 'opensolaris_atomic\.S' ${OBJTOP}/cddl/lib/libzpool/.depend.${f}.o; then \
+		echo "Removing stale dependencies for opensolaris_atomic"; \
+		rm -f ${OBJTOP}/cddl/lib/libzpool/.depend.${f}.* \
+		   ${LIBCOMPAT:D${LIBCOMPAT_OBJTOP}/cddl/lib/libzpool/.depend.${f}.*}; \
+	fi
+.endfor
+.endif
+# 20190925  r352689  removal of obsolete i386 memchr.S
+.for f in memchr
+	@if [ -e "${OBJTOP}/lib/libc/.depend.${f}.o" ] && \
+	    egrep -qw 'i386/string/memchr\.S' ${OBJTOP}/lib/libc/.depend.${f}.o; then \
+		echo "Removing stale dependencies for memchr"; \
+		rm -f ${OBJTOP}/lib/libc/.depend.${f}.*; \
+	fi
+.if defined(LIBCOMPAT)
+	@if [ -e "${LIBCOMPAT_OBJTOP}/lib/libc/.depend.${f}.o" ] && \
+	    egrep -qw 'i386/string/memchr\.S' ${LIBCOMPAT_OBJTOP}/lib/libc/.depend.${f}.o; then \
+		echo "Removing stale dependencies for memchr"; \
+		rm -f ${LIBCOMPAT_OBJTOP}/lib/libc/.depend.${f}.*; \
+	fi
+.endif
+.endfor
 # 20180604  r334626  brk sbrk
 # 20190916  r352703  shm_open
 .for f in brk sbrk shm_open
@@ -2192,10 +2218,13 @@ _localedef=	usr.bin/localedef
 _clang_tblgen= \
 	lib/clang/libllvmminimal \
 	usr.bin/clang/llvm-tblgen \
-	usr.bin/clang/clang-tblgen
+	usr.bin/clang/clang-tblgen \
+	usr.bin/clang/lldb-tblgen
+# XXX: lldb-tblgen is not needed, if top-level MK_LLDB=no
 
 ${_bt}-usr.bin/clang/clang-tblgen: ${_bt}-lib/clang/libllvmminimal
 ${_bt}-usr.bin/clang/llvm-tblgen: ${_bt}-lib/clang/libllvmminimal
+${_bt}-usr.bin/clang/lldb-tblgen: ${_bt}-lib/clang/libllvmminimal
 .endif
 
 # Default to building the GPL DTC, but build the BSDL one if users explicitly

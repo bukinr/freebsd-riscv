@@ -325,8 +325,14 @@ pmap_pku_mask_bit(pmap_t pmap)
 #if VM_NRESERVLEVEL > 0
 #define	pa_to_pmdp(pa)	(&pv_table[pa_index(pa)])
 #define	pa_to_pvh(pa)	(&(pa_to_pmdp(pa)->pv_page))
-#define	PHYS_TO_PV_LIST_LOCK(pa)	\
-			(&(pa_to_pmdp(pa)->pv_lock))
+#define	PHYS_TO_PV_LIST_LOCK(pa)	({			\
+	struct rwlock *_lock;					\
+	if (__predict_false((pa) > pmap_last_pa))		\
+		_lock = &pv_dummy_large.pv_lock;		\
+	else							\
+		_lock = &(pa_to_pmdp(pa)->pv_lock);		\
+	_lock;							\
+})
 #else
 #define	pa_to_pvh(pa)	(&pv_table[pa_index(pa)])
 
@@ -422,13 +428,16 @@ struct pmap_large_md_page {
 	struct md_page  pv_page;
 	u_long pv_invl_gen;
 };
-static struct pmap_large_md_page *pv_table;
+__exclusive_cache_line static struct pmap_large_md_page pv_dummy_large;
+#define pv_dummy pv_dummy_large.pv_page
+__read_mostly static struct pmap_large_md_page *pv_table;
+__read_mostly vm_paddr_t pmap_last_pa;
 #else
 static struct rwlock __exclusive_cache_line pv_list_locks[NPV_LIST_LOCKS];
 static u_long pv_invl_gen[NPV_LIST_LOCKS];
 static struct md_page *pv_table;
-#endif
 static struct md_page pv_dummy;
+#endif
 
 /*
  * All those kernel PT submaps that BSD is so fond of
@@ -1851,7 +1860,8 @@ pmap_init_pv_table(void)
 	/*
 	 * Calculate the size of the array.
 	 */
-	pv_npg = howmany(vm_phys_segs[vm_phys_nsegs - 1].end, NBPDR);
+	pmap_last_pa = vm_phys_segs[vm_phys_nsegs - 1].end;
+	pv_npg = howmany(pmap_last_pa, NBPDR);
 	s = (vm_size_t)pv_npg * sizeof(struct pmap_large_md_page);
 	s = round_page(s);
 	pv_table = (struct pmap_large_md_page *)kva_alloc(s);
@@ -1864,26 +1874,14 @@ pmap_init_pv_table(void)
 	highest = -1;
 	s = 0;
 	for (i = 0; i < vm_phys_nsegs; i++) {
-		start = vm_phys_segs[i].start / NBPDR;
 		end = vm_phys_segs[i].end / NBPDR;
 		domain = vm_phys_segs[i].domain;
 
 		if (highest >= end)
 			continue;
 
-		if (start < highest) {
-			start = highest + 1;
-			pvd = &pv_table[start];
-		} else {
-			/*
-			 * The lowest address may land somewhere in the middle
-			 * of our page. Simplify the code by pretending it is
-			 * at the beginning.
-			 */
-			pvd = pa_to_pmdp(vm_phys_segs[i].start);
-			pvd = (struct pmap_large_md_page *)trunc_page(pvd);
-			start = pvd - pv_table;
-		}
+		start = highest + 1;
+		pvd = &pv_table[start];
 
 		pages = end - start + 1;
 		s = round_page(pages * sizeof(*pvd));
@@ -1906,7 +1904,12 @@ pmap_init_pv_table(void)
 			pvd++;
 		}
 	}
-	TAILQ_INIT(&pv_dummy.pv_list);
+	pvd = &pv_dummy_large;
+	rw_init_flags(&pvd->pv_lock, "pmap pv list dummy", RW_NEW);
+	TAILQ_INIT(&pvd->pv_page.pv_list);
+	pvd->pv_page.pv_gen = 0;
+	pvd->pv_page.pat_mode = 0;
+	pvd->pv_invl_gen = 0;
 }
 #else
 static void
@@ -3959,9 +3962,9 @@ pmap_page_array_startup(long pages)
 
 	vm_page_array_size = pages;
 
-	start = va = VM_MIN_KERNEL_ADDRESS;
-	end = va + pages * sizeof(struct vm_page);
-	while (va < end) {
+	start = VM_MIN_KERNEL_ADDRESS;
+	end = start + pages * sizeof(struct vm_page);
+	for (va = start; va < end; va += NBPDR) {
 		pfn = first_page + (va - start) / sizeof(struct vm_page);
 		domain = _vm_phys_domain(ptoa(pfn));
 		pdpe = pmap_pdpe(kernel_pmap, va);
@@ -3981,7 +3984,6 @@ pmap_page_array_startup(long pages)
 		newpdir = (pd_entry_t)(pa | X86_PG_V | X86_PG_RW | X86_PG_A |
 		    X86_PG_M | PG_PS | pg_g | pg_nx);
 		pde_store(pde, newpdir);
-		va += NBPDR;
 	}
 	vm_page_array = (vm_page_t)start;
 }

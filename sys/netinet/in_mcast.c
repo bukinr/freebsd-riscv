@@ -393,6 +393,7 @@ inm_lookup(struct ifnet *ifp, const struct in_addr ina)
 
 	IN_MULTI_LIST_LOCK_ASSERT();
 	NET_EPOCH_ENTER(et);
+
 	inm = inm_lookup_locked(ifp, ina);
 	NET_EPOCH_EXIT(et);
 
@@ -1310,10 +1311,10 @@ in_leavegroup_locked(struct in_multi *inm, /*const*/ struct in_mfilter *imf)
 	struct in_mfilter	 timf;
 	int			 error;
 
-	error = 0;
-
 	IN_MULTI_LOCK_ASSERT();
 	IN_MULTI_LIST_UNLOCK_ASSERT();
+
+	error = 0;
 
 	CTR5(KTR_IGMPV3, "%s: leave inm %p, 0x%08x/%s, imf %p", __func__,
 	    inm, ntohl(inm->inm_addr.s_addr),
@@ -2192,12 +2193,14 @@ inp_join_group(struct inpcb *inp, struct sockopt *sopt)
 	 * Begin state merge transaction at IGMP layer.
 	 */
 	if (is_new) {
+		struct epoch_tracker et;
+
 		in_pcbref(inp);
 		INP_WUNLOCK(inp);
-
+		NET_EPOCH_ENTER(et);
 		error = in_joingroup_locked(ifp, &gsa->sin.sin_addr, imf,
 		    &imf->imf_inm);
-
+		NET_EPOCH_EXIT(et);
 		INP_WLOCK(inp);
 		if (in_pcbrele_wlocked(inp)) {
 			error = ENXIO;
@@ -2908,8 +2911,10 @@ sysctl_ip_mcast_filters(SYSCTL_HANDLER_ARGS)
 		return (EINVAL);
 	}
 
+	NET_EPOCH_ENTER(et);
 	ifp = ifnet_byindex(ifindex);
 	if (ifp == NULL) {
+		NET_EPOCH_EXIT(et);
 		CTR2(KTR_IGMPV3, "%s: no ifp for ifindex %u",
 		    __func__, ifindex);
 		return (ENOENT);
@@ -2917,12 +2922,13 @@ sysctl_ip_mcast_filters(SYSCTL_HANDLER_ARGS)
 
 	retval = sysctl_wire_old_buffer(req,
 	    sizeof(uint32_t) + (in_mcast_maxgrpsrc * sizeof(struct in_addr)));
-	if (retval)
+	if (retval) {
+		NET_EPOCH_EXIT(et);
 		return (retval);
+	}
 
 	IN_MULTI_LIST_LOCK();
 
-	NET_EPOCH_ENTER(et);
 	CK_STAILQ_FOREACH(ifma, &ifp->if_multiaddrs, ifma_link) {
 		if (ifma->ifma_addr->sa_family != AF_INET ||
 		    ifma->ifma_protospec == NULL)
@@ -2951,9 +2957,9 @@ sysctl_ip_mcast_filters(SYSCTL_HANDLER_ARGS)
 				break;
 		}
 	}
-	NET_EPOCH_EXIT(et);
 
 	IN_MULTI_LIST_UNLOCK();
+	NET_EPOCH_EXIT(et);
 
 	return (retval);
 }
