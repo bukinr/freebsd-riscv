@@ -132,6 +132,7 @@ virtdone:
 	str	x1,  [x0]	/* modulep */
 	str	x26, [x0, 8]	/* kern_l1pt */
 	str	x29, [x0, 16]	/* kern_delta */
+	adr	x25, initstack
 	str	x25, [x0, 24]	/* kern_stack */
 	str	x24, [x0, 32]	/* kern_l0pt */
 
@@ -555,6 +556,7 @@ build_l2_block_pagetable:
 	lsl	x12, x7, #2
 	orr	x12, x12, #L2_BLOCK
 	orr	x12, x12, #(ATTR_AF)
+	orr	x12, x12, #(ATTR_UXN)
 #ifdef SMP
 	orr	x12, x12, ATTR_SH(ATTR_SH_IS)
 #endif

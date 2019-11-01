@@ -246,8 +246,7 @@ struct thread {
 	u_char		td_lend_user_pri; /* (t) Lend user pri. */
 
 /* Cleared during fork1() */
-#define	td_startzero td_epochnest
-	u_char		td_epochnest;	/* (k) Epoch nest counter. */
+#define	td_startzero td_flags
 	int		td_flags;	/* (t) TDF_* flags. */
 	int		td_inhibitors;	/* (t) Why can not run. */
 	int		td_pflags;	/* (k) Private thread (TDP_*) flags. */
@@ -299,7 +298,7 @@ struct thread {
 	struct vm_map_entry *td_map_def_user; /* (k) Deferred entries. */
 	pid_t		td_dbg_forked;	/* (c) Child pid for debugger. */
 	u_int		td_vp_reserv;	/* (k) Count of reserved vnodes. */
-	int		td_no_sleeping;	/* (k) Sleeping disabled count. */
+	u_int		td_no_sleeping;	/* (k) Sleeping disabled count. */
 	void		*td_su;		/* (k) FFS SU private */
 	sbintime_t	td_sleeptimo;	/* (t) Sleep timeout. */
 	int		td_rtcgen;	/* (s) rtc_generation of abs. sleep */
@@ -365,7 +364,6 @@ struct thread {
 	int		td_lastcpu;	/* (t) Last cpu we were on. */
 	int		td_oncpu;	/* (t) Which cpu we are on. */
 	void		*td_lkpi_task;	/* LinuxKPI task struct pointer */
-	struct epoch_tracker *td_et;	/* (k) compat KPI spare tracker */
 	int		td_pmcpend;
 #ifdef EPOCH_TRACE
 	SLIST_HEAD(, epoch_tracker) td_epochs;
@@ -949,9 +947,15 @@ extern pid_t pid_max;
 #define	thread_safetoswapout(td)	((td)->td_flags & TDF_CANSWAP)
 
 /* Control whether or not it is safe for curthread to sleep. */
-#define	THREAD_NO_SLEEPING()		((curthread)->td_no_sleeping++)
+#define	THREAD_NO_SLEEPING()		do {				\
+	curthread->td_no_sleeping++;					\
+	MPASS(curthread->td_no_sleeping > 0);				\
+} while (0)
 
-#define	THREAD_SLEEPING_OK()		((curthread)->td_no_sleeping--)
+#define	THREAD_SLEEPING_OK()		do {				\
+	MPASS(curthread->td_no_sleeping > 0);				\
+	curthread->td_no_sleeping--;					\
+} while (0)
 
 #define	THREAD_CAN_SLEEP()		((curthread)->td_no_sleeping == 0)
 

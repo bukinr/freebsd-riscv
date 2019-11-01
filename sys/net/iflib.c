@@ -59,6 +59,7 @@ __FBSDID("$FreeBSD$");
 #include <net/bpf.h>
 #include <net/ethernet.h>
 #include <net/mp_ring.h>
+#include <net/debugnet.h>
 #include <net/pfil.h>
 #include <net/vnet.h>
 
@@ -71,7 +72,6 @@ __FBSDID("$FreeBSD$");
 #include <netinet/ip6.h>
 #include <netinet/tcp.h>
 #include <netinet/ip_var.h>
-#include <netinet/netdump/netdump.h>
 #include <netinet6/ip6_var.h>
 
 #include <machine/bus.h>
@@ -703,6 +703,7 @@ static int iflib_altq_if_transmit(if_t ifp, struct mbuf *m);
 #endif
 static int iflib_register(if_ctx_t);
 static void iflib_deregister(if_ctx_t);
+static void iflib_unregister_vlan_handlers(if_ctx_t ctx);
 static void iflib_init_locked(if_ctx_t ctx);
 static void iflib_add_device_sysctl_pre(if_ctx_t ctx);
 static void iflib_add_device_sysctl_post(if_ctx_t ctx);
@@ -726,7 +727,7 @@ static struct mtx cpu_offset_mtx;
 MTX_SYSINIT(iflib_cpu_offset, &cpu_offset_mtx, "iflib_cpu_offset lock",
     MTX_DEF);
 
-NETDUMP_DEFINE(iflib);
+DEBUGNET_DEFINE(iflib);
 
 #ifdef DEV_NETMAP
 #include <sys/selinfo.h>
@@ -1724,6 +1725,14 @@ iflib_txq_destroy(iflib_txq_t txq)
 
 	for (int i = 0; i < txq->ift_size; i++)
 		iflib_txsd_destroy(ctx, txq, i);
+
+	if (txq->ift_br != NULL) {
+		ifmp_ring_free(txq->ift_br);
+		txq->ift_br = NULL;
+	}
+
+	mtx_destroy(&txq->ift_mtx);
+
 	if (txq->ift_sds.ifsd_map != NULL) {
 		free(txq->ift_sds.ifsd_map, M_IFLIB);
 		txq->ift_sds.ifsd_map = NULL;
@@ -1743,6 +1752,9 @@ iflib_txq_destroy(iflib_txq_t txq)
 	if (txq->ift_tso_buf_tag != NULL) {
 		bus_dma_tag_destroy(txq->ift_tso_buf_tag);
 		txq->ift_tso_buf_tag = NULL;
+	}
+	if (txq->ift_ifdi != NULL) {
+		free(txq->ift_ifdi, M_IFLIB);
 	}
 }
 
@@ -2224,6 +2236,8 @@ iflib_rx_sds_free(iflib_rxq_t rxq)
 		}
 		free(rxq->ifr_fl, M_IFLIB);
 		rxq->ifr_fl = NULL;
+		free(rxq->ifr_ifdi, M_IFLIB);
+		rxq->ifr_ifdi = NULL;
 		rxq->ifr_cq_cidx = 0;
 	}
 }
@@ -4775,7 +4789,7 @@ iflib_device_register(device_t dev, void *sc, if_shared_ctx_t sctx, if_ctx_t *ct
 	}
 	*ctxp = ctx;
 
-	NETDUMP_SET(ctx->ifc_ifp, iflib);
+	DEBUGNET_SET(ctx->ifc_ifp, iflib);
 
 	if_setgetcounterfn(ctx->ifc_ifp, iflib_if_get_counter);
 	iflib_add_device_sysctl_post(ctx);
@@ -5007,6 +5021,9 @@ iflib_pseudo_deregister(if_ctx_t ctx)
 	struct taskqgroup *tqg;
 	iflib_fl_t fl;
 
+	/* Unregister VLAN event handlers early */
+	iflib_unregister_vlan_handlers(ctx);
+
 	ether_ifdetach(ifp);
 	/* XXX drain any dependent tasks */
 	tqg = qgroup_if_io_tqg;
@@ -5080,12 +5097,16 @@ iflib_device_deregister(if_ctx_t ctx)
 	ctx->ifc_flags |= IFC_IN_DETACH;
 	STATE_UNLOCK(ctx);
 
+	/* Unregister VLAN handlers before calling iflib_stop() */
+	iflib_unregister_vlan_handlers(ctx);
+
+	iflib_netmap_detach(ifp);
+	ether_ifdetach(ifp);
+
 	CTX_LOCK(ctx);
 	iflib_stop(ctx);
 	CTX_UNLOCK(ctx);
 
-	iflib_netmap_detach(ifp);
-	ether_ifdetach(ifp);
 	iflib_rem_pfil(ctx);
 	if (ctx->ifc_led_dev != NULL)
 		led_destroy(ctx->ifc_led_dev);
@@ -5375,13 +5396,8 @@ iflib_register(if_ctx_t ctx)
 }
 
 static void
-iflib_deregister(if_ctx_t ctx)
+iflib_unregister_vlan_handlers(if_ctx_t ctx)
 {
-	if_t ifp = ctx->ifc_ifp;
-
-	/* Remove all media */
-	ifmedia_removeall(&ctx->ifc_media);
-
 	/* Unregister VLAN events */
 	if (ctx->ifc_vlan_attach_event != NULL) {
 		EVENTHANDLER_DEREGISTER(vlan_config, ctx->ifc_vlan_attach_event);
@@ -5391,6 +5407,19 @@ iflib_deregister(if_ctx_t ctx)
 		EVENTHANDLER_DEREGISTER(vlan_unconfig, ctx->ifc_vlan_detach_event);
 		ctx->ifc_vlan_detach_event = NULL;
 	}
+
+}
+
+static void
+iflib_deregister(if_ctx_t ctx)
+{
+	if_t ifp = ctx->ifc_ifp;
+
+	/* Remove all media */
+	ifmedia_removeall(&ctx->ifc_media);
+
+	/* Ensure that VLAN event handlers are unregistered */
+	iflib_unregister_vlan_handlers(ctx);
 
 	/* Release kobject reference */
 	kobj_delete((kobj_t) ctx, NULL);
@@ -5642,9 +5671,9 @@ iflib_tx_structures_free(if_ctx_t ctx)
 	int i, j;
 
 	for (i = 0; i < NTXQSETS(ctx); i++, txq++) {
-		iflib_txq_destroy(txq);
 		for (j = 0; j < sctx->isc_ntxqs; j++)
 			iflib_dma_free(&txq->ift_ifdi[j]);
+		iflib_txq_destroy(txq);
 	}
 	free(ctx->ifc_txqs, M_IFLIB);
 	ctx->ifc_txqs = NULL;
@@ -6719,9 +6748,9 @@ iflib_fixup_rx(struct mbuf *m)
 }
 #endif
 
-#ifdef NETDUMP
+#ifdef DEBUGNET
 static void
-iflib_netdump_init(if_t ifp, int *nrxr, int *ncl, int *clsize)
+iflib_debugnet_init(if_t ifp, int *nrxr, int *ncl, int *clsize)
 {
 	if_ctx_t ctx;
 
@@ -6734,7 +6763,7 @@ iflib_netdump_init(if_t ifp, int *nrxr, int *ncl, int *clsize)
 }
 
 static void
-iflib_netdump_event(if_t ifp, enum netdump_ev event)
+iflib_debugnet_event(if_t ifp, enum debugnet_ev event)
 {
 	if_ctx_t ctx;
 	if_softc_ctx_t scctx;
@@ -6746,7 +6775,7 @@ iflib_netdump_event(if_t ifp, enum netdump_ev event)
 	scctx = &ctx->ifc_softc_ctx;
 
 	switch (event) {
-	case NETDUMP_START:
+	case DEBUGNET_START:
 		for (i = 0; i < scctx->isc_nrxqsets; i++) {
 			rxq = &ctx->ifc_rxqs[i];
 			for (j = 0; j < rxq->ifr_nfl; j++) {
@@ -6762,7 +6791,7 @@ iflib_netdump_event(if_t ifp, enum netdump_ev event)
 }
 
 static int
-iflib_netdump_transmit(if_t ifp, struct mbuf *m)
+iflib_debugnet_transmit(if_t ifp, struct mbuf *m)
 {
 	if_ctx_t ctx;
 	iflib_txq_t txq;
@@ -6781,7 +6810,7 @@ iflib_netdump_transmit(if_t ifp, struct mbuf *m)
 }
 
 static int
-iflib_netdump_poll(if_t ifp, int count)
+iflib_debugnet_poll(if_t ifp, int count)
 {
 	if_ctx_t ctx;
 	if_softc_ctx_t scctx;
@@ -6802,4 +6831,4 @@ iflib_netdump_poll(if_t ifp, int count)
 		(void)iflib_rxeof(&ctx->ifc_rxqs[i], 16 /* XXX */);
 	return (0);
 }
-#endif /* NETDUMP */
+#endif /* DEBUGNET */

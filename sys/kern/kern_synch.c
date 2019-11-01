@@ -66,6 +66,9 @@ __FBSDID("$FreeBSD$");
 #include <sys/uio.h>
 #include <sys/ktrace.h>
 #endif
+#ifdef EPOCH_TRACE
+#include <sys/epoch.h>
+#endif
 
 #include <machine/cpu.h>
 
@@ -148,7 +151,6 @@ _sleep(void *ident, struct lock_object *lock, int priority,
 	    ("sleeping without a lock"));
 	KASSERT(ident != NULL, ("_sleep: NULL ident"));
 	KASSERT(TD_IS_RUNNING(td), ("_sleep: curthread not running"));
-	KASSERT(td->td_epochnest == 0, ("sleeping in an epoch section"));
 	if (priority & PDROP)
 		KASSERT(lock != NULL && lock != &Giant.lock_object,
 		    ("PDROP requires a non-Giant lock"));
