@@ -126,7 +126,6 @@ __DEFAULT_YES_OPTIONS = \
     LDNS \
     LDNS_UTILS \
     LEGACY_CONSOLE \
-    LIB32 \
     LIBPTHREAD \
     LIBTHR \
     LLVM_COV \
@@ -329,8 +328,9 @@ BROKEN_OPTIONS+=BINUTILS BINUTILS_BOOTSTRAP GCC GCC_BOOTSTRAP GDB
 .if ${__T:Mriscv*} != ""
 BROKEN_OPTIONS+=OFED
 .endif
-.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "i386" || \
-    ${__T:Mriscv*} != "" || ${__TT} == "mips"
+.if ${__T} == "aarch64" || ${__T} == "amd64" || ${__T} == "armv6" || \
+    ${__T} == "armv7" || ${__T} == "i386" || ${__T:Mriscv*} != "" || \
+    ${__TT} == "mips"
 __DEFAULT_YES_OPTIONS+=LLVM_LIBUNWIND
 .else
 __DEFAULT_NO_OPTIONS+=LLVM_LIBUNWIND
@@ -356,6 +356,12 @@ BROKEN_OPTIONS+=LLDB
 __DEFAULT_NO_OPTIONS+=GDB_LIBEXEC
 .else
 __DEFAULT_YES_OPTIONS+=GDB_LIBEXEC
+.endif
+# LIB32 is supported on amd64, mips64, and powerpc64
+.if (${__T} == "amd64" || ${__T:Mmips64*} || ${__T} == "powerpc64")
+__DEFAULT_YES_OPTIONS+=LIB32
+.else
+BROKEN_OPTIONS+=LIB32
 .endif
 # Only doing soft float API stuff on armv6 and armv7
 .if ${__T} != "armv6" && ${__T} != "armv7"

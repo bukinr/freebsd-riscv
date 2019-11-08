@@ -127,14 +127,16 @@ VNET_DEFINE(int, nd6_ignore_ipv6_only_ra) = 1;
 void
 nd6_rs_input(struct mbuf *m, int off, int icmp6len)
 {
-	struct ifnet *ifp = m->m_pkthdr.rcvif;
-	struct ip6_hdr *ip6 = mtod(m, struct ip6_hdr *);
+	struct ifnet *ifp;
+	struct ip6_hdr *ip6;
 	struct nd_router_solicit *nd_rs;
-	struct in6_addr saddr6 = ip6->ip6_src;
-	char *lladdr = NULL;
-	int lladdrlen = 0;
+	struct in6_addr saddr6;
 	union nd_opts ndopts;
 	char ip6bufs[INET6_ADDRSTRLEN], ip6bufd[INET6_ADDRSTRLEN];
+	char *lladdr;
+	int lladdrlen;
+
+	ifp = m->m_pkthdr.rcvif;
 
 	/*
 	 * Accept RS only when V_ip6_forwarding=1 and the interface has
@@ -148,6 +150,7 @@ nd6_rs_input(struct mbuf *m, int off, int icmp6len)
 		goto freeit;
 
 	/* Sanity checks */
+	ip6 = mtod(m, struct ip6_hdr *);
 	if (ip6->ip6_hlim != 255) {
 		nd6log((LOG_ERR,
 		    "nd6_rs_input: invalid hlim (%d) from %s to %s on %s\n",
@@ -160,6 +163,7 @@ nd6_rs_input(struct mbuf *m, int off, int icmp6len)
 	 * Don't update the neighbor cache, if src = ::.
 	 * This indicates that the src has no IP address assigned yet.
 	 */
+	saddr6 = ip6->ip6_src;
 	if (IN6_IS_ADDR_UNSPECIFIED(&saddr6))
 		goto freeit;
 
@@ -183,6 +187,8 @@ nd6_rs_input(struct mbuf *m, int off, int icmp6len)
 		goto freeit;
 	}
 
+	lladdr = NULL;
+	lladdrlen = 0;
 	if (ndopts.nd_opts_src_lladdr) {
 		lladdr = (char *)(ndopts.nd_opts_src_lladdr + 1);
 		lladdrlen = ndopts.nd_opts_src_lladdr->nd_opt_len << 3;
@@ -322,22 +328,22 @@ nd6_ifnet_link_event(void *arg __unused, struct ifnet *ifp, int linkstate)
 void
 nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 {
-	struct ifnet *ifp = m->m_pkthdr.rcvif;
-	struct nd_ifinfo *ndi = ND_IFINFO(ifp);
-	struct ip6_hdr *ip6 = mtod(m, struct ip6_hdr *);
+	struct ifnet *ifp;
+	struct nd_ifinfo *ndi;
+	struct ip6_hdr *ip6;
 	struct nd_router_advert *nd_ra;
-	struct in6_addr saddr6 = ip6->ip6_src;
-	int mcast = 0;
-	union nd_opts ndopts;
+	struct in6_addr saddr6;
 	struct nd_defrouter *dr;
+	union nd_opts ndopts;
 	char ip6bufs[INET6_ADDRSTRLEN], ip6bufd[INET6_ADDRSTRLEN];
-
-	dr = NULL;
+	int mcast;
 
 	/*
 	 * We only accept RAs only when the per-interface flag
 	 * ND6_IFF_ACCEPT_RTADV is on the receiving interface.
 	 */
+	ifp = m->m_pkthdr.rcvif;
+	ndi = ND_IFINFO(ifp);
 	if (!(ndi->flags & ND6_IFF_ACCEPT_RTADV))
 		goto freeit;
 
@@ -345,6 +351,7 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 	if(m->m_flags & M_FRAGMENTED)
 		goto freeit;
 
+	ip6 = mtod(m, struct ip6_hdr *);
 	if (ip6->ip6_hlim != 255) {
 		nd6log((LOG_ERR,
 		    "nd6_ra_input: invalid hlim (%d) from %s to %s on %s\n",
@@ -353,6 +360,7 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 		goto bad;
 	}
 
+	saddr6 = ip6->ip6_src;
 	if (!IN6_IS_ADDR_LINKLOCAL(&saddr6)) {
 		nd6log((LOG_ERR,
 		    "nd6_ra_input: src %s is not link-local\n",
@@ -380,6 +388,8 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 		goto freeit;
 	}
 
+	mcast = 0;
+	dr = NULL;
     {
 	struct nd_defrouter dr0;
 	u_int32_t advreachable = nd_ra->nd_ra_reachable;
@@ -1974,6 +1984,7 @@ nd6_prefix_onlink_rtrequest(struct nd_prefix *pr, struct ifaddr *ifa)
 int
 nd6_prefix_onlink(struct nd_prefix *pr)
 {
+	struct epoch_tracker et;
 	struct ifaddr *ifa;
 	struct ifnet *ifp = pr->ndpr_ifp;
 	struct nd_prefix *opr;
@@ -2018,22 +2029,20 @@ nd6_prefix_onlink(struct nd_prefix *pr)
 	 * We prefer link-local addresses as the associated interface address.
 	 */
 	/* search for a link-local addr */
+	NET_EPOCH_ENTER(et);
 	ifa = (struct ifaddr *)in6ifa_ifpforlinklocal(ifp,
 	    IN6_IFF_NOTREADY | IN6_IFF_ANYCAST);
 	if (ifa == NULL) {
-		struct epoch_tracker et;
-
 		/* XXX: freebsd does not have ifa_ifwithaf */
-		NET_EPOCH_ENTER(et);
 		CK_STAILQ_FOREACH(ifa, &ifp->if_addrhead, ifa_link) {
 			if (ifa->ifa_addr->sa_family == AF_INET6) {
 				ifa_ref(ifa);
 				break;
 			}
 		}
-		NET_EPOCH_EXIT(et);
 		/* should we care about ia6_flags? */
 	}
+	NET_EPOCH_EXIT(et);
 	if (ifa == NULL) {
 		/*
 		 * This can still happen, when, for example, we receive an RA

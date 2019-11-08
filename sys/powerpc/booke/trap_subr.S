@@ -365,14 +365,14 @@
 	ld	%r30, (TLBSAVE_BOOKE_R30)(br);				\
 	ld	%r31, (TLBSAVE_BOOKE_R31)(br);				
 #define TLB_NEST(outr,inr)						\
-	rlwinm	outr, inr, 7, 22, 24;	/* 8 x TLBSAVE_LEN */
+	rlwinm	outr, inr, 7, 23, 24;	/* 8 x TLBSAVE_LEN */
 #else
 #define TLB_SAVE_REGS(br)						\
 	stmw	%r20, TLBSAVE_BOOKE_R20(br)
 #define TLB_RESTORE_REGS(br)						\
 	lmw	%r20, TLBSAVE_BOOKE_R20(br)
 #define TLB_NEST(outr,inr)						\
-	rlwinm	outr, inr, 6, 23, 25;	/* 4 x TLBSAVE_LEN */
+	rlwinm	outr, inr, 6, 24, 25;	/* 4 x TLBSAVE_LEN */
 #endif
 #define TLB_PROLOG							\
 	mtspr	SPR_SPRG4, %r1;			/* Save SP */		\
@@ -712,6 +712,15 @@ INTERRUPT(int_data_tlb_error)
 	mfsrr1	%r21
 	mtcr	%r21
 	bt	17, search_failed	/* check MSR[PR] */
+
+#ifdef __powerpc64__
+	srdi	%r21, %r31, 48
+	cmpldi	cr0, %r21, VM_MIN_KERNEL_ADDRESS@highest
+#else
+	lis	%r21, VM_MIN_KERNEL_ADDRESS@h
+	cmplw	cr0, %r31, %r21
+#endif
+	blt	search_failed
 
 search_kernel_pmap:
 	/* Load r26 with kernel_pmap address */

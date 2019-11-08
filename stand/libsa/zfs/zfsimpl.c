@@ -1641,8 +1641,10 @@ vdev_label_read_config(vdev_t *vd, uint64_t txg)
 		nvlist = (const unsigned char *) label->vp_nvlist + 4;
 		error = nvlist_find(nvlist, ZPOOL_CONFIG_POOL_TXG,
 		    DATA_TYPE_UINT64, NULL, &label_txg);
-		if (error != 0 || label_txg == 0)
+		if (error != 0 || label_txg == 0) {
+			memcpy(nvl, nvlist, nvl_size);
 			return (nvl);
+		}
 
 		if (label_txg <= txg && label_txg > best_txg) {
 			best_txg = label_txg;
@@ -1772,12 +1774,6 @@ vdev_probe(vdev_phys_read_t *_read, void *read_priv, spa_t **spap)
 		return (EIO);
 	}
 
-	if (nvlist_find(nvlist, ZPOOL_CONFIG_IS_LOG, DATA_TYPE_UINT64,
-	    NULL, &val) == 0 && val != 0) {
-		free(nvlist);
-		return (EIO);
-	}
-
 	/*
 	 * Create the pool if this is the first time we've seen it.
 	 */
@@ -1852,9 +1848,6 @@ vdev_probe(vdev_phys_read_t *_read, void *read_priv, spa_t **spap)
 		return (EIO);
 	}
 
-	/*
-	 * We do not support reading pools with log device.
-	 */
 	if (vdev->v_islog)
 		spa->spa_with_log = vdev->v_islog;
 
