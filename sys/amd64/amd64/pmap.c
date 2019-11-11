@@ -1765,6 +1765,10 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 	pcpu_init(&__pcpu[0], 0, sizeof(struct pcpu));
 	amd64_bsp_pcpu_init1(&__pcpu[0]);
 	amd64_bsp_ist_init(&__pcpu[0]);
+	gdt_segs[GPROC0_SEL].ssd_base = (uintptr_t)&__pcpu[0].pc_common_tss;
+	ssdtosyssd(&gdt_segs[GPROC0_SEL],
+	    (struct system_segment_descriptor *)&gdt[GPROC0_SEL]);
+	ltr(GSEL(GPROC0_SEL, SEL_KPL));
 	__pcpu[0].pc_dynamic = temp_bsp_pcpu.pc_dynamic;
 	__pcpu[0].pc_acpi_id = temp_bsp_pcpu.pc_acpi_id;
 
@@ -3049,16 +3053,16 @@ pmap_force_invalidate_cache_range(vm_offset_t sva, vm_offset_t eva)
 
 	if ((cpu_stdext_feature & CPUID_STDEXT_CLFLUSHOPT) != 0) {
 		/*
-		 * Do per-cache line flush.  Use the sfence
+		 * Do per-cache line flush.  Use a locked
 		 * instruction to insure that previous stores are
 		 * included in the write-back.  The processor
 		 * propagates flush to other processors in the cache
 		 * coherence domain.
 		 */
-		sfence();
+		atomic_thread_fence_seq_cst();
 		for (; sva < eva; sva += cpu_clflush_line_size)
 			clflushopt(sva);
-		sfence();
+		atomic_thread_fence_seq_cst();
 	} else {
 		/*
 		 * Writes are ordered by CLFLUSH on Intel CPUs.
@@ -3100,7 +3104,7 @@ pmap_invalidate_cache_pages(vm_page_t *pages, int count)
 		pmap_invalidate_cache();
 	else {
 		if (useclflushopt)
-			sfence();
+			atomic_thread_fence_seq_cst();
 		else if (cpu_vendor_id != CPU_VENDOR_INTEL)
 			mfence();
 		for (i = 0; i < count; i++) {
@@ -3114,7 +3118,7 @@ pmap_invalidate_cache_pages(vm_page_t *pages, int count)
 			}
 		}
 		if (useclflushopt)
-			sfence();
+			atomic_thread_fence_seq_cst();
 		else if (cpu_vendor_id != CPU_VENDOR_INTEL)
 			mfence();
 	}
@@ -3135,10 +3139,10 @@ pmap_flush_cache_range(vm_offset_t sva, vm_offset_t eva)
 	if (pmap_kextract(sva) == lapic_paddr)
 		return;
 
-	sfence();
+	atomic_thread_fence_seq_cst();
 	for (; sva < eva; sva += cpu_clflush_line_size)
 		clwb(sva);
-	sfence();
+	atomic_thread_fence_seq_cst();
 }
 
 void
@@ -3171,7 +3175,7 @@ pmap_flush_cache_phys_range(vm_paddr_t spa, vm_paddr_t epa, vm_memattr_t mattr)
 		sched_pin();
 		pte_store(pte, spa | pte_bits);
 		invlpg(vaddr);
-		/* XXXKIB sfences inside flush_cache_range are excessive */
+		/* XXXKIB atomic inside flush_cache_range are excessive */
 		pmap_flush_cache_range(vaddr, vaddr + PAGE_SIZE);
 		sched_unpin();
 	}
@@ -9500,10 +9504,10 @@ pmap_large_map_wb_fence_mfence(void)
 }
 
 static void
-pmap_large_map_wb_fence_sfence(void)
+pmap_large_map_wb_fence_atomic(void)
 {
 
-	sfence();
+	atomic_thread_fence_seq_cst();
 }
 
 static void
@@ -9518,7 +9522,7 @@ DEFINE_IFUNC(static, void, pmap_large_map_wb_fence, (void))
 		return (pmap_large_map_wb_fence_mfence);
 	else if ((cpu_stdext_feature & (CPUID_STDEXT_CLWB |
 	    CPUID_STDEXT_CLFLUSHOPT)) == 0)
-		return (pmap_large_map_wb_fence_sfence);
+		return (pmap_large_map_wb_fence_atomic);
 	else
 		/* clflush is strongly enough ordered */
 		return (pmap_large_map_wb_fence_nop);
@@ -9719,20 +9723,19 @@ pmap_pti_init(void)
 	    sizeof(struct user_segment_descriptor) * NGDT * MAXCPU, false);
 	pmap_pti_add_kva_locked((vm_offset_t)idt, (vm_offset_t)idt +
 	    sizeof(struct gate_descriptor) * NIDT, false);
-	pmap_pti_add_kva_locked((vm_offset_t)common_tss,
-	    (vm_offset_t)common_tss + sizeof(struct amd64tss) * MAXCPU, false);
 	CPU_FOREACH(i) {
 		/* Doublefault stack IST 1 */
-		va = common_tss[i].tss_ist1;
+		va = __pcpu[i].pc_common_tss.tss_ist1;
 		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
 		/* NMI stack IST 2 */
-		va = common_tss[i].tss_ist2 + sizeof(struct nmi_pcpu);
+		va = __pcpu[i].pc_common_tss.tss_ist2 + sizeof(struct nmi_pcpu);
 		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
 		/* MC# stack IST 3 */
-		va = common_tss[i].tss_ist3 + sizeof(struct nmi_pcpu);
+		va = __pcpu[i].pc_common_tss.tss_ist3 +
+		    sizeof(struct nmi_pcpu);
 		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
 		/* DB# stack IST 4 */
-		va = common_tss[i].tss_ist4 + sizeof(struct nmi_pcpu);
+		va = __pcpu[i].pc_common_tss.tss_ist4 + sizeof(struct nmi_pcpu);
 		pmap_pti_add_kva_locked(va - PAGE_SIZE, va, false);
 	}
 	pmap_pti_add_kva_locked((vm_offset_t)kernphys + KERNBASE,
