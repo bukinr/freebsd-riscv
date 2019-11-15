@@ -1669,6 +1669,7 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 {
 	vm_offset_t va;
 	pt_entry_t *pte, *pcpu_pte;
+	struct region_descriptor r_gdt;
 	uint64_t cr4, pcpu_phys;
 	u_long res;
 	int i;
@@ -1760,14 +1761,25 @@ pmap_bootstrap(vm_paddr_t *firstaddr)
 		pcpu_pte[i] = (pcpu_phys + ptoa(i)) | X86_PG_V | X86_PG_RW |
 		    pg_g | pg_nx | X86_PG_M | X86_PG_A;
 	}
+
+	/*
+	 * Re-initialize PCPU area for BSP after switching.
+	 * Make hardware use gdt and common_tss from the new PCPU.
+	 */
 	STAILQ_INIT(&cpuhead);
 	wrmsr(MSR_GSBASE, (uint64_t)&__pcpu[0]);
 	pcpu_init(&__pcpu[0], 0, sizeof(struct pcpu));
 	amd64_bsp_pcpu_init1(&__pcpu[0]);
 	amd64_bsp_ist_init(&__pcpu[0]);
+	memcpy(__pcpu[0].pc_gdt, temp_bsp_pcpu.pc_gdt, NGDT *
+	    sizeof(struct user_segment_descriptor));
 	gdt_segs[GPROC0_SEL].ssd_base = (uintptr_t)&__pcpu[0].pc_common_tss;
 	ssdtosyssd(&gdt_segs[GPROC0_SEL],
-	    (struct system_segment_descriptor *)&gdt[GPROC0_SEL]);
+	    (struct system_segment_descriptor *)&__pcpu[0].pc_gdt[GPROC0_SEL]);
+	r_gdt.rd_limit = NGDT * sizeof(struct user_segment_descriptor) - 1;
+	r_gdt.rd_base = (long)__pcpu[0].pc_gdt;
+	lgdt(&r_gdt);
+	wrmsr(MSR_GSBASE, (uint64_t)&__pcpu[0]);
 	ltr(GSEL(GPROC0_SEL, SEL_KPL));
 	__pcpu[0].pc_dynamic = temp_bsp_pcpu.pc_dynamic;
 	__pcpu[0].pc_acpi_id = temp_bsp_pcpu.pc_acpi_id;
@@ -1880,6 +1892,51 @@ pmap_page_init(vm_page_t m)
 
 	TAILQ_INIT(&m->md.pv_list);
 	m->md.pat_mode = PAT_WRITE_BACK;
+}
+
+static int pmap_allow_2m_x_ept;
+SYSCTL_INT(_vm_pmap, OID_AUTO, allow_2m_x_ept, CTLFLAG_RWTUN | CTLFLAG_NOFETCH,
+    &pmap_allow_2m_x_ept, 0,
+    "Allow executable superpage mappings in EPT");
+
+void
+pmap_allow_2m_x_ept_recalculate(void)
+{
+	/*
+	 * SKL002, SKL012S.  Since the EPT format is only used by
+	 * Intel CPUs, the vendor check is merely a formality.
+	 */
+	if (!(cpu_vendor_id != CPU_VENDOR_INTEL ||
+	    (cpu_ia32_arch_caps & IA32_ARCH_CAP_IF_PSCHANGE_MC_NO) != 0 ||
+	    (CPUID_TO_FAMILY(cpu_id) == 0x6 &&
+	    (CPUID_TO_MODEL(cpu_id) == 0x26 ||	/* Atoms */
+	    CPUID_TO_MODEL(cpu_id) == 0x27 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x35 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x36 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x37 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x86 ||
+	    CPUID_TO_MODEL(cpu_id) == 0x1c ||
+	    CPUID_TO_MODEL(cpu_id) == 0x4a ||
+	    CPUID_TO_MODEL(cpu_id) == 0x4c ||
+	    CPUID_TO_MODEL(cpu_id) == 0x4d ||
+	    CPUID_TO_MODEL(cpu_id) == 0x5a ||
+	    CPUID_TO_MODEL(cpu_id) == 0x5c ||
+	    CPUID_TO_MODEL(cpu_id) == 0x5d ||
+	    CPUID_TO_MODEL(cpu_id) == 0x5f ||
+	    CPUID_TO_MODEL(cpu_id) == 0x6e ||
+	    CPUID_TO_MODEL(cpu_id) == 0x7a ||
+	    CPUID_TO_MODEL(cpu_id) == 0x57 ||	/* Knights */
+	    CPUID_TO_MODEL(cpu_id) == 0x85))))
+		pmap_allow_2m_x_ept = 1;
+	TUNABLE_INT_FETCH("hw.allow_2m_x_ept", &pmap_allow_2m_x_ept);
+}
+
+static bool
+pmap_allow_2m_x_page(pmap_t pmap, bool executable)
+{
+
+	return (pmap->pm_type != PT_EPT || !executable ||
+	    !pmap_allow_2m_x_ept);
 }
 
 #ifdef NUMA
@@ -2024,6 +2081,9 @@ pmap_init(void)
 			}
 		}
 	}
+
+	/* IFU */
+	pmap_allow_2m_x_ept_recalculate();
 
 	/*
 	 * Initialize the vm page array entries for the kernel pmap's
@@ -5706,6 +5766,15 @@ retry:
 }
 
 #if VM_NRESERVLEVEL > 0
+static bool
+pmap_pde_ept_executable(pmap_t pmap, pd_entry_t pde)
+{
+
+	if (pmap->pm_type != PT_EPT)
+		return (false);
+	return ((pde & EPT_PG_EXECUTE) != 0);
+}
+
 /*
  * Tries to promote the 512, contiguous 4KB page mappings that are within a
  * single page table page (PTP) to a single 2MB page mapping.  For promotion
@@ -5741,7 +5810,9 @@ pmap_promote_pde(pmap_t pmap, pd_entry_t *pde, vm_offset_t va,
 	firstpte = (pt_entry_t *)PHYS_TO_DMAP(*pde & PG_FRAME);
 setpde:
 	newpde = *firstpte;
-	if ((newpde & ((PG_FRAME & PDRMASK) | PG_A | PG_V)) != (PG_A | PG_V)) {
+	if ((newpde & ((PG_FRAME & PDRMASK) | PG_A | PG_V)) != (PG_A | PG_V) ||
+	    !pmap_allow_2m_x_page(pmap, pmap_pde_ept_executable(pmap,
+	    newpde))) {
 		atomic_add_long(&pmap_pde_p_failures, 1);
 		CTR2(KTR_PMAP, "pmap_promote_pde: failure for va %#lx"
 		    " in pmap %p", va, pmap);
@@ -6173,6 +6244,12 @@ pmap_enter_pde(pmap_t pmap, vm_offset_t va, pd_entry_t newpde, u_int flags,
 	PG_V = pmap_valid_bit(pmap);
 	PMAP_LOCK_ASSERT(pmap, MA_OWNED);
 
+	if (!pmap_allow_2m_x_page(pmap, pmap_pde_ept_executable(pmap,
+	    newpde))) {
+		CTR2(KTR_PMAP, "pmap_enter_pde: 2m x blocked for va %#lx"
+		    " in pmap %p", va, pmap);
+		return (KERN_FAILURE);
+	}
 	if ((pdpg = pmap_allocpde(pmap, va, (flags & PMAP_ENTER_NOSLEEP) != 0 ?
 	    NULL : lockp)) == NULL) {
 		CTR2(KTR_PMAP, "pmap_enter_pde: failure for va %#lx"
@@ -6319,6 +6396,7 @@ pmap_enter_object(pmap_t pmap, vm_offset_t start, vm_offset_t end,
 		va = start + ptoa(diff);
 		if ((va & PDRMASK) == 0 && va + NBPDR <= end &&
 		    m->psind == 1 && pmap_ps_enabled(pmap) &&
+		    pmap_allow_2m_x_page(pmap, (prot & VM_PROT_EXECUTE) != 0) &&
 		    pmap_enter_2mpage(pmap, va, m, prot, &lock))
 			m = &m[NBPDR / PAGE_SIZE - 1];
 		else
@@ -8810,8 +8888,11 @@ pmap_activate_sw(struct thread *td)
 
 	oldpmap = PCPU_GET(curpmap);
 	pmap = vmspace_pmap(td->td_proc->p_vmspace);
-	if (oldpmap == pmap)
+	if (oldpmap == pmap) {
+		if (cpu_vendor_id != CPU_VENDOR_INTEL)
+			mfence();
 		return;
+	}
 	cpuid = PCPU_GET(cpuid);
 #ifdef SMP
 	CPU_SET_ATOMIC(cpuid, &pmap->pm_active);
@@ -9719,8 +9800,6 @@ pmap_pti_init(void)
 	}
 	pmap_pti_add_kva_locked((vm_offset_t)&__pcpu[0],
 	    (vm_offset_t)&__pcpu[0] + sizeof(__pcpu[0]) * MAXCPU, false);
-	pmap_pti_add_kva_locked((vm_offset_t)gdt, (vm_offset_t)gdt +
-	    sizeof(struct user_segment_descriptor) * NGDT * MAXCPU, false);
 	pmap_pti_add_kva_locked((vm_offset_t)idt, (vm_offset_t)idt +
 	    sizeof(struct gate_descriptor) * NIDT, false);
 	CPU_FOREACH(i) {
