@@ -550,7 +550,7 @@ mappedread_sf(vnode_t *vp, int nbytes, uio_t *uio)
 				vm_page_unlock(pp);
 			}
 			vm_page_sunbusy(pp);
-			if (error != 0 && !vm_page_wired(pp) == 0 &&
+			if (error != 0 && !vm_page_wired(pp) &&
 			    pp->valid == 0 && vm_page_tryxbusy(pp))
 				vm_page_free(pp);
 		} else {
@@ -1413,7 +1413,7 @@ zfs_lookup_lock(vnode_t *dvp, vnode_t *vp, const char *name, int lkflags)
 			 * Relock for the "." case could leave us with
 			 * reclaimed vnode.
 			 */
-			if (dvp->v_iflag & VI_DOOMED) {
+			if (VN_IS_DOOMED(dvp)) {
 				vrele(dvp);
 				return (SET_ERROR(ENOENT));
 			}
@@ -5490,7 +5490,7 @@ vop_getextattr {
 	flags = FREAD;
 	NDINIT_ATVP(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, attrname,
 	    xvp, td);
-	error = vn_open_cred(&nd, &flags, 0, 0, ap->a_cred, NULL);
+	error = vn_open_cred(&nd, &flags, VN_OPEN_INVFS, 0, ap->a_cred, NULL);
 	vp = nd.ni_vp;
 	NDFREE(&nd, NDF_ONLY_PNBUF);
 	if (error != 0) {
@@ -5627,7 +5627,8 @@ vop_setextattr {
 	flags = FFLAGS(O_WRONLY | O_CREAT);
 	NDINIT_ATVP(&nd, LOOKUP, NOFOLLOW, UIO_SYSSPACE, attrname,
 	    xvp, td);
-	error = vn_open_cred(&nd, &flags, 0600, 0, ap->a_cred, NULL);
+	error = vn_open_cred(&nd, &flags, 0600, VN_OPEN_INVFS, ap->a_cred,
+	    NULL);
 	vp = nd.ni_vp;
 	NDFREE(&nd, NDF_ONLY_PNBUF);
 	if (error != 0) {
@@ -5912,7 +5913,7 @@ zfs_vptocnp(struct vop_vptocnp_args *ap)
 		vput(covered_vp);
 	}
 	vn_lock(vp, ltype | LK_RETRY);
-	if ((vp->v_iflag & VI_DOOMED) != 0)
+	if (VN_IS_DOOMED(vp))
 		error = SET_ERROR(ENOENT);
 	return (error);
 }
@@ -5935,7 +5936,7 @@ zfs_lock(ap)
 	if (err == 0 && (ap->a_flags & LK_NOWAIT) == 0) {
 		vp = ap->a_vp;
 		zp = vp->v_data;
-		if (vp->v_mount != NULL && (vp->v_iflag & VI_DOOMED) == 0 &&
+		if (vp->v_mount != NULL && !VN_IS_DOOMED(vp) &&
 		    zp != NULL && (zp->z_pflags & ZFS_XATTR) == 0)
 			VERIFY(!RRM_LOCK_HELD(&zp->z_zfsvfs->z_teardown_lock));
 	}

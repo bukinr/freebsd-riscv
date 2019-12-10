@@ -80,6 +80,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/sched.h>
 #include <sys/sf_buf.h>
 #include <sys/shm.h>
+#include <sys/smp.h>
 #include <sys/vmmeter.h>
 #include <sys/vmem.h>
 #include <sys/sx.h>
@@ -266,19 +267,18 @@ vm_sync_icache(vm_map_t map, vm_offset_t va, vm_offset_t sz)
 }
 
 static uma_zone_t kstack_cache;
-static int kstack_cache_size = 128;
+static int kstack_cache_size;
 static int kstack_domain_iter;
 
 static int
 sysctl_kstack_cache_size(SYSCTL_HANDLER_ARGS)
 {
-	int error, newsize;
+	int error, oldsize;
 
-	newsize = kstack_cache_size;
-	error = sysctl_handle_int(oidp, &newsize, 0, req);
-	if (error == 0 && req->newptr && newsize != kstack_cache_size)
-		kstack_cache_size =
-		    uma_zone_set_maxcache(kstack_cache, newsize);
+	oldsize = kstack_cache_size;
+	error = sysctl_handle_int(oidp, arg1, arg2, req);
+	if (error == 0 && req->newptr && oldsize != kstack_cache_size)
+		uma_zone_set_maxcache(kstack_cache, kstack_cache_size);
 	return (error);
 }
 SYSCTL_PROC(_vm, OID_AUTO, kstack_cache_size, CTLTYPE_INT|CTLFLAG_RW,
@@ -363,6 +363,7 @@ vm_thread_stack_dispose(vm_object_t ksobj, vm_offset_t ks, int pages)
 		m = vm_page_lookup(ksobj, i);
 		if (m == NULL)
 			panic("%s: kstack already missing?", __func__);
+		vm_page_busy_acquire(m, 0);
 		vm_page_unwire_noq(m);
 		vm_page_free(m);
 	}
@@ -473,7 +474,8 @@ kstack_cache_init(void *null)
 	kstack_cache = uma_zcache_create("kstack_cache",
 	    kstack_pages * PAGE_SIZE, NULL, NULL, NULL, NULL,
 	    kstack_import, kstack_release, NULL,
-	    UMA_ZONE_NUMA|UMA_ZONE_MINBUCKET);
+	    UMA_ZONE_NUMA);
+	kstack_cache_size = imax(128, mp_ncpus * 4);
 	uma_zone_set_maxcache(kstack_cache, kstack_cache_size);
 }
 

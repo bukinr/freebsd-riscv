@@ -6294,29 +6294,15 @@ setup_trunc_indir(freeblks, ip, lbn, lastlbn, blkno)
 		return (0);
 	mp = freeblks->fb_list.wk_mp;
 	ump = VFSTOUFS(mp);
-	bp = getblk(ITOV(ip), lbn, mp->mnt_stat.f_iosize, 0, 0, 0);
-	if ((bp->b_flags & B_CACHE) == 0) {
-		bp->b_blkno = blkptrtodb(VFSTOUFS(mp), blkno);
-		bp->b_iocmd = BIO_READ;
-		bp->b_flags &= ~B_INVAL;
-		bp->b_ioflags &= ~BIO_ERROR;
-		vfs_busy_pages(bp, 0);
-		bp->b_iooffset = dbtob(bp->b_blkno);
-		bstrategy(bp);
-#ifdef RACCT
-		if (racct_enable) {
-			PROC_LOCK(curproc);
-			racct_add_buf(curproc, bp, 0);
-			PROC_UNLOCK(curproc);
-		}
-#endif /* RACCT */
-		curthread->td_ru.ru_inblock++;
-		error = bufwait(bp);
-		if (error) {
-			brelse(bp);
-			return (error);
-		}
-	}
+	/*
+	 * Here, calls to VOP_BMAP() will fail.  However, we already have
+	 * the on-disk address, so we just pass it to bread() instead of
+	 * having bread() attempt to calculate it using VOP_BMAP().
+	 */
+	error = breadn_flags(ITOV(ip), lbn, blkptrtodb(ump, blkno),
+	    (int)mp->mnt_stat.f_iosize, NULL, NULL, 0, NOCRED, 0, NULL, &bp);
+	if (error)
+		return (error);
 	level = lbn_level(lbn);
 	lbnadd = lbn_offset(ump->um_fs, level);
 	/*
@@ -9881,6 +9867,9 @@ handle_workitem_remove(dirrem, flags)
 	 */
 	if ((dirrem->dm_state & RMDIR) == 0) {
 		ip->i_nlink--;
+		KASSERT(ip->i_nlink >= 0, ("handle_workitem_remove: file ino "
+		    "%ju negative i_nlink %d", (intmax_t)ip->i_number,
+		    ip->i_nlink));
 		DIP_SET(ip, i_nlink, ip->i_nlink);
 		ip->i_flag |= IN_CHANGE;
 		if (ip->i_nlink < ip->i_effnlink)
@@ -9902,6 +9891,8 @@ handle_workitem_remove(dirrem, flags)
 	 * to account for the loss of "..".
 	 */
 	ip->i_nlink -= 2;
+	KASSERT(ip->i_nlink >= 0, ("handle_workitem_remove: directory ino "
+	    "%ju negative i_nlink %d", (intmax_t)ip->i_number, ip->i_nlink));
 	DIP_SET(ip, i_nlink, ip->i_nlink);
 	ip->i_flag |= IN_CHANGE;
 	if (ip->i_nlink < ip->i_effnlink)
@@ -10801,7 +10792,6 @@ softdep_setup_inofree(mp, bp, ino, wkhd)
 	}
 	FREE_LOCK(ump);
 }
-
 
 /*
  * Called via ffs_blkfree() after a set of frags has been cleared from a cg
@@ -12265,6 +12255,8 @@ softdep_load_inodeblock(ip)
 		return;
 	}
 	ip->i_effnlink -= inodedep->id_nlinkdelta;
+	KASSERT(ip->i_effnlink >= 0,
+	    ("softdep_load_inodeblock: negative i_effnlink"));
 	FREE_LOCK(ump);
 }
 
@@ -12519,7 +12511,7 @@ restart:
 		 * not now, but then the user was not asking to have it
 		 * written, so we are not breaking any promises.
 		 */
-		if (vp->v_iflag & VI_DOOMED)
+		if (VN_IS_DOOMED(vp))
 			break;
 		/*
 		 * We prevent deadlock by always fetching inodes from the
@@ -12540,7 +12532,7 @@ restart:
 			error = ffs_vgetf(mp, parentino, LK_EXCLUSIVE,
 			    &pvp, FFSV_FORCEINSMQ);
 			vn_lock(vp, LK_EXCLUSIVE | LK_RETRY);
-			if (vp->v_iflag & VI_DOOMED) {
+			if (VN_IS_DOOMED(vp)) {
 				if (error == 0)
 					vput(pvp);
 				error = ENOENT;
@@ -13429,9 +13421,9 @@ softdep_request_cleanup(fs, vp, cred, resource)
 			    roundup((fs->fs_dsize * fs->fs_minfree / 100) -
 			    fs->fs_cstotal.cs_nffree, fs->fs_frag));
 	} else {
-		UFS_LOCK(ump);
 		printf("softdep_request_cleanup: Unknown resource type %d\n",
 		    resource);
+		UFS_LOCK(ump);
 		return (0);
 	}
 	starttime = time_second;

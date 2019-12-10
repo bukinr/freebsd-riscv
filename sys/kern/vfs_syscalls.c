@@ -1820,7 +1820,7 @@ restart:
 		  sb.st_ino != oldinum) {
 		error = EIDRM;	/* Identifier removed */
 	} else if (fp != NULL && fp->f_vnode != vp) {
-		if ((fp->f_vnode->v_iflag & VI_DOOMED) != 0)
+		if (VN_IS_DOOMED(fp->f_vnode))
 			error = EBADF;
 		else
 			error = EDEADLK;
@@ -3779,7 +3779,7 @@ restart:
 	}
 
 	if (fp != NULL && fp->f_vnode != vp) {
-		if ((fp->f_vnode->v_iflag & VI_DOOMED) != 0)
+		if (VN_IS_DOOMED(fp->f_vnode))
 			error = EBADF;
 		else
 			error = EDEADLK;
@@ -4148,7 +4148,7 @@ sys_revoke(struct thread *td, struct revoke_args *uap)
 		if (error != 0)
 			goto out;
 	}
-	if (vcount(vp) > 1)
+	if (vp->v_usecount > 1 || vcount(vp) > 1)
 		VOP_REVOKE(vp, REVOKEALL);
 out:
 	vput(vp);

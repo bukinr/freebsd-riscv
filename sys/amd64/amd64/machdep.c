@@ -64,6 +64,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/callout.h>
 #include <sys/cons.h>
 #include <sys/cpu.h>
+#include <sys/csan.h>
 #include <sys/efi.h>
 #include <sys/eventhandler.h>
 #include <sys/exec.h>
@@ -576,7 +577,7 @@ freebsd4_sigreturn(struct thread *td, struct freebsd4_sigreturn_args *uap)
  * Reset registers to default values on exec.
  */
 void
-exec_setregs(struct thread *td, struct image_params *imgp, u_long stack)
+exec_setregs(struct thread *td, struct image_params *imgp, uintptr_t stack)
 {
 	struct trapframe *regs;
 	struct pcb *pcb;
@@ -1575,7 +1576,9 @@ amd64_bsp_ist_init(struct pcpu *pc)
 	tssp = &pc->pc_common_tss;
 
 	/* doublefault stack space, runs on ist1 */
-	tssp->tss_ist1 = (long)&dblfault_stack[sizeof(dblfault_stack)];
+	np = ((struct nmi_pcpu *)&dblfault_stack[sizeof(dblfault_stack)]) - 1;
+	np->np_pcpu = (register_t)pc;
+	tssp->tss_ist1 = (long)np;
 
 	/*
 	 * NMI stack, runs on ist2.  The pcpu pointer is stored just
@@ -1775,10 +1778,17 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 		vty_set_preferred(VTY_VT);
 
 	TUNABLE_INT_FETCH("hw.ibrs_disable", &hw_ibrs_disable);
+	TUNABLE_INT_FETCH("machdep.mitigations.ibrs.disable", &hw_ibrs_disable);
+
 	TUNABLE_INT_FETCH("hw.spec_store_bypass_disable", &hw_ssb_disable);
+	TUNABLE_INT_FETCH("machdep.mitigations.ssb.disable", &hw_ssb_disable);
+
 	TUNABLE_INT_FETCH("machdep.syscall_ret_l1d_flush",
 	    &syscall_ret_l1d_flush_mode);
+
 	TUNABLE_INT_FETCH("hw.mds_disable", &hw_mds_disable);
+	TUNABLE_INT_FETCH("machdep.mitigations.mds.disable", &hw_mds_disable);
+
 	TUNABLE_INT_FETCH("machdep.mitigations.taa.enable", &x86_taa_enable);
 
 	finishidentcpu();	/* Final stage of CPU initialization */
@@ -1896,6 +1906,8 @@ hammer_time(u_int64_t modulep, u_int64_t physfree)
 		strlcpy(kernelname, env, sizeof(kernelname));
 
 	cpu_probe_amdc1e();
+
+	kcsan_cpu_init(0);
 
 #ifdef FDT
 	x86_init_fdt();
@@ -2720,6 +2732,40 @@ outb_(u_short port, u_char data)
 
 void	*memset_std(void *buf, int c, size_t len);
 void	*memset_erms(void *buf, int c, size_t len);
+void    *memmove_std(void * _Nonnull dst, const void * _Nonnull src,
+	    size_t len);
+void    *memmove_erms(void * _Nonnull dst, const void * _Nonnull src,
+	    size_t len);
+void    *memcpy_std(void * _Nonnull dst, const void * _Nonnull src,
+	    size_t len);
+void    *memcpy_erms(void * _Nonnull dst, const void * _Nonnull src,
+	    size_t len);
+
+#ifdef KCSAN
+/*
+ * These fail to build as ifuncs when used with KCSAN.
+ */
+void *
+memset(void *buf, int c, size_t len)
+{
+
+	return (memset_std(buf, c, len));
+}
+
+void *
+memmove(void * _Nonnull dst, const void * _Nonnull src, size_t len)
+{
+
+	return (memmove_std(dst, src, len));
+}
+
+void *
+memcpy(void * _Nonnull dst, const void * _Nonnull src, size_t len)
+{
+
+	return (memcpy_std(dst, src, len));
+}
+#else
 DEFINE_IFUNC(, void *, memset, (void *, int, size_t))
 {
 
@@ -2727,10 +2773,6 @@ DEFINE_IFUNC(, void *, memset, (void *, int, size_t))
 	    memset_erms : memset_std);
 }
 
-void    *memmove_std(void * _Nonnull dst, const void * _Nonnull src,
-	    size_t len);
-void    *memmove_erms(void * _Nonnull dst, const void * _Nonnull src,
-	    size_t len);
 DEFINE_IFUNC(, void *, memmove, (void * _Nonnull, const void * _Nonnull,
     size_t))
 {
@@ -2739,16 +2781,13 @@ DEFINE_IFUNC(, void *, memmove, (void * _Nonnull, const void * _Nonnull,
 	    memmove_erms : memmove_std);
 }
 
-void    *memcpy_std(void * _Nonnull dst, const void * _Nonnull src,
-	    size_t len);
-void    *memcpy_erms(void * _Nonnull dst, const void * _Nonnull src,
-	    size_t len);
 DEFINE_IFUNC(, void *, memcpy, (void * _Nonnull, const void * _Nonnull,size_t))
 {
 
 	return ((cpu_stdext_feature & CPUID_STDEXT_ERMS) != 0 ?
 	    memcpy_erms : memcpy_std);
 }
+#endif
 
 void	pagezero_std(void *addr);
 void	pagezero_erms(void *addr);

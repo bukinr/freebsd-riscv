@@ -16,6 +16,7 @@ MAN=	aac.4 \
 	${_acpi_rapidstart.4} \
 	${_acpi_sony.4} \
 	acpi_thermal.4 \
+	acpi_battery.4 \
 	${_acpi_toshiba.4} \
 	acpi_video.4 \
 	${_acpi_wmi.4} \
@@ -173,6 +174,7 @@ MAN=	aac.4 \
 	gpio.4 \
 	gpioiic.4 \
 	gpioled.4 \
+	gpioths.4 \
 	gre.4 \
 	h_ertt.4 \
 	hifn.4 \
@@ -461,7 +463,6 @@ MAN=	aac.4 \
 	siftr.4 \
 	siis.4 \
 	simplebus.4 \
-	sio.4 \
 	sis.4 \
 	sk.4 \
 	${_smartpqi.4} \
@@ -523,7 +524,6 @@ MAN=	aac.4 \
 	ti.4 \
 	timecounters.4 \
 	${_tpm.4} \
-	trm.4 \
 	tty.4 \
 	tun.4 \
 	twa.4 \
@@ -649,6 +649,8 @@ MLINKS+=gem.4 if_gem.4
 MLINKS+=geom.4 GEOM.4
 MLINKS+=gif.4 if_gif.4
 MLINKS+=gpio.4 gpiobus.4
+MLINKS+=gpioths.4 dht11.4
+MLINKS+=gpioths.4 dht22.4
 MLINKS+=gre.4 if_gre.4
 MLINKS+=hme.4 if_hme.4
 MLINKS+=hpet.4 acpi_hpet.4

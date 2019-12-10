@@ -111,6 +111,80 @@ static u_int	cpu_reset_proxyid;
 static volatile u_int	cpu_reset_proxy_active;
 #endif
 
+struct msr_op_arg {
+	u_int msr;
+	int op;
+	uint64_t arg1;
+};
+
+static void
+x86_msr_op_one(void *argp)
+{
+	struct msr_op_arg *a;
+	uint64_t v;
+
+	a = argp;
+	switch (a->op) {
+	case MSR_OP_ANDNOT:
+		v = rdmsr(a->msr);
+		v &= ~a->arg1;
+		wrmsr(a->msr, v);
+		break;
+	case MSR_OP_OR:
+		v = rdmsr(a->msr);
+		v |= a->arg1;
+		wrmsr(a->msr, v);
+		break;
+	case MSR_OP_WRITE:
+		wrmsr(a->msr, a->arg1);
+		break;
+	}
+}
+
+#define	MSR_OP_EXMODE_MASK	0xf0000000
+#define	MSR_OP_OP_MASK		0x000000ff
+
+void
+x86_msr_op(u_int msr, u_int op, uint64_t arg1)
+{
+	struct thread *td;
+	struct msr_op_arg a;
+	u_int exmode;
+	int bound_cpu, i, is_bound;
+
+	a.op = op & MSR_OP_OP_MASK;
+	MPASS(a.op == MSR_OP_ANDNOT || a.op == MSR_OP_OR ||
+	    a.op == MSR_OP_WRITE);
+	exmode = op & MSR_OP_EXMODE_MASK;
+	MPASS(exmode == MSR_OP_LOCAL || exmode == MSR_OP_SCHED ||
+	    exmode == MSR_OP_RENDEZVOUS);
+	a.msr = msr;
+	a.arg1 = arg1;
+	switch (exmode) {
+	case MSR_OP_LOCAL:
+		x86_msr_op_one(&a);
+		break;
+	case MSR_OP_SCHED:
+		td = curthread;
+		thread_lock(td);
+		is_bound = sched_is_bound(td);
+		bound_cpu = td->td_oncpu;
+		CPU_FOREACH(i) {
+			sched_bind(td, i);
+			x86_msr_op_one(&a);
+		}
+		if (is_bound)
+			sched_bind(td, bound_cpu);
+		else
+			sched_unbind(td);
+		thread_unlock(td);
+		break;
+	case MSR_OP_RENDEZVOUS:
+		smp_rendezvous(NULL, x86_msr_op_one, NULL, &a);
+		break;
+	}
+}
+
 /*
  * Automatically initialized per CPU errata in cpu_idle_tun below.
  */
@@ -803,21 +877,19 @@ int hw_ibrs_disable = 1;
 SYSCTL_INT(_hw, OID_AUTO, ibrs_active, CTLFLAG_RD, &hw_ibrs_active, 0,
     "Indirect Branch Restricted Speculation active");
 
+SYSCTL_NODE(_machdep_mitigations, OID_AUTO, ibrs, CTLFLAG_RW, 0,
+    "Indirect Branch Restricted Speculation active");
+
+SYSCTL_INT(_machdep_mitigations_ibrs, OID_AUTO, active, CTLFLAG_RD,
+    &hw_ibrs_active, 0, "Indirect Branch Restricted Speculation active");
+
 void
 hw_ibrs_recalculate(void)
 {
-	uint64_t v;
-
 	if ((cpu_ia32_arch_caps & IA32_ARCH_CAP_IBRS_ALL) != 0) {
-		if (hw_ibrs_disable) {
-			v = rdmsr(MSR_IA32_SPEC_CTRL);
-			v &= ~(uint64_t)IA32_SPEC_CTRL_IBRS;
-			wrmsr(MSR_IA32_SPEC_CTRL, v);
-		} else {
-			v = rdmsr(MSR_IA32_SPEC_CTRL);
-			v |= IA32_SPEC_CTRL_IBRS;
-			wrmsr(MSR_IA32_SPEC_CTRL, v);
-		}
+		x86_msr_op(MSR_IA32_SPEC_CTRL, MSR_OP_LOCAL |
+		    (hw_ibrs_disable ? MSR_OP_ANDNOT : MSR_OP_OR),
+		    IA32_SPEC_CTRL_IBRS);
 		return;
 	}
 	hw_ibrs_active = (cpu_stdext_feature3 & CPUID_STDEXT3_IBPB) != 0 &&
@@ -841,6 +913,11 @@ SYSCTL_PROC(_hw, OID_AUTO, ibrs_disable, CTLTYPE_INT | CTLFLAG_RWTUN |
     CTLFLAG_NOFETCH | CTLFLAG_MPSAFE, NULL, 0, hw_ibrs_disable_handler, "I",
     "Disable Indirect Branch Restricted Speculation");
 
+SYSCTL_PROC(_machdep_mitigations_ibrs, OID_AUTO, disable, CTLTYPE_INT |
+    CTLFLAG_RWTUN | CTLFLAG_NOFETCH | CTLFLAG_MPSAFE, NULL, 0,
+    hw_ibrs_disable_handler, "I",
+    "Disable Indirect Branch Restricted Speculation");
+
 int hw_ssb_active;
 int hw_ssb_disable;
 
@@ -848,47 +925,24 @@ SYSCTL_INT(_hw, OID_AUTO, spec_store_bypass_disable_active, CTLFLAG_RD,
     &hw_ssb_active, 0,
     "Speculative Store Bypass Disable active");
 
-static void
-hw_ssb_set_one(bool enable)
-{
-	uint64_t v;
+SYSCTL_NODE(_machdep_mitigations, OID_AUTO, ssb, CTLFLAG_RW, 0,
+    "Speculative Store Bypass Disable active");
 
-	v = rdmsr(MSR_IA32_SPEC_CTRL);
-	if (enable)
-		v |= (uint64_t)IA32_SPEC_CTRL_SSBD;
-	else
-		v &= ~(uint64_t)IA32_SPEC_CTRL_SSBD;
-	wrmsr(MSR_IA32_SPEC_CTRL, v);
-}
+SYSCTL_INT(_machdep_mitigations_ssb, OID_AUTO, active, CTLFLAG_RD,
+    &hw_ssb_active, 0, "Speculative Store Bypass Disable active");
 
 static void
 hw_ssb_set(bool enable, bool for_all_cpus)
 {
-	struct thread *td;
-	int bound_cpu, i, is_bound;
 
 	if ((cpu_stdext_feature3 & CPUID_STDEXT3_SSBD) == 0) {
 		hw_ssb_active = 0;
 		return;
 	}
 	hw_ssb_active = enable;
-	if (for_all_cpus) {
-		td = curthread;
-		thread_lock(td);
-		is_bound = sched_is_bound(td);
-		bound_cpu = td->td_oncpu;
-		CPU_FOREACH(i) {
-			sched_bind(td, i);
-			hw_ssb_set_one(enable);
-		}
-		if (is_bound)
-			sched_bind(td, bound_cpu);
-		else
-			sched_unbind(td);
-		thread_unlock(td);
-	} else {
-		hw_ssb_set_one(enable);
-	}
+	x86_msr_op(MSR_IA32_SPEC_CTRL,
+	    (enable ? MSR_OP_OR : MSR_OP_ANDNOT) |
+	    (for_all_cpus ? MSR_OP_SCHED : MSR_OP_LOCAL), IA32_SPEC_CTRL_SSBD);
 }
 
 void
@@ -926,6 +980,11 @@ hw_ssb_disable_handler(SYSCTL_HANDLER_ARGS)
 	return (0);
 }
 SYSCTL_PROC(_hw, OID_AUTO, spec_store_bypass_disable, CTLTYPE_INT |
+    CTLFLAG_RWTUN | CTLFLAG_NOFETCH | CTLFLAG_MPSAFE, NULL, 0,
+    hw_ssb_disable_handler, "I",
+    "Speculative Store Bypass Disable (0 - off, 1 - on, 2 - auto");
+
+SYSCTL_PROC(_machdep_mitigations_ssb, OID_AUTO, disable, CTLTYPE_INT |
     CTLFLAG_RWTUN | CTLFLAG_NOFETCH | CTLFLAG_MPSAFE, NULL, 0,
     hw_ssb_disable_handler, "I",
     "Speculative Store Bypass Disable (0 - off, 1 - on, 2 - auto");
@@ -975,6 +1034,14 @@ sysctl_hw_mds_disable_state_handler(SYSCTL_HANDLER_ARGS)
 }
 
 SYSCTL_PROC(_hw, OID_AUTO, mds_disable_state,
+    CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, 0,
+    sysctl_hw_mds_disable_state_handler, "A",
+    "Microarchitectural Data Sampling Mitigation state");
+
+SYSCTL_NODE(_machdep_mitigations, OID_AUTO, mds, CTLFLAG_RW, 0,
+    "Microarchitectural Data Sampling Mitigation state");
+
+SYSCTL_PROC(_machdep_mitigations_mds, OID_AUTO, state,
     CTLTYPE_STRING | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, 0,
     sysctl_hw_mds_disable_state_handler, "A",
     "Microarchitectural Data Sampling Mitigation state");
@@ -1135,6 +1202,11 @@ SYSCTL_PROC(_hw, OID_AUTO, mds_disable, CTLTYPE_INT |
     "Microarchitectural Data Sampling Mitigation "
     "(0 - off, 1 - on VERW, 2 - on SW, 3 - on AUTO");
 
+SYSCTL_PROC(_machdep_mitigations_mds, OID_AUTO, disable, CTLTYPE_INT |
+    CTLFLAG_RWTUN | CTLFLAG_NOFETCH | CTLFLAG_MPSAFE, NULL, 0,
+    sysctl_mds_disable_handler, "I",
+    "Microarchitectural Data Sampling Mitigation "
+    "(0 - off, 1 - on VERW, 2 - on SW, 3 - on AUTO");
 
 /*
  * Intel Transactional Memory Asynchronous Abort Mitigation
@@ -1143,51 +1215,25 @@ SYSCTL_PROC(_hw, OID_AUTO, mds_disable, CTLTYPE_INT |
 int x86_taa_enable;
 int x86_taa_state;
 enum {
-	TAA_NONE	= 0,
-	TAA_TSX_DISABLE	= 1,
-	TAA_VERW	= 2,
-	TAA_AUTO	= 3,
-	TAA_TAA_NO	= 4
+	TAA_NONE	= 0,	/* No mitigation enabled */
+	TAA_TSX_DISABLE	= 1,	/* Disable TSX via MSR */
+	TAA_VERW	= 2,	/* Use VERW mitigation */
+	TAA_AUTO	= 3,	/* Automatically select the mitigation */
+
+	/* The states below are not selectable by the operator */
+
+	TAA_TAA_UC	= 4,	/* Mitigation present in microcode */
+	TAA_NOT_PRESENT	= 5	/* TSX is not present */
 };
-
-static void
-taa_set_one(bool enable)
-{
-	uint64_t v;
-
-	v = rdmsr(MSR_IA32_TSX_CTRL);
-	if (enable)
-		v |= (uint64_t)(IA32_TSX_CTRL_RTM_DISABLE |
-		    IA32_TSX_CTRL_TSX_CPUID_CLEAR);
-	else
-		v &= ~(uint64_t)(IA32_TSX_CTRL_RTM_DISABLE |
-		    IA32_TSX_CTRL_TSX_CPUID_CLEAR);
-
-	wrmsr(MSR_IA32_TSX_CTRL, v);
-}
 
 static void
 taa_set(bool enable, bool all)
 {
-	struct thread *td;
-	int bound_cpu, i, is_bound;
 
-	if (all) {
-		td = curthread;
-		thread_lock(td);
-		is_bound = sched_is_bound(td);
-		bound_cpu = td->td_oncpu;
-		CPU_FOREACH(i) {
-			sched_bind(td, i);
-			taa_set_one(enable);
-		}
-		if (is_bound)
-			sched_bind(td, bound_cpu);
-		else
-			sched_unbind(td);
-		thread_unlock(td);
-	} else
-		taa_set_one(enable);
+	x86_msr_op(MSR_IA32_TSX_CTRL,
+	    (enable ? MSR_OP_OR : MSR_OP_ANDNOT) |
+	    (all ? MSR_OP_RENDEZVOUS : MSR_OP_LOCAL),
+	    IA32_TSX_CTRL_RTM_DISABLE | IA32_TSX_CTRL_TSX_CPUID_CLEAR);
 }
 
 void
@@ -1201,7 +1247,7 @@ x86_taa_recalculate(void)
 	if ((cpu_stdext_feature & CPUID_STDEXT_HLE) == 0 ||
 	    (cpu_stdext_feature & CPUID_STDEXT_RTM) == 0) {
 		/* TSX is not present */
-		x86_taa_state = 0;
+		x86_taa_state = TAA_NOT_PRESENT;
 		return;
 	}
 
@@ -1209,7 +1255,7 @@ x86_taa_recalculate(void)
 	if (cpu_ia32_arch_caps & IA32_ARCH_CAP_TAA_NO) {
 		/* CPU is not suseptible to TAA */
 		taa_need = TAA_NONE;
-		taa_state = TAA_TAA_NO;
+		taa_state = TAA_TAA_UC;
 	} else if (cpu_ia32_arch_caps & IA32_ARCH_CAP_TSX_CTRL) {
 		/*
 		 * CPU can turn off TSX.  This is the next best option
@@ -1316,8 +1362,11 @@ sysctl_taa_state_handler(SYSCTL_HANDLER_ARGS)
 	case TAA_VERW:
 		state = "VERW";
 		break;
-	case TAA_TAA_NO:
-		state = "Not vulnerable";
+	case TAA_TAA_UC:
+		state = "Mitigated in microcode";
+		break;
+	case TAA_NOT_PRESENT:
+		state = "TSX not present";
 		break;
 	default:
 		state = "unknown";

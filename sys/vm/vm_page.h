@@ -220,12 +220,15 @@ struct vm_page {
 		TAILQ_ENTRY(vm_page) q; /* page queue or free list (Q) */
 		struct {
 			SLIST_ENTRY(vm_page) ss; /* private slists */
-			void *pv;
 		} s;
 		struct {
 			u_long p;
 			u_long v;
 		} memguard;
+		struct {
+			void *slab;
+			void *zone;
+		} uma;
 	} plinks;
 	TAILQ_ENTRY(vm_page) listq;	/* pages in same object (O) */
 	vm_object_t object;		/* which object am I in (O) */
@@ -234,15 +237,15 @@ struct vm_page {
 	struct md_page md;		/* machine dependent stuff */
 	u_int ref_count;		/* page references (A) */
 	volatile u_int busy_lock;	/* busy owners lock */
-	uint16_t flags;			/* page PG_* flags (P) */
-	uint8_t	order;			/* index of the buddy queue (F) */
-	uint8_t pool;			/* vm_phys freepool index (F) */
-	uint8_t aflags;			/* atomic flags (A) */
-	uint8_t oflags;			/* page VPO_* flags (O) */
+	uint16_t aflags;		/* atomic flags (A) */
 	uint8_t queue;			/* page queue index (Q) */
+	uint8_t act_count;		/* page usage count (P) */
+	uint8_t order;			/* index of the buddy queue (F) */
+	uint8_t pool;			/* vm_phys freepool index (F) */
+	uint8_t flags;			/* page PG_* flags (P) */
+	uint8_t oflags;			/* page VPO_* flags (O) */
 	int8_t psind;			/* pagesizes[] index (O) */
 	int8_t segind;			/* vm_phys segment index (C) */
-	u_char	act_count;		/* page usage count (P) */
 	/* NOTE that these must support one bit per DEV_BSIZE in a page */
 	/* so, on normal X86 kernels, they must be at least 8 bits wide */
 	vm_page_bits_t valid;		/* valid DEV_BSIZE chunk map (O,B) */
@@ -307,7 +310,13 @@ struct vm_page {
 #define	VPB_SHARERS_WORD(x)	((x) << VPB_SHARERS_SHIFT | VPB_BIT_SHARED)
 #define	VPB_ONE_SHARER		(1 << VPB_SHARERS_SHIFT)
 
-#define	VPB_SINGLE_EXCLUSIVER	VPB_BIT_EXCLUSIVE
+#define	VPB_SINGLE_EXCLUSIVE	VPB_BIT_EXCLUSIVE
+#ifdef INVARIANTS
+#define	VPB_CURTHREAD_EXCLUSIVE						\
+	(VPB_BIT_EXCLUSIVE | ((u_int)(uintptr_t)curthread & ~VPB_BIT_FLAGMASK))
+#else
+#define	VPB_CURTHREAD_EXCLUSIVE	VPB_SINGLE_EXCLUSIVE
+#endif
 
 #define	VPB_UNBUSIED		VPB_SHARERS_WORD(0)
 
@@ -414,14 +423,14 @@ extern struct mtx_padalign pa_lock[];
  * the inactive queue, thus bypassing LRU.  The page lock must be held to
  * set this flag, and the queue lock for the page must be held to clear it.
  */
-#define	PGA_WRITEABLE	0x01		/* page may be mapped writeable */
-#define	PGA_REFERENCED	0x02		/* page has been referenced */
-#define	PGA_EXECUTABLE	0x04		/* page may be mapped executable */
-#define	PGA_ENQUEUED	0x08		/* page is enqueued in a page queue */
-#define	PGA_DEQUEUE	0x10		/* page is due to be dequeued */
-#define	PGA_REQUEUE	0x20		/* page is due to be requeued */
-#define	PGA_REQUEUE_HEAD 0x40		/* page requeue should bypass LRU */
-#define	PGA_NOSYNC	0x80		/* do not collect for syncer */
+#define	PGA_WRITEABLE	0x0001		/* page may be mapped writeable */
+#define	PGA_REFERENCED	0x0002		/* page has been referenced */
+#define	PGA_EXECUTABLE	0x0004		/* page may be mapped executable */
+#define	PGA_ENQUEUED	0x0008		/* page is enqueued in a page queue */
+#define	PGA_DEQUEUE	0x0010		/* page is due to be dequeued */
+#define	PGA_REQUEUE	0x0020		/* page is due to be requeued */
+#define	PGA_REQUEUE_HEAD 0x0040		/* page requeue should bypass LRU */
+#define	PGA_NOSYNC	0x0080		/* do not collect for syncer */
 
 #define	PGA_QUEUE_STATE_MASK	(PGA_ENQUEUED | PGA_DEQUEUE | PGA_REQUEUE | \
 				PGA_REQUEUE_HEAD)
@@ -434,11 +443,11 @@ extern struct mtx_padalign pa_lock[];
  * allocated from a per-CPU cache.  It is cleared the next time that the
  * page is allocated from the physical memory allocator.
  */
-#define	PG_PCPU_CACHE	0x0001		/* was allocated from per-CPU caches */
-#define	PG_FICTITIOUS	0x0004		/* physical page doesn't exist */
-#define	PG_ZERO		0x0008		/* page is zeroed */
-#define	PG_MARKER	0x0010		/* special queue marker page */
-#define	PG_NODUMP	0x0080		/* don't include this page in a dump */
+#define	PG_PCPU_CACHE	0x01		/* was allocated from per-CPU caches */
+#define	PG_FICTITIOUS	0x02		/* physical page doesn't exist */
+#define	PG_ZERO		0x04		/* page is zeroed */
+#define	PG_MARKER	0x08		/* special queue marker page */
+#define	PG_NODUMP	0x10		/* don't include this page in a dump */
 
 /*
  * Misc constants.
@@ -564,7 +573,7 @@ malloc2vm_flags(int malloc_flags)
 #define	PS_ALL_VALID	0x2
 #define	PS_NONE_BUSY	0x4
 
-int vm_page_busy_acquire(vm_page_t m, int allocflags);
+bool vm_page_busy_acquire(vm_page_t m, int allocflags);
 void vm_page_busy_downgrade(vm_page_t m);
 int vm_page_busy_tryupgrade(vm_page_t m);
 void vm_page_busy_sleep(vm_page_t m, const char *msg, bool nonshared);
@@ -587,6 +596,7 @@ vm_page_t vm_page_alloc_contig_domain(vm_object_t object,
     vm_memattr_t memattr);
 vm_page_t vm_page_alloc_freelist(int, int);
 vm_page_t vm_page_alloc_freelist_domain(int, int, int);
+void vm_page_bits_set(vm_page_t m, vm_page_bits_t *bits, vm_page_bits_t set);
 bool vm_page_blacklist_add(vm_paddr_t pa, bool verbose);
 void vm_page_change_lock(vm_page_t m, struct mtx **mtx);
 vm_page_t vm_page_grab (vm_object_t, vm_pindex_t, int);
@@ -648,6 +658,7 @@ void vm_page_updatefake(vm_page_t m, vm_paddr_t paddr, vm_memattr_t memattr);
 void vm_page_wire(vm_page_t);
 bool vm_page_wire_mapped(vm_page_t m);
 void vm_page_xunbusy_hard(vm_page_t m);
+void vm_page_xunbusy_hard_unchecked(vm_page_t m);
 void vm_page_set_validclean (vm_page_t, int, int);
 void vm_page_clear_dirty(vm_page_t, int, int);
 void vm_page_set_invalid(vm_page_t, int, int);
@@ -683,10 +694,19 @@ void vm_page_lock_assert_KBI(vm_page_t m, int a, const char *file, int line);
 	    ("vm_page_assert_unbusied: page %p busy @ %s:%d",		\
 	    (m), __FILE__, __LINE__))
 
-#define	vm_page_assert_xbusied(m)					\
+#define	vm_page_assert_xbusied_unchecked(m) do {			\
 	KASSERT(vm_page_xbusied(m),					\
 	    ("vm_page_assert_xbusied: page %p not exclusive busy @ %s:%d", \
-	    (m), __FILE__, __LINE__))
+	    (m), __FILE__, __LINE__));					\
+} while (0)
+#define	vm_page_assert_xbusied(m) do {					\
+	vm_page_assert_xbusied_unchecked(m);				\
+	KASSERT((m->busy_lock & ~VPB_BIT_WAITERS) == 			\
+	    VPB_CURTHREAD_EXCLUSIVE,					\
+	    ("vm_page_assert_xbusied: page %p busy_lock %#x not owned"	\
+            " by me @ %s:%d",						\
+	    (m), (m)->busy_lock, __FILE__, __LINE__));			\
+} while (0)
 
 #define	vm_page_busied(m)						\
 	((m)->busy_lock != VPB_UNBUSIED)
@@ -698,7 +718,7 @@ void vm_page_lock_assert_KBI(vm_page_t m, int a, const char *file, int line);
 } while (0)
 
 #define	vm_page_xbusied(m)						\
-	(((m)->busy_lock & VPB_SINGLE_EXCLUSIVER) != 0)
+	(((m)->busy_lock & VPB_SINGLE_EXCLUSIVE) != 0)
 
 #define	vm_page_xbusy(m) do {						\
 	if (!vm_page_tryxbusy(m))					\
@@ -709,14 +729,19 @@ void vm_page_lock_assert_KBI(vm_page_t m, int a, const char *file, int line);
 /* Note: page m's lock must not be owned by the caller. */
 #define	vm_page_xunbusy(m) do {						\
 	if (!atomic_cmpset_rel_int(&(m)->busy_lock,			\
-	    VPB_SINGLE_EXCLUSIVER, VPB_UNBUSIED))			\
+	    VPB_CURTHREAD_EXCLUSIVE, VPB_UNBUSIED))			\
 		vm_page_xunbusy_hard(m);				\
+} while (0)
+#define	vm_page_xunbusy_unchecked(m) do {				\
+	if (!atomic_cmpset_rel_int(&(m)->busy_lock,			\
+	    VPB_CURTHREAD_EXCLUSIVE, VPB_UNBUSIED))			\
+		vm_page_xunbusy_hard_unchecked(m);			\
 } while (0)
 
 #ifdef INVARIANTS
 void vm_page_object_busy_assert(vm_page_t m);
 #define	VM_PAGE_OBJECT_BUSY_ASSERT(m)	vm_page_object_busy_assert(m)
-void vm_page_assert_pga_writeable(vm_page_t m, uint8_t bits);
+void vm_page_assert_pga_writeable(vm_page_t m, uint16_t bits);
 #define	VM_PAGE_ASSERT_PGA_WRITEABLE(m, bits)				\
 	vm_page_assert_pga_writeable(m, bits)
 #else
@@ -749,7 +774,7 @@ _Static_assert(sizeof(((struct vm_page *)NULL)->queue) == 1,
 #define	VM_PAGE_AFLAG_SHIFT	0
 #define	VM_PAGE_QUEUE_SHIFT	16
 #else
-#define	VM_PAGE_AFLAG_SHIFT	24
+#define	VM_PAGE_AFLAG_SHIFT	16
 #define	VM_PAGE_QUEUE_SHIFT	8
 #endif
 #define	VM_PAGE_QUEUE_MASK	(0xff << VM_PAGE_QUEUE_SHIFT)
@@ -758,7 +783,7 @@ _Static_assert(sizeof(((struct vm_page *)NULL)->queue) == 1,
  *	Clear the given bits in the specified page.
  */
 static inline void
-vm_page_aflag_clear(vm_page_t m, uint8_t bits)
+vm_page_aflag_clear(vm_page_t m, uint16_t bits)
 {
 	uint32_t *addr, val;
 
@@ -782,7 +807,7 @@ vm_page_aflag_clear(vm_page_t m, uint8_t bits)
  *	Set the given bits in the specified page.
  */
 static inline void
-vm_page_aflag_set(vm_page_t m, uint8_t bits)
+vm_page_aflag_set(vm_page_t m, uint16_t bits)
 {
 	uint32_t *addr, val;
 

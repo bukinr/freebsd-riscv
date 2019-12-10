@@ -41,6 +41,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/bus.h>
 #include <sys/cons.h>	/* cngetc() */
 #include <sys/cpuset.h>
+#include <sys/csan.h>
 #ifdef GPROF 
 #include <sys/gmon.h>
 #endif
@@ -1080,6 +1081,8 @@ init_secondary_tail(void)
 	cpu_initclocks_ap();
 #endif
 
+	kcsan_cpu_init(cpuid);
+
 	sched_throw(NULL);
 
 	panic("scheduler returned us to %s", __func__);
@@ -1258,12 +1261,23 @@ ipi_bitmap_handler(struct trapframe frame)
 	int cpu = PCPU_GET(cpuid);
 	u_int ipi_bitmap;
 
-	critical_enter();
 	td = curthread;
+	ipi_bitmap = atomic_readandclear_int(&cpuid_to_pcpu[cpu]->
+	    pc_ipi_bitmap);
+
+	/*
+	 * sched_preempt() must be called to clear the pending preempt
+	 * IPI to enable delivery of further preempts.  However, the
+	 * critical section will cause extra scheduler lock thrashing
+	 * when used unconditionally.  Only critical_enter() if
+	 * hardclock must also run, which requires the section entry.
+	 */
+	if (ipi_bitmap & (1 << IPI_HARDCLOCK))
+		critical_enter();
+
 	td->td_intr_nesting_level++;
 	oldframe = td->td_intr_frame;
 	td->td_intr_frame = &frame;
-	ipi_bitmap = atomic_readandclear_int(&cpuid_to_pcpu[cpu]->pc_ipi_bitmap);
 	if (ipi_bitmap & (1 << IPI_PREEMPT)) {
 #ifdef COUNT_IPIS
 		(*ipi_preempt_counts[cpu])++;
@@ -1284,7 +1298,8 @@ ipi_bitmap_handler(struct trapframe frame)
 	}
 	td->td_intr_frame = oldframe;
 	td->td_intr_nesting_level--;
-	critical_exit();
+	if (ipi_bitmap & (1 << IPI_HARDCLOCK))
+		critical_exit();
 }
 
 /*

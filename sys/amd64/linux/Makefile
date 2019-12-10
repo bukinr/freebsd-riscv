@@ -5,11 +5,21 @@
 # Don't use an OBJDIR
 .OBJDIR: ${.CURDIR}
 
+.include <src.lua.mk>
+
+MAKESYSCALLS=	../../tools/makesyscalls.lua
+SRCS=		syscalls.conf		\
+		syscalls.master
+GENERATED=	linux_proto.h		\
+		linux_syscall.h		\
+		linux_syscalls.c	\
+		linux_sysent.c		\
+		linux_systrace_args.c
+
 all:
 	@echo "make sysent only"
 
-sysent:  linux_sysent.c linux_syscall.h linux_proto.h linux_syscalls.c linux_systrace_args.c
+sysent: ${GENERATED}
 
-linux_sysent.c linux_syscall.h linux_proto.h linux_syscalls.c linux_systrace_args.c: \
-		../../kern/makesyscalls.sh syscalls.master ${.CURDIR}/syscalls.conf
-	sh ../../kern/makesyscalls.sh syscalls.master ${.CURDIR}/syscalls.conf
+${GENERATED}: ${MAKESYSCALLS} ${SRCS}
+	${LUA} ${MAKESYSCALLS} syscalls.master syscalls.conf

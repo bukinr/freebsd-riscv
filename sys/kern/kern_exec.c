@@ -360,7 +360,7 @@ do_execve(struct thread *td, struct image_args *args, struct mac *mac_p)
 	struct nameidata nd;
 	struct ucred *oldcred;
 	struct uidinfo *euip = NULL;
-	register_t *stack_base;
+	uintptr_t stack_base;
 	struct image_params image_params, *imgp;
 	struct vattr attr;
 	int (*img_first)(struct image_params *);
@@ -672,7 +672,11 @@ interpret:
 	/*
 	 * Copy out strings (args and env) and initialize stack base.
 	 */
-	stack_base = (*p->p_sysent->sv_copyout_strings)(imgp);
+	error = (*p->p_sysent->sv_copyout_strings)(imgp, &stack_base);
+	if (error != 0) {
+		vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
+		goto exec_fail_dealloc;
+	}
 
 	/*
 	 * Stack setup.
@@ -864,7 +868,7 @@ interpret:
 #endif
 
 	/* Set values passed into the program in registers. */
-	(*p->p_sysent->sv_setregs)(td, imgp, (u_long)(uintptr_t)stack_base);
+	(*p->p_sysent->sv_setregs)(td, imgp, stack_base);
 
 	vfs_mark_atime(imgp->vp, td->td_ucred);
 
@@ -1569,18 +1573,17 @@ exec_args_get_begin_envv(struct image_args *args)
  * and env vector tables. Return a pointer to the base so that it can be used
  * as the initial stack pointer.
  */
-register_t *
-exec_copyout_strings(struct image_params *imgp)
+int
+exec_copyout_strings(struct image_params *imgp, uintptr_t *stack_base)
 {
 	int argc, envc;
 	char **vectp;
 	char *stringp;
-	uintptr_t destp;
-	register_t *stack_base;
+	uintptr_t destp, ustringp;
 	struct ps_strings *arginfo;
 	struct proc *p;
 	size_t execpath_len;
-	int szsigcode, szps;
+	int error, szsigcode, szps;
 	char canary[sizeof(long) * 8];
 
 	szps = sizeof(pagesizes[0]) * MAXPAGESIZES;
@@ -1607,7 +1610,10 @@ exec_copyout_strings(struct image_params *imgp)
 	if (szsigcode != 0) {
 		destp -= szsigcode;
 		destp = rounddown2(destp, sizeof(void *));
-		copyout(p->p_sysent->sv_sigcode, (void *)destp, szsigcode);
+		error = copyout(p->p_sysent->sv_sigcode, (void *)destp,
+		    szsigcode);
+		if (error != 0)
+			return (error);
 	}
 
 	/*
@@ -1617,7 +1623,9 @@ exec_copyout_strings(struct image_params *imgp)
 		destp -= execpath_len;
 		destp = rounddown2(destp, sizeof(void *));
 		imgp->execpathp = destp;
-		copyout(imgp->execpath, (void *)destp, execpath_len);
+		error = copyout(imgp->execpath, (void *)destp, execpath_len);
+		if (error != 0)
+			return (error);
 	}
 
 	/*
@@ -1626,7 +1634,9 @@ exec_copyout_strings(struct image_params *imgp)
 	arc4rand(canary, sizeof(canary), 0);
 	destp -= sizeof(canary);
 	imgp->canary = destp;
-	copyout(canary, (void *)destp, sizeof(canary));
+	error = copyout(canary, (void *)destp, sizeof(canary));
+	if (error != 0)
+		return (error);
 	imgp->canarylen = sizeof(canary);
 
 	/*
@@ -1635,18 +1645,31 @@ exec_copyout_strings(struct image_params *imgp)
 	destp -= szps;
 	destp = rounddown2(destp, sizeof(void *));
 	imgp->pagesizes = destp;
-	copyout(pagesizes, (void *)destp, szps);
+	error = copyout(pagesizes, (void *)destp, szps);
+	if (error != 0)
+		return (error);
 	imgp->pagesizeslen = szps;
 
+	/*
+	 * Allocate room for the argument and environment strings.
+	 */
 	destp -= ARG_MAX - imgp->args->stringspace;
 	destp = rounddown2(destp, sizeof(void *));
+	ustringp = destp;
+
+	if (imgp->sysent->sv_stackgap != NULL)
+		imgp->sysent->sv_stackgap(imgp, &destp);
+
+	if (imgp->auxargs) {
+		/*
+		 * Allocate room on the stack for the ELF auxargs
+		 * array.  It has up to AT_COUNT entries.
+		 */
+		destp -= AT_COUNT * sizeof(Elf_Auxinfo);
+		destp = rounddown2(destp, sizeof(void *));
+	}
 
 	vectp = (char **)destp;
-	if (imgp->sysent->sv_stackgap != NULL)
-		imgp->sysent->sv_stackgap(imgp, (u_long *)&vectp);
-
-	if (imgp->auxargs)
-		imgp->sysent->sv_copyout_auxargs(imgp, (u_long *)&vectp);
 
 	/*
 	 * Allocate room for the argv[] and env vectors including the
@@ -1657,7 +1680,7 @@ exec_copyout_strings(struct image_params *imgp)
 	/*
 	 * vectp also becomes our initial stack base
 	 */
-	stack_base = (register_t *)vectp;
+	*stack_base = (uintptr_t)vectp;
 
 	stringp = imgp->args->begin_argv;
 	argc = imgp->args->argc;
@@ -1666,44 +1689,61 @@ exec_copyout_strings(struct image_params *imgp)
 	/*
 	 * Copy out strings - arguments and environment.
 	 */
-	copyout(stringp, (void *)destp, ARG_MAX - imgp->args->stringspace);
+	error = copyout(stringp, (void *)ustringp,
+	    ARG_MAX - imgp->args->stringspace);
+	if (error != 0)
+		return (error);
 
 	/*
 	 * Fill in "ps_strings" struct for ps, w, etc.
 	 */
-	suword(&arginfo->ps_argvstr, (long)(intptr_t)vectp);
-	suword32(&arginfo->ps_nargvstr, argc);
+	if (suword(&arginfo->ps_argvstr, (long)(intptr_t)vectp) != 0 ||
+	    suword32(&arginfo->ps_nargvstr, argc) != 0)
+		return (EFAULT);
 
 	/*
 	 * Fill in argument portion of vector table.
 	 */
 	for (; argc > 0; --argc) {
-		suword(vectp++, (long)(intptr_t)destp);
+		if (suword(vectp++, ustringp) != 0)
+			return (EFAULT);
 		while (*stringp++ != 0)
-			destp++;
-		destp++;
+			ustringp++;
+		ustringp++;
 	}
 
 	/* a null vector table pointer separates the argp's from the envp's */
-	suword(vectp++, 0);
+	if (suword(vectp++, 0) != 0)
+		return (EFAULT);
 
-	suword(&arginfo->ps_envstr, (long)(intptr_t)vectp);
-	suword32(&arginfo->ps_nenvstr, envc);
+	if (suword(&arginfo->ps_envstr, (long)(intptr_t)vectp) != 0 ||
+	    suword32(&arginfo->ps_nenvstr, envc) != 0)
+		return (EFAULT);
 
 	/*
 	 * Fill in environment portion of vector table.
 	 */
 	for (; envc > 0; --envc) {
-		suword(vectp++, (long)(intptr_t)destp);
+		if (suword(vectp++, ustringp) != 0)
+			return (EFAULT);
 		while (*stringp++ != 0)
-			destp++;
-		destp++;
+			ustringp++;
+		ustringp++;
 	}
 
 	/* end of vector table is a null pointer */
-	suword(vectp, 0);
+	if (suword(vectp, 0) != 0)
+		return (EFAULT);
 
-	return (stack_base);
+	if (imgp->auxargs) {
+		vectp++;
+		error = imgp->sysent->sv_copyout_auxargs(imgp,
+		    (uintptr_t)vectp);
+		if (error != 0)
+			return (error);
+	}
+
+	return (0);
 }
 
 /*

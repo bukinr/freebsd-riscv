@@ -5,15 +5,22 @@
 # Don't use an OBJDIR
 .OBJDIR: ${.CURDIR}
 
+.include <src.lua.mk>
+
+MAKESYSCALLS=	../../tools/makesyscalls.lua
+SRCS=		../../kern/capabilities.conf	\
+		syscalls.conf			\
+		syscalls.master
+GENERATED=	freebsd32_proto.h		\
+		freebsd32_syscall.h		\
+		freebsd32_syscalls.c		\
+		freebsd32_sysent.c		\
+		freebsd32_systrace_args.c
+
 all:
 	@echo "make sysent only"
 
-sysent:  freebsd32_sysent.c freebsd32_syscall.h freebsd32_proto.h freebsd32_systrace_args.c
+sysent: ${GENERATED}
 
-freebsd32_sysent.c freebsd32_syscalls.c freebsd32_syscall.h freebsd32_proto.h freebsd32_systrace_args.c : \
-	    ../../kern/makesyscalls.sh syscalls.master ${.CURDIR}/syscalls.conf ../../kern/capabilities.conf
-	sh ../../kern/makesyscalls.sh syscalls.master ${.CURDIR}/syscalls.conf
-
-clean:
-	rm -f freebsd32_sysent.c freebsd32_syscalls.c freebsd32_syscall.h freebsd32_proto.h
-	rm -f freebsd32_systrace_args.c 
+${GENERATED}: ${MAKESYSCALLS} ${SRCS}
+	${LUA} ${MAKESYSCALLS} syscalls.master syscalls.conf

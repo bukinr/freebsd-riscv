@@ -103,7 +103,8 @@ struct vnode {
 	 * Fields which define the identity of the vnode.  These fields are
 	 * owned by the filesystem (XXX: and vgone() ?)
 	 */
-	const char *v_tag;			/* u type of underlying data */
+	enum	vtype v_type:8;			/* u vnode type */
+	short	v_irflag;			/* i frequently read flags */
 	struct	vop_vector *v_op;		/* u vnode operations vector */
 	void	*v_data;			/* u private data for fs */
 
@@ -173,7 +174,7 @@ struct vnode {
 	int	v_writecount;			/* I ref count of writers or
 						   (negative) text users */
 	u_int	v_hash;
-	enum	vtype v_type;			/* u vnode type */
+	const char *v_tag;			/* u type of underlying data */
 };
 
 #endif /* defined(_KERNEL) || defined(_KVM_VNODE) */
@@ -231,12 +232,13 @@ struct xvnode {
  *	VI flags are protected by interlock and live in v_iflag
  *	VV flags are protected by the vnode lock and live in v_vflag
  *
- *	VI_DOOMED is doubly protected by the interlock and vnode lock.  Both
+ *	VIRF_DOOMED is doubly protected by the interlock and vnode lock.  Both
  *	are required for writing but the status may be checked with either.
  */
+#define	VIRF_DOOMED	0x0001	/* This vnode is being recycled */
+
 #define	VI_TEXT_REF	0x0001	/* Text ref grabbed use ref */
 #define	VI_MOUNT	0x0020	/* Mount in progress */
-#define	VI_DOOMED	0x0080	/* This vnode is being recycled */
 #define	VI_FREE		0x0100	/* This vnode is on the freelist */
 #define	VI_ACTIVE	0x0200	/* This vnode is on the active list */
 #define	VI_DOINGINACT	0x0800	/* VOP_INACTIVE is in progress */
@@ -579,6 +581,7 @@ typedef void vop_getpages_iodone_t(void *, vm_page_t *, int, int);
 #define	VN_OPEN_NOAUDIT		0x00000001
 #define	VN_OPEN_NOCAPCHECK	0x00000002
 #define	VN_OPEN_NAMECACHE	0x00000004
+#define	VN_OPEN_INVFS		0x00000008
 
 /*
  * Public vnode manipulation functions.
@@ -650,17 +653,15 @@ int	vaccess_acl_posix1e(enum vtype type, uid_t file_uid,
 	    struct ucred *cred, int *privused);
 void	vattr_null(struct vattr *vap);
 int	vcount(struct vnode *vp);
-#define	vdrop(vp)	_vdrop((vp), 0)
-#define	vdropl(vp)	_vdrop((vp), 1)
-void	_vdrop(struct vnode *, bool);
+void	vdrop(struct vnode *);
+void	vdropl(struct vnode *);
 int	vflush(struct mount *mp, int rootrefs, int flags, struct thread *td);
 int	vget(struct vnode *vp, int flags, struct thread *td);
 enum vgetstate	vget_prep(struct vnode *vp);
 int	vget_finish(struct vnode *vp, int flags, enum vgetstate vs);
 void	vgone(struct vnode *vp);
-#define	vhold(vp)	_vhold((vp), 0)
-#define	vholdl(vp)	_vhold((vp), 1)
-void	_vhold(struct vnode *, bool);
+void	vhold(struct vnode *);
+void	vholdl(struct vnode *);
 void	vholdnz(struct vnode *);
 void	vinactive(struct vnode *, struct thread *);
 int	vinvalbuf(struct vnode *vp, int save, int slpflag, int slptimeo);
@@ -887,6 +888,8 @@ do {									\
 #define	VOP_SET_TEXT_CHECKED(vp)		VOP_SET_TEXT((vp))
 #define	VOP_UNSET_TEXT_CHECKED(vp)		VOP_UNSET_TEXT((vp))
 #endif
+
+#define	VN_IS_DOOMED(vp)	((vp)->v_irflag & VIRF_DOOMED)
 
 void	vput(struct vnode *vp);
 void	vrele(struct vnode *vp);
