@@ -12,7 +12,7 @@
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		timebase-frequency = <50000000>;
+		timebase-frequency = <100000000>;
 		CPU0: cpu@0 {
 			device_type = "cpu";
 			reg = <0>;
@@ -20,7 +20,7 @@
 			compatible = "riscv";
 			riscv,isa = "rv64imafdc";
 			mmu-type = "riscv,sv39";
-			clock-frequency = <50000000>;
+			clock-frequency = <100000000>;
 			CPU0_intc: interrupt-controller {
 				#interrupt-cells = <1>;
 				interrupt-controller;
@@ -40,10 +40,15 @@
 		reserved: ethernet@62100000 {
 			compatible = "shared-dma-pool";
 			no-map;
-			reg = <0x80000000 0x40000000>;
-			linux,dma-default;
+			reg = <0x80000000 0x20000000>;
 		};
-	};	
+		linux,dma {
+			compatible = "shared-dma-pool";
+			reg = <0xa0000000 0x20000000>;
+			linux,dma-default;
+			no-map;
+		};
+	};
 	soc {
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -80,7 +85,7 @@
 			phy-handle = <&phy0>;
 			xlnx,vcu118;
 			local-mac-address = [00 0a 35 04 db 5a];
-			clock-frequency = <50000000>;
+			clock-frequency = <100000000>;
 			dmas = <&axi_dma 0>, <&axi_dma 1>;
 			dma-names = "tx", "rx";
 			axi_ethernet_mdio: mdio {
@@ -106,8 +111,26 @@
 			compatible = "ns16550a";
 			interrupts-extended = <&plic 1>;
 			reg = <0x62300000 0x1000>;
-			clock-frequency = <50000000>;
+			clock-frequency = <100000000>;
 			reg-shift = <2>;
+		};
+		pci: pci@20000000 {
+		     #address-cells = <3>;
+		     #size-cells = <2>;
+		     #interrupt-cells = <1>;
+		     compatible = "xlnx,xdma-host-3.00";
+		     device_type = "pci";
+		     interrupt-names = "misc", "msi0", "msi1";
+		     interrupt-map-mask = <0 0 0 7>;
+		     interrupt-map = <0 0 0 1 &pcie_intc_0 1>, <0 0 0 2 &pcie_intc_0 2>, <0 0 0 3 &pcie_intc_0 3>, <0 0 0 4 &pcie_intc_0 4>;
+		     interrupts-extended = <&plic 9>, <&plic 10>, <&plic 11>;
+		     ranges = <0x02000000 0x0 0x30000000  0x30000000  0x0 0x10000000>;
+		     reg = <0x20000000 0x10000000>;
+		     pcie_intc_0: interrupt-controller {
+		         interrupt-controller;
+			 #address-cells = <0>;
+			 #interrupt-cells = <1>;
+		     };
 		};
 	};
 };
