@@ -502,10 +502,8 @@ vfs_mount_alloc(struct vnode *vp, struct vfsconf *vfsp, const char *fspath,
 	    __rangeof(struct mount, mnt_startzero, mnt_endzero));
 	TAILQ_INIT(&mp->mnt_nvnodelist);
 	mp->mnt_nvnodelistsize = 0;
-	TAILQ_INIT(&mp->mnt_activevnodelist);
-	mp->mnt_activevnodelistsize = 0;
-	TAILQ_INIT(&mp->mnt_tmpfreevnodelist);
-	mp->mnt_tmpfreevnodelistsize = 0;
+	TAILQ_INIT(&mp->mnt_lazyvnodelist);
+	mp->mnt_lazyvnodelistsize = 0;
 	if (mp->mnt_ref != 0 || mp->mnt_lockref != 0 ||
 	    mp->mnt_writeopcount != 0)
 		panic("%s: non-zero counters on new mp %p\n", __func__, mp);
@@ -571,10 +569,8 @@ vfs_mount_destroy(struct mount *mp)
 	KASSERT(TAILQ_EMPTY(&mp->mnt_uppers), ("mnt_uppers"));
 	if (mp->mnt_nvnodelistsize != 0)
 		panic("vfs_mount_destroy: nonzero nvnodelistsize");
-	if (mp->mnt_activevnodelistsize != 0)
-		panic("vfs_mount_destroy: nonzero activevnodelistsize");
-	if (mp->mnt_tmpfreevnodelistsize != 0)
-		panic("vfs_mount_destroy: nonzero tmpfreevnodelistsize");
+	if (mp->mnt_lazyvnodelistsize != 0)
+		panic("vfs_mount_destroy: nonzero lazyvnodelistsize");
 	if (mp->mnt_lockref != 0)
 		panic("vfs_mount_destroy: nonzero lock refcount");
 	MNT_IUNLOCK(mp);
@@ -951,7 +947,7 @@ vfs_domount_first(
 		vput(vp);
 		return (error);
 	}
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 
 	/* Allocate and initialize the filesystem. */
 	mp = vfs_mount_alloc(vp, vfsp, fspath, td->td_ucred);
@@ -983,7 +979,7 @@ vfs_domount_first(
 		vrele(vp);
 		return (error);
 	}
-	VOP_UNLOCK(newdp, 0);
+	VOP_UNLOCK(newdp);
 
 	if (mp->mnt_opt != NULL)
 		vfs_freeopts(mp->mnt_opt);
@@ -1015,9 +1011,9 @@ vfs_domount_first(
 	mtx_unlock(&mountlist_mtx);
 	vfs_event_signal(NULL, VQ_MOUNT, 0);
 	vn_lock(newdp, LK_EXCLUSIVE | LK_RETRY);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	EVENTHANDLER_DIRECT_INVOKE(vfs_mounted, mp, newdp, td);
-	VOP_UNLOCK(newdp, 0);
+	VOP_UNLOCK(newdp);
 	mountcheckdirs(vp, newdp);
 	vrele(newdp);
 	if ((mp->mnt_flag & MNT_RDONLY) == 0)
@@ -1090,7 +1086,7 @@ vfs_domount_update(
 	}
 	vp->v_iflag |= VI_MOUNT;
 	VI_UNLOCK(vp);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 
 	vfs_op_enter(mp);
 
@@ -1415,7 +1411,7 @@ dounmount_cleanup(struct mount *mp, struct vnode *coveredvp, int mntkflags)
 	vfs_op_exit_locked(mp);
 	MNT_IUNLOCK(mp);
 	if (coveredvp != NULL) {
-		VOP_UNLOCK(coveredvp, 0);
+		VOP_UNLOCK(coveredvp);
 		vdrop(coveredvp);
 	}
 	vn_finished_write(mp);
@@ -1607,7 +1603,7 @@ dounmount(struct mount *mp, int flags, struct thread *td)
 		 */
 		if (coveredvp->v_mountedhere != mp ||
 		    coveredvp->v_mountedhere->mnt_gen != mnt_gen_r) {
-			VOP_UNLOCK(coveredvp, 0);
+			VOP_UNLOCK(coveredvp);
 			vdrop(coveredvp);
 			vfs_rel(mp);
 			return (EBUSY);
@@ -1621,7 +1617,7 @@ dounmount(struct mount *mp, int flags, struct thread *td)
 	error = vfs_suser(mp, td);
 	if (error != 0) {
 		if (coveredvp != NULL) {
-			VOP_UNLOCK(coveredvp, 0);
+			VOP_UNLOCK(coveredvp);
 			vdrop(coveredvp);
 		}
 		vfs_rel(mp);
@@ -1692,7 +1688,7 @@ dounmount(struct mount *mp, int flags, struct thread *td)
 	if (coveredvp != NULL)
 		vdrop(coveredvp);
 
-	vfs_msync(mp, MNT_WAIT);
+	vfs_periodic(mp, MNT_WAIT);
 	MNT_ILOCK(mp);
 	async_flag = mp->mnt_flag & MNT_ASYNC;
 	mp->mnt_flag &= ~MNT_ASYNC;
@@ -1729,7 +1725,7 @@ dounmount(struct mount *mp, int flags, struct thread *td)
 		vfs_op_exit_locked(mp);
 		MNT_IUNLOCK(mp);
 		if (coveredvp)
-			VOP_UNLOCK(coveredvp, 0);
+			VOP_UNLOCK(coveredvp);
 		return (error);
 	}
 	mtx_lock(&mountlist_mtx);
@@ -1738,7 +1734,7 @@ dounmount(struct mount *mp, int flags, struct thread *td)
 	EVENTHANDLER_DIRECT_INVOKE(vfs_unmounted, mp, td);
 	if (coveredvp != NULL) {
 		coveredvp->v_mountedhere = NULL;
-		VOP_UNLOCK(coveredvp, 0);
+		VOP_UNLOCK(coveredvp);
 	}
 	vfs_event_signal(NULL, VQ_UNMOUNT, 0);
 	if (rootvnode != NULL && mp == rootvnode->v_mount) {

@@ -281,9 +281,9 @@ sysctl_kstack_cache_size(SYSCTL_HANDLER_ARGS)
 		uma_zone_set_maxcache(kstack_cache, kstack_cache_size);
 	return (error);
 }
-SYSCTL_PROC(_vm, OID_AUTO, kstack_cache_size, CTLTYPE_INT|CTLFLAG_RW,
-	&kstack_cache_size, 0, sysctl_kstack_cache_size, "IU",
-	"Maximum number of cached kernel stacks");
+SYSCTL_PROC(_vm, OID_AUTO, kstack_cache_size,
+    CTLTYPE_INT|CTLFLAG_MPSAFE|CTLFLAG_RW, &kstack_cache_size, 0,
+    sysctl_kstack_cache_size, "IU", "Maximum number of cached kernel stacks");
 
 /*
  * Create the kernel stack (including pcb for i386) for a new thread.
@@ -474,7 +474,7 @@ kstack_cache_init(void *null)
 	kstack_cache = uma_zcache_create("kstack_cache",
 	    kstack_pages * PAGE_SIZE, NULL, NULL, NULL, NULL,
 	    kstack_import, kstack_release, NULL,
-	    UMA_ZONE_NUMA);
+	    UMA_ZONE_FIRSTTOUCH);
 	kstack_cache_size = imax(128, mp_ncpus * 4);
 	uma_zone_set_maxcache(kstack_cache, kstack_cache_size);
 }

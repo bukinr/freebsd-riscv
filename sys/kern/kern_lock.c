@@ -558,7 +558,7 @@ lockmgr_slock_hard(struct lock *lk, u_int flags, struct lock_object *ilk,
 	int contested = 0;
 #endif
 
-	if (__predict_false(panicstr != NULL))
+	if (KERNEL_PANICKED())
 		goto out;
 
 	tid = (uintptr_t)curthread;
@@ -700,7 +700,7 @@ lockmgr_xlock_hard(struct lock *lk, u_int flags, struct lock_object *ilk,
 	int contested = 0;
 #endif
 
-	if (__predict_false(panicstr != NULL))
+	if (KERNEL_PANICKED())
 		goto out;
 
 	tid = (uintptr_t)curthread;
@@ -882,7 +882,7 @@ lockmgr_upgrade(struct lock *lk, u_int flags, struct lock_object *ilk,
 	int wakeup_swapper = 0;
 	int op;
 
-	if (__predict_false(panicstr != NULL))
+	if (KERNEL_PANICKED())
 		goto out;
 
 	tid = (uintptr_t)curthread;
@@ -941,7 +941,7 @@ lockmgr_lock_fast_path(struct lock *lk, u_int flags, struct lock_object *ilk,
 	u_int op;
 	bool locked;
 
-	if (__predict_false(panicstr != NULL))
+	if (KERNEL_PANICKED())
 		return (0);
 
 	op = flags & LK_TYPE_MASK;
@@ -1003,7 +1003,7 @@ lockmgr_sunlock_hard(struct lock *lk, uintptr_t x, u_int flags, struct lock_obje
 {
 	int wakeup_swapper = 0;
 
-	if (__predict_false(panicstr != NULL))
+	if (KERNEL_PANICKED())
 		goto out;
 
 	wakeup_swapper = wakeupshlk(lk, file, line);
@@ -1022,7 +1022,7 @@ lockmgr_xunlock_hard(struct lock *lk, uintptr_t x, u_int flags, struct lock_obje
 	u_int realexslp;
 	int queue;
 
-	if (__predict_false(panicstr != NULL))
+	if (KERNEL_PANICKED())
 		goto out;
 
 	tid = (uintptr_t)curthread;
@@ -1126,7 +1126,7 @@ lockmgr_unlock_fast_path(struct lock *lk, u_int flags, struct lock_object *ilk)
 	const char *file;
 	int line;
 
-	if (__predict_false(panicstr != NULL))
+	if (KERNEL_PANICKED())
 		return (0);
 
 	file = __FILE__;
@@ -1156,6 +1156,88 @@ lockmgr_unlock_fast_path(struct lock *lk, u_int flags, struct lock_object *ilk)
 	return (0);
 }
 
+/*
+ * Lightweight entry points for common operations.
+ *
+ * Functionality is similar to sx locks, in that none of the additional lockmgr
+ * features are supported. To be clear, these are NOT supported:
+ * 1. shared locking disablement
+ * 2. returning with an error after sleep
+ * 3. unlocking the interlock
+ *
+ * If in doubt, use lockmgr_*_fast_path.
+ */
+int
+lockmgr_slock(struct lock *lk, u_int flags, const char *file, int line)
+{
+	uintptr_t x;
+
+	MPASS((flags & LK_TYPE_MASK) == LK_SHARED);
+	MPASS((flags & LK_INTERLOCK) == 0);
+	MPASS((lk->lock_object.lo_flags & LK_NOSHARE) == 0);
+
+	if (LK_CAN_WITNESS(flags))
+		WITNESS_CHECKORDER(&lk->lock_object, LOP_NEWORDER,
+		    file, line, NULL);
+	if (__predict_true(lockmgr_slock_try(lk, &x, flags, true))) {
+		lockmgr_note_shared_acquire(lk, 0, 0, file, line, flags);
+		return (0);
+	}
+
+	return (lockmgr_slock_hard(lk, flags, NULL, file, line, NULL));
+}
+
+int
+lockmgr_xlock(struct lock *lk, u_int flags, const char *file, int line)
+{
+	uintptr_t tid;
+
+	MPASS((flags & LK_TYPE_MASK) == LK_EXCLUSIVE);
+	MPASS((flags & LK_INTERLOCK) == 0);
+
+	if (LK_CAN_WITNESS(flags))
+		WITNESS_CHECKORDER(&lk->lock_object, LOP_NEWORDER |
+		    LOP_EXCLUSIVE, file, line, NULL);
+	tid = (uintptr_t)curthread;
+	if (atomic_cmpset_acq_ptr(&lk->lk_lock, LK_UNLOCKED, tid)) {
+		lockmgr_note_exclusive_acquire(lk, 0, 0, file, line,
+		    flags);
+		return (0);
+	}
+
+	return (lockmgr_xlock_hard(lk, flags, NULL, file, line, NULL));
+}
+
+int
+lockmgr_unlock(struct lock *lk)
+{
+	uintptr_t x, tid;
+	const char *file;
+	int line;
+
+	file = __FILE__;
+	line = __LINE__;
+
+	_lockmgr_assert(lk, KA_LOCKED, file, line);
+	x = lk->lk_lock;
+	if (__predict_true(x & LK_SHARE) != 0) {
+		if (lockmgr_sunlock_try(lk, &x)) {
+			lockmgr_note_shared_release(lk, file, line);
+		} else {
+			return (lockmgr_sunlock_hard(lk, x, LK_RELEASE, NULL, file, line));
+		}
+	} else {
+		tid = (uintptr_t)curthread;
+		if (!lockmgr_recursed(lk) &&
+		    atomic_cmpset_rel_ptr(&lk->lk_lock, tid, LK_UNLOCKED)) {
+			lockmgr_note_exclusive_release(lk, file, line);
+		} else {
+			return (lockmgr_xunlock_hard(lk, x, LK_RELEASE, NULL, file, line));
+		}
+	}
+	return (0);
+}
+
 int
 __lockmgr_args(struct lock *lk, u_int flags, struct lock_object *ilk,
     const char *wmesg, int pri, int timo, const char *file, int line)
@@ -1172,7 +1254,7 @@ __lockmgr_args(struct lock *lk, u_int flags, struct lock_object *ilk,
 	int contested = 0;
 #endif
 
-	if (panicstr != NULL)
+	if (KERNEL_PANICKED())
 		return (0);
 
 	error = 0;
@@ -1580,7 +1662,7 @@ _lockmgr_assert(const struct lock *lk, int what, const char *file, int line)
 {
 	int slocked = 0;
 
-	if (panicstr != NULL)
+	if (KERNEL_PANICKED())
 		return;
 	switch (what) {
 	case KA_SLOCKED:
@@ -1651,7 +1733,7 @@ _lockmgr_assert(const struct lock *lk, int what, const char *file, int line)
 int
 lockmgr_chain(struct thread *td, struct thread **ownerp)
 {
-	struct lock *lk;
+	const struct lock *lk;
 
 	lk = td->td_wchan;
 

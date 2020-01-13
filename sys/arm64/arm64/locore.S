@@ -683,19 +683,44 @@ start_mmu:
 
 	/*
 	 * Setup TCR according to the PARange and ASIDBits fields
-	 * from ID_AA64MMFR0_EL1.  More precisely, set TCR_EL1.AS
+	 * from ID_AA64MMFR0_EL1 and the HAFDBS field from the
+	 * ID_AA64MMFR1_EL1.  More precisely, set TCR_EL1.AS
 	 * to 1 only if the ASIDBits field equals 0b0010.
 	 */
 	ldr	x2, tcr
 	mrs	x3, id_aa64mmfr0_el1
-	bfi	x2, x3, #32, #3
-	and	x3, x3, #0xF0
-	cmp	x3, #0x20
+
+	/* Copy the bottom 3 bits from id_aa64mmfr0_el1 into TCR.IPS */
+	bfi	x2, x3, #(TCR_IPS_SHIFT), #(TCR_IPS_WIDTH)
+	and	x3, x3, #(ID_AA64MMFR0_ASIDBits_MASK)
+
+	/* Check if the HW supports 16 bit ASIDS */
+	cmp	x3, #(ID_AA64MMFR0_ASIDBits_16)
+	/* If so x3 == 1, else x3 == 0 */
 	cset	x3, eq
-	bfi	x2, x3, #36, #1
+	/* Set TCR.AS with x3 */
+	bfi	x2, x3, #(TCR_ASID_SHIFT), #(TCR_ASID_WIDTH)
+
+	/*
+	 * Check if the HW supports access flag and dirty state updates,
+	 * and set TCR_EL1.HA and TCR_EL1.HD accordingly.
+	 */
+	mrs	x3, id_aa64mmfr1_el1
+	and	x3, x3, #(ID_AA64MMFR1_HAFDBS_MASK)
+	cmp	x3, #1
+	b.ne	1f
+	orr 	x2, x2, #(TCR_HA)
+	b	2f
+1:
+	cmp	x3, #2
+	b.ne	2f
+	orr 	x2, x2, #(TCR_HA | TCR_HD)
+2:
 	msr	tcr_el1, x2
 
-	/* Setup SCTLR */
+	/*
+	 * Setup SCTLR.
+	 */
 	ldr	x2, sctlr_set
 	ldr	x3, sctlr_clear
 	mrs	x1, sctlr_el1

@@ -174,7 +174,7 @@ struct filedesc0 {
 /*
  * Descriptor management.
  */
-volatile int __exclusive_cache_line openfiles; /* actual number of open files */
+static int __exclusive_cache_line openfiles; /* actual number of open files */
 struct mtx sigio_lock;		/* mtx to protect pointers to sigio */
 void __read_mostly (*mq_fdclose)(struct thread *td, int fd, struct file *fp);
 
@@ -812,7 +812,7 @@ kern_fcntl(struct thread *td, int fd, int cmd, intptr_t arg)
 		} else {
 			atomic_clear_int(&fp->f_flag, FRDAHEAD);
 		}
-		VOP_UNLOCK(vp, 0);
+		VOP_UNLOCK(vp);
 		fdrop(fp, td);
 		break;
 
@@ -1483,7 +1483,7 @@ kern_fpathconf(struct thread *td, int fd, int name, long *valuep)
 	if (vp != NULL) {
 		vn_lock(vp, LK_SHARED | LK_RETRY);
 		error = VOP_PATHCONF(vp, name, valuep);
-		VOP_UNLOCK(vp, 0);
+		VOP_UNLOCK(vp);
 	} else if (fp->f_type == DTYPE_PIPE || fp->f_type == DTYPE_SOCKET) {
 		if (name != _PC_PIPE_BUF) {
 			error = EINVAL;
@@ -4048,7 +4048,7 @@ SYSCTL_INT(_kern, KERN_MAXFILES, maxfiles, CTLFLAG_RW,
     &maxfiles, 0, "Maximum number of files");
 
 SYSCTL_INT(_kern, OID_AUTO, openfiles, CTLFLAG_RD,
-    __DEVOLATILE(int *, &openfiles), 0, "System-wide number of open files");
+    &openfiles, 0, "System-wide number of open files");
 
 /* ARGSUSED*/
 static void

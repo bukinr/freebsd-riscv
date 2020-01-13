@@ -119,9 +119,9 @@ struct pagerops vnodepagerops = {
 
 static struct domainset *vnode_domainset = NULL;
 
-SYSCTL_PROC(_debug, OID_AUTO, vnode_domainset, CTLTYPE_STRING | CTLFLAG_RW,
-    &vnode_domainset, 0, sysctl_handle_domainset, "A",
-    "Default vnode NUMA policy");
+SYSCTL_PROC(_debug, OID_AUTO, vnode_domainset,
+    CTLTYPE_STRING | CTLFLAG_MPSAFE | CTLFLAG_RW, &vnode_domainset, 0,
+    sysctl_handle_domainset, "A", "Default vnode NUMA policy");
 
 static int nvnpbufs;
 SYSCTL_INT(_vm, OID_AUTO, vnode_pbufs, CTLFLAG_RDTUN | CTLFLAG_NOFETCH,
@@ -1589,7 +1589,7 @@ vnode_pager_release_writecount(vm_object_t object, vm_offset_t start,
 	 * vnode's v_writecount is decremented.
 	 */
 	vnode_pager_update_writecount(object, end, start);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	vdrop(vp);
 	if (mp != NULL)
 		vn_finished_write(mp);

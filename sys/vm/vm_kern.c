@@ -586,6 +586,7 @@ _kmem_unback(vm_object_t object, vm_offset_t addr, vm_size_t size)
 #endif
 	for (; offset < end; offset += PAGE_SIZE, m = next) {
 		next = vm_page_next(m);
+		vm_page_busy_acquire(m, 0);
 		vm_page_unwire_noq(m);
 		vm_page_free(m);
 	}
@@ -879,5 +880,5 @@ debug_vm_lowmem(SYSCTL_HANDLER_ARGS)
 	return (0);
 }
 
-SYSCTL_PROC(_debug, OID_AUTO, vm_lowmem, CTLTYPE_INT | CTLFLAG_RW, 0, 0,
+SYSCTL_PROC(_debug, OID_AUTO, vm_lowmem, CTLTYPE_INT | CTLFLAG_MPSAFE | CTLFLAG_RW, 0, 0,
     debug_vm_lowmem, "I", "set to trigger vm_lowmem event with given flags");

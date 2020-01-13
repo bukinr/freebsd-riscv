@@ -343,10 +343,10 @@ ffs_mount(struct mount *mp)
 			if (error)
 				error = priv_check(td, PRIV_VFS_MOUNT_PERM);
 			if (error) {
-				VOP_UNLOCK(devvp, 0);
+				VOP_UNLOCK(devvp);
 				return (error);
 			}
-			VOP_UNLOCK(devvp, 0);
+			VOP_UNLOCK(devvp);
 			fs->fs_flags &= ~FS_UNCLEAN;
 			if (fs->fs_clean == 0) {
 				fs->fs_flags |= FS_UNCLEAN;
@@ -651,7 +651,7 @@ ffs_reload(struct mount *mp, struct thread *td, int flags)
 	vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY);
 	if (vinvalbuf(devvp, 0, 0, 0) != 0)
 		panic("ffs_reload: dirty1");
-	VOP_UNLOCK(devvp, 0);
+	VOP_UNLOCK(devvp);
 
 	/*
 	 * Step 2: re-read superblock from disk.
@@ -806,7 +806,7 @@ ffs_mountfs(devvp, mp, td)
 	dev = devvp->v_rdev;
 	if (atomic_cmpset_acq_ptr((uintptr_t *)&dev->si_mountpt, 0,
 	    (uintptr_t)mp) == 0) {
-		VOP_UNLOCK(devvp, 0);
+		VOP_UNLOCK(devvp);
 		return (EBUSY);
 	}
 	g_topology_lock();
@@ -814,12 +814,12 @@ ffs_mountfs(devvp, mp, td)
 	g_topology_unlock();
 	if (error != 0) {
 		atomic_store_rel_ptr((uintptr_t *)&dev->si_mountpt, 0);
-		VOP_UNLOCK(devvp, 0);
+		VOP_UNLOCK(devvp);
 		return (error);
 	}
 	dev_ref(dev);
 	devvp->v_bufobj.bo_ops = &ffs_ops;
-	VOP_UNLOCK(devvp, 0);
+	VOP_UNLOCK(devvp);
 	if (dev->si_iosize_max != 0)
 		mp->mnt_iosize_max = dev->si_iosize_max;
 	if (mp->mnt_iosize_max > MAXPHYS)
@@ -1403,7 +1403,7 @@ ffs_flushfiles(mp, flags, td)
 	 */
 	vn_lock(ump->um_devvp, LK_EXCLUSIVE | LK_RETRY);
 	error = VOP_FSYNC(ump->um_devvp, MNT_WAIT, td);
-	VOP_UNLOCK(ump->um_devvp, 0);
+	VOP_UNLOCK(ump->um_devvp);
 	return (error);
 }
 
@@ -1446,6 +1446,23 @@ sync_doupdate(struct inode *ip)
 	    IN_UPDATE)) != 0);
 }
 
+static int
+ffs_sync_lazy_filter(struct vnode *vp, void *arg __unused)
+{
+	struct inode *ip;
+
+	/*
+	 * Flags are safe to access because ->v_data invalidation
+	 * is held off by listmtx.
+	 */
+	if (vp->v_type == VNON)
+		return (false);
+	ip = VTOI(vp);
+	if (!sync_doupdate(ip) && (vp->v_iflag & VI_OWEINACT) == 0)
+		return (false);
+	return (true);
+}
+
 /*
  * For a lazy sync, we only care about access times, quotas and the
  * superblock.  Other filesystem changes are already converted to
@@ -1465,7 +1482,7 @@ ffs_sync_lazy(mp)
 	td = curthread;
 	if ((mp->mnt_flag & MNT_NOATIME) != 0)
 		goto qupdate;
-	MNT_VNODE_FOREACH_ACTIVE(vp, mp, mvp) {
+	MNT_VNODE_FOREACH_LAZY(vp, mp, mvp, ffs_sync_lazy_filter, NULL) {
 		if (vp->v_type == VNON) {
 			VI_UNLOCK(vp);
 			continue;
@@ -1615,7 +1632,7 @@ loop:
 		BO_UNLOCK(bo);
 		vn_lock(devvp, LK_EXCLUSIVE | LK_RETRY);
 		error = VOP_FSYNC(devvp, waitfor, td);
-		VOP_UNLOCK(devvp, 0);
+		VOP_UNLOCK(devvp);
 		if (MOUNTEDSOFTDEP(mp) && (error == 0 || error == EAGAIN))
 			error = ffs_sbupdate(ump, waitfor, 0);
 		if (error != 0)
@@ -1816,7 +1833,7 @@ ffs_vgetf(mp, ino, flags, vpp, ffs_flags)
 		while (ip->i_gen == 0)
 			ip->i_gen = arc4random();
 		if ((vp->v_mount->mnt_flag & MNT_RDONLY) == 0) {
-			ip->i_flag |= IN_MODIFIED;
+			UFS_INODE_SET_FLAG(ip, IN_MODIFIED);
 			DIP_SET(ip, i_gen, ip->i_gen);
 		}
 	}

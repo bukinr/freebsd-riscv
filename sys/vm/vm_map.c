@@ -568,7 +568,7 @@ vm_map_entry_set_vnode_text(vm_map_entry_t entry, bool add)
 		} else {
 			vn_lock(vp, LK_SHARED | LK_RETRY);
 			VOP_UNSET_TEXT_CHECKED(vp);
-			VOP_UNLOCK(vp, 0);
+			VOP_UNLOCK(vp);
 		}
 		if (vp_held)
 			vdrop(vp);
@@ -1028,9 +1028,11 @@ vm_size_max(vm_size_t a, vm_size_t b)
 	 */								\
 	y = root->left;							\
 	max_free = root->max_free;					\
-	KASSERT(max_free >= vm_map_entry_max_free_right(root, rlist),	\
+	KASSERT(max_free == vm_size_max(				\
+	    vm_map_entry_max_free_left(root, llist),			\
+	    vm_map_entry_max_free_right(root, rlist)),			\
 	    ("%s: max_free invariant fails", __func__));		\
-	if (y == llist ? max_free > 0 : max_free - 1 < y->max_free)	\
+	if (max_free - 1 < vm_map_entry_max_free_left(root, llist))	\
 		max_free = vm_map_entry_max_free_right(root, rlist);	\
 	if (y != llist && (test)) {					\
 		/* Rotate right and make y root. */			\
@@ -1067,9 +1069,11 @@ vm_size_max(vm_size_t a, vm_size_t b)
 	 */								\
 	y = root->right;						\
 	max_free = root->max_free;					\
-	KASSERT(max_free >= vm_map_entry_max_free_left(root, llist),	\
+	KASSERT(max_free == vm_size_max(				\
+	    vm_map_entry_max_free_left(root, llist),			\
+	    vm_map_entry_max_free_right(root, rlist)),			\
 	    ("%s: max_free invariant fails", __func__));		\
-	if (y == rlist ? max_free > 0 : max_free - 1 < y->max_free)	\
+	if (max_free - 1 < vm_map_entry_max_free_right(root, rlist))	\
 		max_free = vm_map_entry_max_free_left(root, llist);	\
 	if (y != rlist && (test)) {					\
 		/* Rotate left and make y root. */			\
@@ -1356,12 +1360,17 @@ vm_map_splay(vm_map_t map, vm_offset_t addr)
 /*
  *	vm_map_entry_{un,}link:
  *
- *	Insert/remove entries from maps.
+ *	Insert/remove entries from maps.  On linking, if new entry clips
+ *	existing entry, trim existing entry to avoid overlap, and manage
+ *	offsets.  On unlinking, merge disappearing entry with neighbor, if
+ *	called for, and manage offsets.  Callers should not modify fields in
+ *	entries already mapped.
  */
 static void
 vm_map_entry_link(vm_map_t map, vm_map_entry_t entry)
 {
 	vm_map_entry_t header, llist, rlist, root;
+	vm_size_t max_free_left, max_free_right;
 
 	CTR3(KTR_VM,
 	    "vm_map_entry_link: map %p, nentries %d, entry %p", map,
@@ -1370,13 +1379,48 @@ vm_map_entry_link(vm_map_t map, vm_map_entry_t entry)
 	map->nentries++;
 	header = &map->header;
 	root = vm_map_splay_split(map, entry->start, 0, &llist, &rlist);
-	KASSERT(root == NULL,
-	    ("vm_map_entry_link: link object already mapped"));
-	root = entry;
-	root->max_free = vm_size_max(
-	    vm_map_splay_merge_pred(header, root, llist),
-	    vm_map_splay_merge_succ(header, root, rlist));
-	map->root = root;
+	if (root == NULL) {
+		/*
+		 * The new entry does not overlap any existing entry in the
+		 * map, so it becomes the new root of the map tree.
+		 */
+		max_free_left = vm_map_splay_merge_pred(header, entry, llist);
+		max_free_right = vm_map_splay_merge_succ(header, entry, rlist);
+	} else if (entry->start == root->start) {
+		/*
+		 * The new entry is a clone of root, with only the end field
+		 * changed.  The root entry will be shrunk to abut the new
+		 * entry, and will be the right child of the new root entry in
+		 * the modified map.
+		 */
+		KASSERT(entry->end < root->end,
+		    ("%s: clip_start not within entry", __func__));
+		vm_map_splay_findprev(root, &llist);
+		root->offset += entry->end - root->start;
+		root->start = entry->end;
+		max_free_left = vm_map_splay_merge_pred(header, entry, llist);
+		max_free_right = root->max_free = vm_size_max(
+		    vm_map_splay_merge_pred(entry, root, entry),
+		    vm_map_splay_merge_right(header, root, rlist));
+	} else {
+		/*
+		 * The new entry is a clone of root, with only the start field
+		 * changed.  The root entry will be shrunk to abut the new
+		 * entry, and will be the left child of the new root entry in
+		 * the modified map.
+		 */
+		KASSERT(entry->end == root->end,
+		    ("%s: clip_start not within entry", __func__));
+		vm_map_splay_findnext(root, &rlist);
+		entry->offset += entry->start - root->start;
+		root->end = entry->start;
+		max_free_left = root->max_free = vm_size_max(
+		    vm_map_splay_merge_left(header, root, llist),
+		    vm_map_splay_merge_succ(entry, root, entry));
+		max_free_right = vm_map_splay_merge_succ(header, entry, rlist);
+	}
+	entry->max_free = vm_size_max(max_free_left, max_free_right);
+	map->root = entry;
 	VM_MAP_ASSERT_CONSISTENT(map);
 }
 
@@ -2291,6 +2335,42 @@ vm_map_entry_charge_object(vm_map_t map, vm_map_entry_t entry)
 }
 
 /*
+ *	vm_map_entry_clone
+ *
+ *	Create a duplicate map entry for clipping.
+ */
+static vm_map_entry_t
+vm_map_entry_clone(vm_map_t map, vm_map_entry_t entry)
+{
+	vm_map_entry_t new_entry;
+
+	VM_MAP_ASSERT_LOCKED(map);
+
+	/*
+	 * Create a backing object now, if none exists, so that more individual
+	 * objects won't be created after the map entry is split.
+	 */
+	vm_map_entry_charge_object(map, entry);
+
+	/* Clone the entry. */
+	new_entry = vm_map_entry_create(map);
+	*new_entry = *entry;
+	if (new_entry->cred != NULL)
+		crhold(entry->cred);
+	if ((entry->eflags & MAP_ENTRY_IS_SUB_MAP) == 0) {
+		vm_object_reference(new_entry->object.vm_object);
+		vm_map_entry_set_vnode_text(new_entry, true);
+		/*
+		 * The object->un_pager.vnp.writemappings for the object of
+		 * MAP_ENTRY_WRITECNT type entry shall be kept as is here.  The
+		 * virtual pages are re-distributed among the clipped entries,
+		 * so the sum is left the same.
+		 */
+	}
+	return (new_entry);
+}
+
+/*
  *	vm_map_clip_start:	[ internal use only ]
  *
  *	Asserts that the given entry begins at or after
@@ -2316,39 +2396,14 @@ _vm_map_clip_start(vm_map_t map, vm_map_entry_t entry, vm_offset_t start)
 	KASSERT(entry->end > start && entry->start < start,
 	    ("_vm_map_clip_start: invalid clip of entry %p", entry));
 
-	/*
-	 * Create a backing object now, if none exists, so that more individual
-	 * objects won't be created after the map entry is split.
-	 */
-	vm_map_entry_charge_object(map, entry);
-
-	/* Clone the entry. */
-	new_entry = vm_map_entry_create(map);
-	*new_entry = *entry;
+	new_entry = vm_map_entry_clone(map, entry);
 
 	/*
 	 * Split off the front portion.  Insert the new entry BEFORE this one,
 	 * so that this entry has the specified starting address.
 	 */
 	new_entry->end = start;
-	entry->offset += (start - entry->start);
-	entry->start = start;
-	if (new_entry->cred != NULL)
-		crhold(entry->cred);
-
 	vm_map_entry_link(map, new_entry);
-
-	if ((entry->eflags & MAP_ENTRY_IS_SUB_MAP) == 0) {
-		vm_object_reference(new_entry->object.vm_object);
-		vm_map_entry_set_vnode_text(new_entry, true);
-		/*
-		 * The object->un_pager.vnp.writemappings for the
-		 * object of MAP_ENTRY_WRITECNT type entry shall be
-		 * kept as is here.  The virtual pages are
-		 * re-distributed among the clipped entries, so the sum is
-		 * left the same.
-		 */
-	}
 }
 
 /*
@@ -2377,31 +2432,14 @@ _vm_map_clip_end(vm_map_t map, vm_map_entry_t entry, vm_offset_t end)
 	KASSERT(entry->start < end && entry->end > end,
 	    ("_vm_map_clip_end: invalid clip of entry %p", entry));
 
-	/*
-	 * Create a backing object now, if none exists, so that more individual
-	 * objects won't be created after the map entry is split.
-	 */
-	vm_map_entry_charge_object(map, entry);
-
-	/* Clone the entry. */
-	new_entry = vm_map_entry_create(map);
-	*new_entry = *entry;
+	new_entry = vm_map_entry_clone(map, entry);
 
 	/*
 	 * Split off the back portion.  Insert the new entry AFTER this one,
 	 * so that this entry has the specified ending address.
 	 */
-	new_entry->start = entry->end = end;
-	new_entry->offset += (end - entry->start);
-	if (new_entry->cred != NULL)
-		crhold(entry->cred);
-
+	new_entry->start = end;
 	vm_map_entry_link(map, new_entry);
-
-	if ((entry->eflags & MAP_ENTRY_IS_SUB_MAP) == 0) {
-		vm_object_reference(new_entry->object.vm_object);
-		vm_map_entry_set_vnode_text(new_entry, true);
-	}
 }
 
 /*
@@ -3873,15 +3911,19 @@ vm_map_copy_swap_object(vm_map_entry_t src_entry, vm_map_entry_t dst_entry,
 	int charged;
 
 	src_object = src_entry->object.vm_object;
-	VM_OBJECT_WLOCK(src_object);
 	charged = ENTRY_CHARGED(src_entry);
-	vm_object_collapse(src_object);
-	if ((src_object->flags & OBJ_ONEMAPPING) != 0) {
-		vm_object_split(src_entry);
-		src_object = src_entry->object.vm_object;
-	}
-	vm_object_reference_locked(src_object);
-	vm_object_clear_flag(src_object, OBJ_ONEMAPPING);
+	if ((src_object->flags & OBJ_ANON) != 0) {
+		VM_OBJECT_WLOCK(src_object);
+		vm_object_collapse(src_object);
+		if ((src_object->flags & OBJ_ONEMAPPING) != 0) {
+			vm_object_split(src_entry);
+			src_object = src_entry->object.vm_object;
+		}
+		vm_object_reference_locked(src_object);
+		vm_object_clear_flag(src_object, OBJ_ONEMAPPING);
+		VM_OBJECT_WUNLOCK(src_object);
+	} else
+		vm_object_reference(src_object);
 	if (src_entry->cred != NULL &&
 	    !(src_entry->eflags & MAP_ENTRY_NEEDS_COPY)) {
 		KASSERT(src_object->cred == NULL,
@@ -3890,7 +3932,6 @@ vm_map_copy_swap_object(vm_map_entry_t src_entry, vm_map_entry_t dst_entry,
 		src_object->cred = src_entry->cred;
 		src_object->charge = size;
 	}
-	VM_OBJECT_WUNLOCK(src_object);
 	dst_entry->object.vm_object = src_object;
 	if (charged) {
 		cred = curthread->td_ucred;
@@ -4127,8 +4168,6 @@ vmspace_fork(struct vmspace *vm1, vm_ooffset_t *fork_charge)
 				    true);
 				old_entry->eflags &= ~MAP_ENTRY_NEEDS_COPY;
 				old_entry->cred = NULL;
-				vm_object_reference(
-				    old_entry->object.vm_object);
 
 				/*
 				 * As in vm_map_merged_neighbor_dispose(),

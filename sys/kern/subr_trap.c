@@ -187,8 +187,8 @@ userret(struct thread *td, struct trapframe *frame)
 	}
 	KASSERT(td->td_pinned == 0 || (td->td_pflags & TDP_CALLCHAIN) != 0,
 	    ("userret: Returning with with pinned thread"));
-	KASSERT(td->td_vp_reserv == 0,
-	    ("userret: Returning while holding vnode reservation"));
+	KASSERT(td->td_vp_reserved == NULL,
+	    ("userret: Returning with preallocated vnode"));
 	KASSERT((td->td_flags & (TDF_SBDRY | TDF_SEINTR | TDF_SERESTART)) == 0,
 	    ("userret: Returning with stop signals deferred"));
 	KASSERT(td->td_su == NULL,
@@ -280,8 +280,7 @@ ast(struct trapframe *framep)
 #endif
 		thread_lock(td);
 		sched_prio(td, td->td_user_pri);
-		mi_switch(SW_INVOL | SWT_NEEDRESCHED, NULL);
-		thread_unlock(td);
+		mi_switch(SW_INVOL | SWT_NEEDRESCHED);
 #ifdef KTRACE
 		if (KTRPOINT(td, KTR_CSW))
 			ktrcsw(0, 1, __func__);

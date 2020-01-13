@@ -1394,7 +1394,7 @@ success:
 	ltype = 0;	/* silence gcc warning */
 	if (cnp->cn_flags & ISDOTDOT) {
 		ltype = VOP_ISLOCKED(dvp);
-		VOP_UNLOCK(dvp, 0);
+		VOP_UNLOCK(dvp);
 	}
 	vs = vget_prep(*vpp);
 	cache_lookup_unlock(blp, dvlp);
@@ -1979,13 +1979,13 @@ nchinit(void *dummy __unused)
 SYSINIT(vfs, SI_SUB_VFS, SI_ORDER_SECOND, nchinit, NULL);
 
 void
-cache_changesize(int newmaxvnodes)
+cache_changesize(u_long newmaxvnodes)
 {
 	struct nchashhead *new_nchashtbl, *old_nchashtbl;
 	u_long new_nchash, old_nchash;
 	struct namecache *ncp;
 	uint32_t hash;
-	int newncsize;
+	u_long newncsize;
 	int i;
 
 	newncsize = newmaxvnodes * ncsizefactor;
@@ -2562,7 +2562,7 @@ vn_path_to_global_path(struct thread *td, struct vnode *vp, char *path,
 		return (ENODEV);
 
 	/* Construct global filesystem path from vp. */
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	error = vn_fullpath_global(td, vp, &rpath, &fbuf);
 
 	if (error != 0) {

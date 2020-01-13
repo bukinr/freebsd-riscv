@@ -181,7 +181,7 @@ choosethread(void)
 
 	td = sched_choose();
 
-	if (__predict_false(panicstr != NULL))
+	if (KERNEL_PANICKED())
 		return (choosethread_panic(td));
 
 	TD_SET_RUNNING(td);
@@ -240,8 +240,7 @@ critical_exit_preempt(void)
 		flags |= SWT_IDLE;
 	else
 		flags |= SWT_OWEPREEMPT;
-	mi_switch(flags, NULL);
-	thread_unlock(td);
+	mi_switch(flags);
 }
 
 void

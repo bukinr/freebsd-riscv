@@ -114,17 +114,8 @@ static int kern_readlink_vp(struct vnode *vp, char *buf, enum uio_seg bufseg,
 static int kern_linkat_vp(struct thread *td, struct vnode *vp, int fd,
     const char *path, enum uio_seg segflag);
 
-/*
- * Sync each mounted filesystem.
- */
-#ifndef _SYS_SYSPROTO_H_
-struct sync_args {
-	int     dummy;
-};
-#endif
-/* ARGSUSED */
 int
-sys_sync(struct thread *td, struct sync_args *uap)
+kern_sync(struct thread *td)
 {
 	struct mount *mp, *nmp;
 	int save;
@@ -138,7 +129,7 @@ sys_sync(struct thread *td, struct sync_args *uap)
 		if ((mp->mnt_flag & MNT_RDONLY) == 0 &&
 		    vn_start_write(NULL, &mp, V_NOWAIT) == 0) {
 			save = curthread_pflags_set(TDP_SYNCIO);
-			vfs_msync(mp, MNT_NOWAIT);
+			vfs_periodic(mp, MNT_NOWAIT);
 			VFS_SYNC(mp, MNT_NOWAIT);
 			curthread_pflags_restore(save);
 			vn_finished_write(mp);
@@ -149,6 +140,22 @@ sys_sync(struct thread *td, struct sync_args *uap)
 	}
 	mtx_unlock(&mountlist_mtx);
 	return (0);
+}
+
+/*
+ * Sync each mounted filesystem.
+ */
+#ifndef _SYS_SYSPROTO_H_
+struct sync_args {
+	int     dummy;
+};
+#endif
+/* ARGSUSED */
+int
+sys_sync(struct thread *td, struct sync_args *uap)
+{
+
+	return (kern_sync(td));
 }
 
 /*
@@ -359,7 +366,7 @@ kern_fstatfs(struct thread *td, int fd, struct statfs *buf)
 	mp = vp->v_mount;
 	if (mp != NULL)
 		vfs_ref(mp);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	fdrop(fp, td);
 	return (kern_do_statfs(td, mp, buf));
 }
@@ -847,7 +854,7 @@ sys_fchdir(struct thread *td, struct fchdir_args *uap)
 		vput(vp);
 		return (error);
 	}
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	pwd_chdir(td, vp);
 	return (0);
 }
@@ -882,7 +889,7 @@ kern_chdir(struct thread *td, const char *path, enum uio_seg pathseg)
 		NDFREE(&nd, NDF_ONLY_PNBUF);
 		return (error);
 	}
-	VOP_UNLOCK(nd.ni_vp, 0);
+	VOP_UNLOCK(nd.ni_vp);
 	NDFREE(&nd, NDF_ONLY_PNBUF);
 	pwd_chdir(td, nd.ni_vp);
 	return (0);
@@ -918,7 +925,7 @@ sys_chroot(struct thread *td, struct chroot_args *uap)
 	if (error != 0)
 		goto e_vunlock;
 #endif
-	VOP_UNLOCK(nd.ni_vp, 0);
+	VOP_UNLOCK(nd.ni_vp);
 	error = pwd_chroot(td, nd.ni_vp);
 	vrele(nd.ni_vp);
 	NDFREE(&nd, NDF_ONLY_PNBUF);
@@ -1120,7 +1127,7 @@ kern_openat(struct thread *td, int fd, const char *path, enum uio_seg pathseg,
 		    DTYPE_VNODE, vp, &vnops);
 	}
 
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	if (flags & O_TRUNC) {
 		error = fo_truncate(fp, 0, td->td_ucred, td);
 		if (error != 0)
@@ -1561,7 +1568,7 @@ kern_linkat_vp(struct thread *td, struct vnode *vp, int fd, const char *path,
 				return (EAGAIN);
 			}
 			error = VOP_LINK(nd.ni_dvp, vp, &nd.ni_cnd);
-			VOP_UNLOCK(vp, 0);
+			VOP_UNLOCK(vp);
 			vput(nd.ni_dvp);
 			vn_finished_write(mp);
 			NDFREE(&nd, NDF_ONLY_PNBUF);
@@ -2615,7 +2622,7 @@ setfflags(struct thread *td, struct vnode *vp, u_long flags)
 	if (error == 0)
 #endif
 		error = VOP_SETATTR(vp, &vattr, td->td_ucred);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	vn_finished_write(mp);
 	return (error);
 }
@@ -2717,7 +2724,7 @@ sys_fchflags(struct thread *td, struct fchflags_args *uap)
 #ifdef AUDIT
 	vn_lock(fp->f_vnode, LK_SHARED | LK_RETRY);
 	AUDIT_ARG_VNODE1(fp->f_vnode);
-	VOP_UNLOCK(fp->f_vnode, 0);
+	VOP_UNLOCK(fp->f_vnode);
 #endif
 	error = setfflags(td, fp->f_vnode, uap->flags);
 	fdrop(fp, td);
@@ -2744,7 +2751,7 @@ setfmode(struct thread *td, struct ucred *cred, struct vnode *vp, int mode)
 	if (error == 0)
 #endif
 		error = VOP_SETATTR(vp, &vattr, cred);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	vn_finished_write(mp);
 	return (error);
 }
@@ -2871,7 +2878,7 @@ setfown(struct thread *td, struct ucred *cred, struct vnode *vp, uid_t uid,
 	if (error == 0)
 #endif
 		error = VOP_SETATTR(vp, &vattr, cred);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	vn_finished_write(mp);
 	return (error);
 }
@@ -3090,7 +3097,7 @@ setutimes(struct thread *td, struct vnode *vp, const struct timespec *ts,
 #endif
 	if (error == 0)
 		error = VOP_SETATTR(vp, &vattr, td->td_ucred);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	vn_finished_write(mp);
 	return (error);
 }
@@ -3218,7 +3225,7 @@ kern_futimes(struct thread *td, int fd, struct timeval *tptr,
 #ifdef AUDIT
 	vn_lock(fp->f_vnode, LK_SHARED | LK_RETRY);
 	AUDIT_ARG_VNODE1(fp->f_vnode);
-	VOP_UNLOCK(fp->f_vnode, 0);
+	VOP_UNLOCK(fp->f_vnode);
 #endif
 	error = setutimes(td, fp->f_vnode, ts, 2, tptr == NULL);
 	fdrop(fp, td);
@@ -3252,7 +3259,7 @@ kern_futimens(struct thread *td, int fd, struct timespec *tptr,
 #ifdef AUDIT
 	vn_lock(fp->f_vnode, LK_SHARED | LK_RETRY);
 	AUDIT_ARG_VNODE1(fp->f_vnode);
-	VOP_UNLOCK(fp->f_vnode, 0);
+	VOP_UNLOCK(fp->f_vnode);
 #endif
 	error = setutimes(td, fp->f_vnode, ts, 2, flags & UTIMENS_NULL);
 	fdrop(fp, td);
@@ -3353,7 +3360,7 @@ kern_truncate(struct thread *td, const char *path, enum uio_seg pathseg,
 		vattr.va_size = length;
 		error = VOP_SETATTR(vp, &vattr, td->td_ucred);
 	}
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	vn_finished_write(mp);
 	vn_rangelock_unlock(vp, rl_cookie);
 	vrele(vp);
@@ -3429,7 +3436,7 @@ kern_fsync(struct thread *td, int fd, bool fullsync)
 		VM_OBJECT_WUNLOCK(vp->v_object);
 	}
 	error = fullsync ? VOP_FSYNC(vp, MNT_WAIT, td) : VOP_FDATASYNC(vp, td);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	vn_finished_write(mp);
 drop:
 	fdrop(fp, td);
@@ -3518,9 +3525,9 @@ again:
 #ifdef MAC
 	error = mac_vnode_check_rename_from(td->td_ucred, fromnd.ni_dvp,
 	    fromnd.ni_vp, &fromnd.ni_cnd);
-	VOP_UNLOCK(fromnd.ni_dvp, 0);
+	VOP_UNLOCK(fromnd.ni_dvp);
 	if (fromnd.ni_dvp != fromnd.ni_vp)
-		VOP_UNLOCK(fromnd.ni_vp, 0);
+		VOP_UNLOCK(fromnd.ni_vp);
 #endif
 	fvp = fromnd.ni_vp;
 	NDINIT_ATRIGHTS(&tond, RENAME, LOCKPARENT | LOCKLEAF | NOCACHE |
@@ -4060,7 +4067,7 @@ unionread:
 		    NULL);
 	foffset = auio.uio_offset;
 	if (error != 0) {
-		VOP_UNLOCK(vp, 0);
+		VOP_UNLOCK(vp);
 		goto fail;
 	}
 	if (count == auio.uio_resid &&
@@ -4076,7 +4083,7 @@ unionread:
 		vput(tvp);
 		goto unionread;
 	}
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	*basep = loff;
 	if (residp != NULL)
 		*residp = auio.uio_resid;
@@ -4326,7 +4333,7 @@ kern_fhlinkat(struct thread *td, int fd, const char *path,
 		vfs_unbusy(mp);
 		if (error != 0)
 			return (error);
-		VOP_UNLOCK(vp, 0);
+		VOP_UNLOCK(vp);
 	} while ((error = kern_linkat_vp(td, vp, fd, path, pathseg)) == EAGAIN);
 	return (error);
 }
@@ -4439,7 +4446,7 @@ sys_fhopen(struct thread *td, struct fhopen_args *uap)
 	fp->f_seqcount = 1;
 	finit(fp, (fmode & FMASK) | (fp->f_flag & FHASLOCK), DTYPE_VNODE, vp,
 	    &vnops);
-	VOP_UNLOCK(vp, 0);
+	VOP_UNLOCK(vp);
 	if ((fmode & O_TRUNC) != 0) {
 		error = fo_truncate(fp, 0, td->td_ucred, td);
 		if (error != 0)
@@ -4556,99 +4563,6 @@ kern_fhstatfs(struct thread *td, fhandle_t fh, struct statfs *buf)
 out:
 	vfs_unbusy(mp);
 	return (error);
-}
-
-int
-kern_posix_fallocate(struct thread *td, int fd, off_t offset, off_t len)
-{
-	struct file *fp;
-	struct mount *mp;
-	struct vnode *vp;
-	off_t olen, ooffset;
-	int error;
-#ifdef AUDIT
-	int audited_vnode1 = 0;
-#endif
-
-	AUDIT_ARG_FD(fd);
-	if (offset < 0 || len <= 0)
-		return (EINVAL);
-	/* Check for wrap. */
-	if (offset > OFF_MAX - len)
-		return (EFBIG);
-	AUDIT_ARG_FD(fd);
-	error = fget(td, fd, &cap_pwrite_rights, &fp);
-	if (error != 0)
-		return (error);
-	AUDIT_ARG_FILE(td->td_proc, fp);
-	if ((fp->f_ops->fo_flags & DFLAG_SEEKABLE) == 0) {
-		error = ESPIPE;
-		goto out;
-	}
-	if ((fp->f_flag & FWRITE) == 0) {
-		error = EBADF;
-		goto out;
-	}
-	if (fp->f_type != DTYPE_VNODE) {
-		error = ENODEV;
-		goto out;
-	}
-	vp = fp->f_vnode;
-	if (vp->v_type != VREG) {
-		error = ENODEV;
-		goto out;
-	}
-
-	/* Allocating blocks may take a long time, so iterate. */
-	for (;;) {
-		olen = len;
-		ooffset = offset;
-
-		bwillwrite();
-		mp = NULL;
-		error = vn_start_write(vp, &mp, V_WAIT | PCATCH);
-		if (error != 0)
-			break;
-		error = vn_lock(vp, LK_EXCLUSIVE);
-		if (error != 0) {
-			vn_finished_write(mp);
-			break;
-		}
-#ifdef AUDIT
-		if (!audited_vnode1) {
-			AUDIT_ARG_VNODE1(vp);
-			audited_vnode1 = 1;
-		}
-#endif
-#ifdef MAC
-		error = mac_vnode_check_write(td->td_ucred, fp->f_cred, vp);
-		if (error == 0)
-#endif
-			error = VOP_ALLOCATE(vp, &offset, &len);
-		VOP_UNLOCK(vp, 0);
-		vn_finished_write(mp);
-
-		if (olen + ooffset != offset + len) {
-			panic("offset + len changed from %jx/%jx to %jx/%jx",
-			    ooffset, olen, offset, len);
-		}
-		if (error != 0 || len == 0)
-			break;
-		KASSERT(olen > len, ("Iteration did not make progress?"));
-		maybe_yield();
-	}
- out:
-	fdrop(fp, td);
-	return (error);
-}
-
-int
-sys_posix_fallocate(struct thread *td, struct posix_fallocate_args *uap)
-{
-	int error;
-
-	error = kern_posix_fallocate(td, uap->fd, uap->offset, uap->len);
-	return (kern_posix_error(td, error));
 }
 
 /*

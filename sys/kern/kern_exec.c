@@ -523,7 +523,7 @@ interpret:
 	    (imgp->vp->v_mount->mnt_flag & MNT_NOSUID) == 0 &&
 	    (p->p_flag & P_TRACED) == 0) {
 		imgp->credential_setid = true;
-		VOP_UNLOCK(imgp->vp, 0);
+		VOP_UNLOCK(imgp->vp);
 		imgp->newcred = crdup(oldcred);
 		if (attr.va_mode & S_ISUID) {
 			euip = uifind(attr.va_uid);
@@ -556,7 +556,7 @@ interpret:
 		 */
 		if (oldcred->cr_svuid != oldcred->cr_uid ||
 		    oldcred->cr_svgid != oldcred->cr_gid) {
-			VOP_UNLOCK(imgp->vp, 0);
+			VOP_UNLOCK(imgp->vp);
 			imgp->newcred = crdup(oldcred);
 			vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
 			change_svuid(imgp->newcred, imgp->newcred->cr_uid);
@@ -571,7 +571,7 @@ interpret:
 	if (args->fname != NULL && args->fname[0] == '/')
 		imgp->execpath = args->fname;
 	else {
-		VOP_UNLOCK(imgp->vp, 0);
+		VOP_UNLOCK(imgp->vp);
 		if (vn_fullpath(td, imgp->vp, &imgp->execpath,
 		    &imgp->freepath) != 0)
 			imgp->execpath = args->fname;
@@ -654,7 +654,7 @@ interpret:
 	 * NB: We unlock the vnode here because it is believed that none
 	 * of the sv_copyout_strings/sv_fixup operations require the vnode.
 	 */
-	VOP_UNLOCK(imgp->vp, 0);
+	VOP_UNLOCK(imgp->vp);
 
 	if (disallow_high_osrel &&
 	    P_OSREL_MAJOR(p->p_osrel) > P_OSREL_MAJOR(__FreeBSD_version)) {
@@ -787,7 +787,7 @@ interpret:
 		 * taking sleepable locks, so temporarily drop our locks.
 		 */
 		PROC_UNLOCK(p);
-		VOP_UNLOCK(imgp->vp, 0);
+		VOP_UNLOCK(imgp->vp);
 		fdsetugidsafety(td);
 		error = fdcheckstd(td);
 		vn_lock(imgp->vp, LK_SHARED | LK_RETRY);
@@ -858,7 +858,7 @@ interpret:
 	 * P_INEXEC flag is cleared.
 	 */
 	if (PMC_SYSTEM_SAMPLING_ACTIVE() || PMC_PROC_IS_USING_PMCS(p)) {
-		VOP_UNLOCK(imgp->vp, 0);
+		VOP_UNLOCK(imgp->vp);
 		pe.pm_credentialschanged = credential_changing;
 		pe.pm_entryaddr = imgp->entry_addr;
 
@@ -893,7 +893,7 @@ exec_fail_dealloc:
 		if (error != 0)
 			vput(imgp->vp);
 		else
-			VOP_UNLOCK(imgp->vp, 0);
+			VOP_UNLOCK(imgp->vp);
 	}
 
 	if (imgp->object != NULL)
@@ -974,9 +974,9 @@ exec_fail:
 int
 exec_map_first_page(struct image_params *imgp)
 {
-	int rv, i, after, initial_pagein;
-	vm_page_t ma[VM_INITIAL_PAGEIN];
 	vm_object_t object;
+	vm_page_t m;
+	int error;
 
 	if (imgp->firstpage != NULL)
 		exec_unmap_first_page(imgp);
@@ -988,68 +988,14 @@ exec_map_first_page(struct image_params *imgp)
 #if VM_NRESERVLEVEL > 0
 	vm_object_color(object, 0);
 #endif
-retry:
-	ma[0] = vm_page_grab(object, 0, VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY |
-	    VM_ALLOC_WIRED);
-	if (!vm_page_all_valid(ma[0])) {
-		if (vm_page_busy_acquire(ma[0], VM_ALLOC_WAITFAIL) == 0) {
-			vm_page_unwire_noq(ma[0]);
-			goto retry;
-		}
-		if (vm_page_all_valid(ma[0])) {
-			vm_page_xunbusy(ma[0]);
-			goto out;
-		}
-		if (!vm_pager_has_page(object, 0, NULL, &after)) {
-			if (vm_page_unwire_noq(ma[0]))
-				vm_page_free(ma[0]);
-			else
-				vm_page_xunbusy(ma[0]);
-			VM_OBJECT_WUNLOCK(object);
-			return (EIO);
-		}
-		initial_pagein = min(after, VM_INITIAL_PAGEIN);
-		KASSERT(initial_pagein <= object->size,
-		    ("%s: initial_pagein %d object->size %ju",
-		    __func__, initial_pagein, (uintmax_t )object->size));
-		for (i = 1; i < initial_pagein; i++) {
-			if ((ma[i] = vm_page_next(ma[i - 1])) != NULL) {
-				if (ma[i]->valid)
-					break;
-				if (!vm_page_tryxbusy(ma[i]))
-					break;
-			} else {
-				ma[i] = vm_page_alloc(object, i,
-				    VM_ALLOC_NORMAL);
-				if (ma[i] == NULL)
-					break;
-			}
-		}
-		initial_pagein = i;
-		rv = vm_pager_get_pages(object, ma, initial_pagein, NULL, NULL);
-		if (rv != VM_PAGER_OK) {
-			if (vm_page_unwire_noq(ma[0]))
-				vm_page_free(ma[0]);
-			else
-				vm_page_xunbusy(ma[0]);
-			for (i = 1; i < initial_pagein; i++) {
-				if (!vm_page_wired(ma[i]))
-					vm_page_free(ma[i]);
-				else
-					vm_page_xunbusy(ma[i]);
-			}
-			VM_OBJECT_WUNLOCK(object);
-			return (EIO);
-		}
-		vm_page_xunbusy(ma[0]);
-		for (i = 1; i < initial_pagein; i++)
-			vm_page_readahead_finish(ma[i]);
-	}
-
-out:
+	error = vm_page_grab_valid(&m, object, 0,
+	    VM_ALLOC_COUNT(VM_INITIAL_PAGEIN) |
+            VM_ALLOC_NORMAL | VM_ALLOC_NOBUSY | VM_ALLOC_WIRED);
 	VM_OBJECT_WUNLOCK(object);
 
-	imgp->firstpage = sf_buf_alloc(ma[0], 0);
+	if (error != VM_PAGER_OK)
+		return (EIO);
+	imgp->firstpage = sf_buf_alloc(m, 0);
 	imgp->image_header = (char *)sf_buf_kva(imgp->firstpage);
 
 	return (0);

@@ -147,7 +147,8 @@ struct vnode {
 	/*
 	 * The machinery of being a vnode
 	 */
-	TAILQ_ENTRY(vnode) v_actfreelist;	/* l vnode active/free lists */
+	TAILQ_ENTRY(vnode) v_vnodelist;		/* l vnode lists */
+	TAILQ_ENTRY(vnode) v_lazylist;		/* l vnode lazy list */
 	struct bufobj	v_bufobj;		/* * Buffer cache object */
 
 	/*
@@ -170,11 +171,11 @@ struct vnode {
 	u_int	v_usecount;			/* I ref count of users */
 	u_int	v_iflag;			/* i vnode flags (see below) */
 	u_int	v_vflag;			/* v vnode flags */
-	u_int	v_mflag;			/* l mnt-specific vnode flags */
+	u_short	v_mflag;			/* l mnt-specific vnode flags */
+	short	v_dbatchcpu;			/* i LRU requeue deferral batch */
 	int	v_writecount;			/* I ref count of writers or
 						   (negative) text users */
 	u_int	v_hash;
-	const char *v_tag;			/* u type of underlying data */
 };
 
 #endif /* defined(_KERNEL) || defined(_KVM_VNODE) */
@@ -239,10 +240,9 @@ struct xvnode {
 
 #define	VI_TEXT_REF	0x0001	/* Text ref grabbed use ref */
 #define	VI_MOUNT	0x0020	/* Mount in progress */
-#define	VI_FREE		0x0100	/* This vnode is on the freelist */
-#define	VI_ACTIVE	0x0200	/* This vnode is on the active list */
 #define	VI_DOINGINACT	0x0800	/* VOP_INACTIVE is in progress */
 #define	VI_OWEINACT	0x1000	/* Need to call inactive */
+#define	VI_DEFINACT	0x2000	/* deferred inactive */
 
 #define	VV_ROOT		0x0001	/* root of its filesystem */
 #define	VV_ISTTY	0x0002	/* vnode represents a tty */
@@ -259,7 +259,7 @@ struct xvnode {
 #define	VV_FORCEINSMQ	0x1000	/* force the insmntque to succeed */
 #define	VV_READLINK	0x2000	/* fdescfs linux vnode */
 
-#define	VMP_TMPMNTFREELIST	0x0001	/* Vnode is on mnt's tmp free list */
+#define	VMP_LAZYLIST	0x0001	/* Vnode is on mnt's lazy list */
 
 /*
  * Vnode attributes.  A field value of VNOVAL represents a field whose value
@@ -434,7 +434,7 @@ extern int		vttoif_tab[];
  */
 extern	struct vnode *rootvnode;	/* root (i.e. "/") vnode */
 extern	struct mount *rootdevmp;	/* "/dev" mount */
-extern	int desiredvnodes;		/* number of vnodes desired */
+extern	u_long desiredvnodes;		/* number of vnodes desired */
 extern	struct uma_zone *namei_zone;
 extern	struct vattr va_null;		/* predefined null vattr structure */
 
@@ -607,7 +607,7 @@ typedef int (*vn_get_ino_t)(struct mount *, void *, int, struct vnode **);
 int	bnoreuselist(struct bufv *bufv, struct bufobj *bo, daddr_t startn,
 	    daddr_t endn);
 /* cache_* may belong in namei.h. */
-void	cache_changesize(int newhashsize);
+void	cache_changesize(u_long newhashsize);
 #define	cache_enter(dvp, vp, cnp)					\
 	cache_enter_time(dvp, vp, cnp, NULL, NULL)
 void	cache_enter_time(struct vnode *dvp, struct vnode *vp,
@@ -624,7 +624,7 @@ void	freebsd11_cvtnstat(struct stat *sb, struct nstat *nsb);
 int	freebsd11_cvtstat(struct stat *st, struct freebsd11_stat *ost);
 int	getnewvnode(const char *tag, struct mount *mp, struct vop_vector *vops,
 	    struct vnode **vpp);
-void	getnewvnode_reserve(u_int count);
+void	getnewvnode_reserve(void);
 void	getnewvnode_drop_reserve(void);
 int	insmntque1(struct vnode *vp, struct mount *mp,
 	    void (*dtr)(struct vnode *, void *), void *dtr_arg);
@@ -653,6 +653,7 @@ int	vaccess_acl_posix1e(enum vtype type, uid_t file_uid,
 	    struct ucred *cred, int *privused);
 void	vattr_null(struct vattr *vap);
 int	vcount(struct vnode *vp);
+void	vlazy(struct vnode *);
 void	vdrop(struct vnode *);
 void	vdropl(struct vnode *);
 int	vflush(struct mount *mp, int rootrefs, int flags, struct thread *td);
@@ -663,7 +664,7 @@ void	vgone(struct vnode *vp);
 void	vhold(struct vnode *);
 void	vholdl(struct vnode *);
 void	vholdnz(struct vnode *);
-void	vinactive(struct vnode *, struct thread *);
+void	vinactive(struct vnode *vp);
 int	vinvalbuf(struct vnode *vp, int save, int slpflag, int slptimeo);
 int	vtruncbuf(struct vnode *vp, off_t length, int blksize);
 void	v_inval_buf_range(struct vnode *vp, daddr_t startlbn, daddr_t endlbn,
@@ -760,12 +761,16 @@ int	vop_stdfsync(struct vop_fsync_args *);
 int	vop_stdgetwritemount(struct vop_getwritemount_args *);
 int	vop_stdgetpages(struct vop_getpages_args *);
 int	vop_stdinactive(struct vop_inactive_args *);
+int	vop_stdioctl(struct vop_ioctl_args *);
 int	vop_stdneed_inactive(struct vop_need_inactive_args *);
-int	vop_stdislocked(struct vop_islocked_args *);
 int	vop_stdkqfilter(struct vop_kqfilter_args *);
 int	vop_stdlock(struct vop_lock1_args *);
-int	vop_stdputpages(struct vop_putpages_args *);
 int	vop_stdunlock(struct vop_unlock_args *);
+int	vop_stdislocked(struct vop_islocked_args *);
+int	vop_lock(struct vop_lock1_args *);
+int	vop_unlock(struct vop_unlock_args *);
+int	vop_islocked(struct vop_islocked_args *);
+int	vop_stdputpages(struct vop_putpages_args *);
 int	vop_nopoll(struct vop_poll_args *);
 int	vop_stdaccess(struct vop_access_args *ap);
 int	vop_stdaccessx(struct vop_accessx_args *ap);
@@ -889,7 +894,7 @@ do {									\
 #define	VOP_UNSET_TEXT_CHECKED(vp)		VOP_UNSET_TEXT((vp))
 #endif
 
-#define	VN_IS_DOOMED(vp)	((vp)->v_irflag & VIRF_DOOMED)
+#define	VN_IS_DOOMED(vp)	__predict_false((vp)->v_irflag & VIRF_DOOMED)
 
 void	vput(struct vnode *vp);
 void	vrele(struct vnode *vp);
@@ -920,7 +925,7 @@ int	fifo_printinfo(struct vnode *);
 /* vfs_hash.c */
 typedef int vfs_hash_cmp_t(struct vnode *vp, void *arg);
 
-void vfs_hash_changesize(int newhashsize);
+void vfs_hash_changesize(u_long newhashsize);
 int vfs_hash_get(const struct mount *mp, u_int hash, int flags,
     struct thread *td, struct vnode **vpp, vfs_hash_cmp_t *fn, void *arg);
 u_int vfs_hash_index(struct vnode *vp);
@@ -950,6 +955,25 @@ int vn_chown(struct file *fp, uid_t uid, gid_t gid, struct ucred *active_cred,
     struct thread *td);
 
 void vn_fsid(struct vnode *vp, struct vattr *va);
+
+#define VOP_UNLOCK_FLAGS(vp, flags)	({				\
+	struct vnode *_vp = (vp);					\
+	int _flags = (flags);						\
+	int _error;							\
+									\
+        if ((_flags & ~(LK_INTERLOCK | LK_RELEASE)) != 0)		\
+                panic("%s: unsupported flags %x\n", __func__, flags);	\
+        _error = VOP_UNLOCK(_vp);					\
+        if (_flags & LK_INTERLOCK)					\
+                VI_UNLOCK(_vp);						\
+        _error;								\
+})
+
+#include <sys/kernel.h>
+
+#define VFS_VOP_VECTOR_REGISTER(vnodeops) \
+	SYSINIT(vfs_vector_##vnodeops##_f, SI_SUB_VFS, SI_ORDER_ANY, \
+	    vfs_vector_op_register, &vnodeops)
 
 #endif /* _KERNEL */
 
