@@ -121,6 +121,7 @@ __FBSDID("$FreeBSD$");
 
 struct faultstate {
 	vm_page_t m;
+	vm_page_t m_cow;
 	vm_object_t object;
 	vm_pindex_t pindex;
 	vm_page_t first_m;
@@ -208,6 +209,7 @@ static void
 fault_deallocate(struct faultstate *fs)
 {
 
+	fault_page_release(&fs->m_cow);
 	fault_page_release(&fs->m);
 	vm_object_pip_wakeup(fs->object);
 	if (fs->object != fs->first_object) {
@@ -818,7 +820,7 @@ RetryFault_oom:
 
 	fs.lookup_still_valid = true;
 
-	fs.m = fs.first_m = NULL;
+	fs.m_cow = fs.m = fs.first_m = NULL;
 
 	/*
 	 * Search for the page at object/offset.
@@ -1078,8 +1080,10 @@ readrest:
 				}
 				ahead = ulmin(ahead, atop(e_end - vaddr) - 1);
 			}
+			VM_OBJECT_WUNLOCK(fs.object);
 			rv = vm_pager_get_pages(fs.object, &fs.m, 1,
 			    &behind, &ahead);
+			VM_OBJECT_WLOCK(fs.object);
 			if (rv == VM_PAGER_OK) {
 				faultcount = behind + 1 + ahead;
 				hardfault = true;
@@ -1254,9 +1258,11 @@ readrest:
 					vm_page_unwire(fs.m, PQ_INACTIVE);
 				}
 				/*
-				 * We no longer need the old page or object.
+				 * Save the cow page to be released after
+				 * pmap_enter is complete.
 				 */
-				fault_page_release(&fs.m);
+				fs.m_cow = fs.m;
+				fs.m = NULL;
 			}
 			/*
 			 * fs.object != fs.first_object due to above 
