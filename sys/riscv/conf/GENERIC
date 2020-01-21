@@ -79,6 +79,9 @@ options 	INTRNG
 # RISC-V SBI console
 device		rcons
 
+# Bus drivers
+device		pci
+
 # VirtIO support
 device		virtio			# Generic VirtIO bus (required)
 device		virtio_pci		# VirtIO PCI device
@@ -100,11 +103,14 @@ device		uart		# Generic UART driver
 device		uart_lowrisc	# lowRISC UART driver
 device		uart_ns8250	# ns8250-type UART driver
 
-
 # Ethernet drivers
 device		miibus		# MII bus support
 device		cgem		# Cadence Gigabit Ethernet MAC
 device		xae		# Xilinx AXI Ethernet MAC
+
+# PCI/PCI-X/PCIe Ethernet NICs that use iflib infrastructure
+device		iflib
+device		em		# Intel PRO/1000 Gigabit Ethernet Family
 
 # DMA support
 device		xdma		# DMA interface
@@ -112,8 +118,8 @@ device		axidma		# Xilinx AXI DMA Controller
 
 # Uncomment for memory disk
 options 	MD_ROOT
-options 	MD_ROOT_SIZE=32768	# 32MB ram disk
-#options 	MD_ROOT_SIZE=7168	# 7MB ram disk
+# options 	MD_ROOT_SIZE=32768	# 32MB ram disk
+options 	MD_ROOT_SIZE=7168	# 7MB ram disk
 makeoptions	MFS_IMAGE=/home/br/dev/freebsd-riscv/riscv.img
 options 	ROOTDEVNAME=\"ufs:/dev/md0\"
 
@@ -154,6 +160,6 @@ device		firmware	# firmware assist module
 device		bpf		# Berkeley packet filter
 
 options 	FDT
-#options 	FDT_DTB_STATIC
-#makeoptions	FDT_DTS_FILE=p2.dts
+options 	FDT_DTB_STATIC
+makeoptions	FDT_DTS_FILE=p2.dts
 #makeoptions	FDT_DTS_FILE=hifive_u540.dts
