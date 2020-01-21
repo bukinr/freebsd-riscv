@@ -169,7 +169,7 @@ xlnx_pcie_handle_intr(void *arg, int msireg)
 
 		printf("%s: status %x\n", __func__, reg);
 
-		for (i = 0; i < 32; i++) {
+		for (i = 0; i < sizeof(uint32_t) * 8; i++) {
 			if (reg & (1 << i)) {
 				bus_write_4(sc->res, msireg, (1 << i));
 
@@ -207,6 +207,33 @@ xlnx_pcie_msi1_intr(void *arg)
 	printf("%s\n", __func__);
 
 	xlnx_pcie_handle_intr(arg, XLNX_PCIE_RPMSIID2);
+}
+
+static int
+xlnx_pcie_register_msi(struct xlnx_pcie_softc *sc)
+{
+	const char *name;
+	int error;
+	int irq;
+
+	sc->isrcs = malloc(sizeof(*sc->isrcs) * XLNX_PCIB_MAX_MSI, M_DEVBUF,
+	    M_WAITOK | M_ZERO);
+
+	name = device_get_nameunit(sc->dev);
+
+	for (irq = 0; irq < XLNX_PCIB_MAX_MSI; irq++) {
+		sc->isrcs[irq].irq = irq;
+		error = intr_isrc_register(&sc->isrcs[irq].isrc,
+		    sc->dev, 0, "%s,%u", name, irq);
+		if (error != 0)
+			return (error); /* XXX deregister ISRCs */
+	}
+
+	if (intr_msi_register(sc->dev,
+	    OF_xref_from_node(ofw_bus_get_node(sc->dev))) != 0)
+		return (ENXIO);
+
+	return (0);
 }
 
 static int
@@ -307,25 +334,9 @@ xlnx_pcie_fdt_attach(device_t dev)
 	bus_release_resources(dev, xlnx_pcie_spec, sc->res);
 #endif
 
-	const char *name;
-	int irq;
-
-	sc->isrcs = malloc(sizeof(*sc->isrcs) * XLNX_PCIB_MAX_MSI, M_DEVBUF,
-	    M_WAITOK | M_ZERO);
-
-	name = device_get_nameunit(sc->dev);
-
-	for (irq = 0; irq < XLNX_PCIB_MAX_MSI; irq++) {
-		sc->isrcs[irq].irq = irq;
-		error = intr_isrc_register(&sc->isrcs[irq].isrc,
-		    sc->dev, 0, "%s,%u", name, irq);
-		if (error != 0)
-			return (error); /* XXX deregister ISRCs */
-	}
-
-	if (intr_msi_register(sc->dev,
-	    OF_xref_from_node(ofw_bus_get_node(sc->dev))) != 0)
-		return (ENXIO);
+	error = xlnx_pcie_register_msi(sc);
+	if (error)
+		return (error);
 
 	return (pci_host_generic_attach(dev));
 }
