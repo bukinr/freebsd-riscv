@@ -363,6 +363,31 @@ xlnx_pcie_fdt_get_id(device_t pci, device_t child, enum pci_id_type type,
 	return (0);
 }
 
+static int
+xlnx_pcie_req_valid(struct generic_pcie_core_softc *sc,
+    u_int bus, u_int slot)
+{
+	bus_space_handle_t h;
+	bus_space_tag_t t;
+	uint32_t reg;
+
+	t = sc->bst;
+	h = sc->bsh;
+
+	if (bus == 0 && slot > 0)
+		return (0);
+
+	reg = bus_space_read_4(t, h, XLNX_PCIE_PHYSCR);
+	if ((reg & PHYSCR_LINK_UP) == 0) {
+		/* Link is down */
+		return (0);
+	}
+
+	/* Valid */
+
+	return (1);
+}
+
 static uint32_t
 xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
     u_int func, u_int reg, int bytes)
@@ -379,48 +404,26 @@ xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
 	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 
-	device_printf(dev, "%s: %d/%d/%d reg %x bytes %d\n",
-	    __func__, bus, slot, func, reg, bytes);
-
-	if ((bus < sc->bus_start) || (bus > sc->bus_end)) {
-		printf("failed 1\n");
+	if ((bus < sc->bus_start) || (bus > sc->bus_end))
 		return (~0U);
-	}
 
 	if ((slot > PCI_SLOTMAX) || (func > PCI_FUNCMAX) ||
-	    (reg > PCIE_REGMAX)) {
-		printf("failed 2\n");
+	    (reg > PCIE_REGMAX))
 		return (~0U);
-	}
 
-	if (bus == 0 && slot > 0) {
-		printf("failed to read %d/%d/%d\n", bus, slot, func);
+	if (!xlnx_pcie_req_valid(sc, bus, slot))
 		return (~0U);
-	}
 
-	//printf("%s: bus %d bus_start %d\n", __func__, bus, sc->bus_start);
 	offset = PCIE_ADDR_OFFSET(bus - sc->bus_start, slot, func, reg);
 	t = sc->bst;
 	h = sc->bsh;
 
-	uint32_t v;
-	v = bus_space_read_4(t, h, XLNX_PCIE_PHYSCR);
-	if ((v & PHYSCR_LINK_UP) == 0) {
-		printf("%s: link down\n", __func__);
-		return (~0U);
-	}
-
-	data = 0;
-
 	switch (bytes) {
 	case 1:
 		data = bus_space_read_1(t, h, offset);
-		data &= 0x000000ff;
-		printf("data %x\n", data);
 		break;
 	case 2:
 		data = le16toh(bus_space_read_2(t, h, offset));
-		data &= 0x0000ffff;
 		break;
 	case 4:
 		data = le32toh(bus_space_read_4(t, h, offset));
@@ -428,9 +431,6 @@ xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
 	default:
 		return (~0U);
 	}
-
-	device_printf(dev, "%s: %d/%d/%d reg %x bytes %d, offset %x, val %x\n",
-	    __func__, bus, slot, func, reg, bytes, offset, data);
 
 	return (data);
 }
@@ -456,30 +456,20 @@ xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
 	    (reg > PCIE_REGMAX))
 		return;
 
-	if (bus == 0 && slot > 0) {
-		printf("failed to write %d/%d/%d\n", bus, slot, func);
+	if (!xlnx_pcie_req_valid(sc, bus, slot))
 		return;
-	}
 
-	//printf("%s: bus %d bus_start %d\n", __func__, bus, sc->bus_start);
 	offset = PCIE_ADDR_OFFSET(bus - sc->bus_start, slot, func, reg);
 
 	t = sc->bst;
 	h = sc->bsh;
 
-	uint32_t v;
-	v = bus_space_read_4(t, h, XLNX_PCIE_PHYSCR);
-	if ((v & PHYSCR_LINK_UP) == 0) {
-		printf("%s: link down\n", __func__);
-		return;
-	}
-
 	switch (bytes) {
 	case 1:
-		bus_space_write_1(t, h, offset, val & 0xff);
+		bus_space_write_1(t, h, offset, val);
 		break;
 	case 2:
-		bus_space_write_2(t, h, offset, htole16(val) & 0xffff);
+		bus_space_write_2(t, h, offset, htole16(val));
 		break;
 	case 4:
 		bus_space_write_4(t, h, offset, htole32(val));
@@ -487,9 +477,6 @@ xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
 	default:
 		return;
 	}
-
-	device_printf(dev, "%s: %d/%d/%d reg %x bytes %d, offset %x, val %x\n",
-	    __func__, bus, slot, func, reg, bytes, offset, val);
 }
 
 static int
