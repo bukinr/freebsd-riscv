@@ -94,6 +94,16 @@ static int xlnx_pcie_fdt_probe(device_t);
 static int xlnx_pcie_fdt_get_id(device_t, device_t, enum pci_id_type,
     uintptr_t *);
 
+struct xlnx_pcie_softc {
+	struct generic_pcie_fdt_softc	fdt_sc;
+	struct resource			*res[16];
+	struct mtx			mtx;
+	vm_offset_t			msi_page;
+	struct xlnx_pcie_irqsrc		*isrcs;
+	device_t			dev;
+	void				*intr_cookie[16];
+};
+
 #define	XLNX_PCIB_MAX_MSI	64
 
 static struct resource_spec xlnx_pcie_spec[] = {
@@ -116,9 +126,11 @@ xlnx_pcie_intr(void *arg)
 { 
 	struct generic_pcie_fdt_softc *fdt_sc;
 	struct generic_pcie_core_softc *sc;
+	struct xlnx_pcie_softc *xlnx_sc;
 	uint32_t val, mask, status;
 
-	fdt_sc = arg;
+	xlnx_sc = arg;
+	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 
 	val = bus_read_4(sc->res, XLNX_PCIE_IDR);
@@ -140,13 +152,15 @@ xlnx_pcie_handle_intr(void *arg, int msireg)
 { 
 	struct generic_pcie_fdt_softc *fdt_sc;
 	struct generic_pcie_core_softc *sc;
+	struct xlnx_pcie_softc *xlnx_sc;
 	struct xlnx_pcie_irqsrc *xi;
 	struct trapframe *tf;
 	int irq;
 	int reg;
 	int i;
 
-	fdt_sc = arg;
+	xlnx_sc = arg;
+	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 	tf = curthread->td_intr_frame;
 
@@ -165,7 +179,7 @@ xlnx_pcie_handle_intr(void *arg, int msireg)
 
 				printf("%s: irq %d\n", __func__, irq);
 
-				xi = &fdt_sc->isrcs[irq];
+				xi = &xlnx_sc->isrcs[irq];
 				if (intr_isrc_dispatch(&xi->isrc, tf) != 0) {
 					/* Disable stray. */
 					//xlnx_pcie_isrc_mask(sc, xi, 0);
@@ -213,11 +227,11 @@ xlnx_pcie_fdt_probe(device_t dev)
 static int
 xlnx_pcie_fdt_attach(device_t dev)
 {
-	struct generic_pcie_fdt_softc *sc;
+	struct xlnx_pcie_softc *sc;
 	int error;
 
 	sc = device_get_softc(dev);
-	sc->base.coherent = 1;
+	sc->fdt_sc.base.coherent = 1;
 	sc->dev = dev;
 
 	mtx_init(&sc->mtx, "msi_mtx", NULL, MTX_DEF);
@@ -265,7 +279,6 @@ xlnx_pcie_fdt_attach(device_t dev)
 	reg = bus_read_4(sc->res[0], XLNX_PCIE_IDR);
 	printf("idr %x\n", reg);
 
-
 	bus_write_4(sc->res[0], XLNX_PCIE_IMR, 0x1FF30FED);
 	bus_write_4(sc->res[0], XLNX_PCIE_RPID2_MASK, (0xf << 16));
 
@@ -273,13 +286,10 @@ xlnx_pcie_fdt_attach(device_t dev)
 	bus_write_4(sc->res[0], 0x178, 0xffffffff);
 	bus_write_4(sc->res[0], 0x17C, 0xffffffff);
 
+	/* Enable bridge. */
 	reg = bus_read_4(sc->res[0], XLNX_PCIE_RPSCR);
-	printf("old RPSCR %x\n", reg);
 	reg |= RPSCR_BE;
 	bus_write_4(sc->res[0], XLNX_PCIE_RPSCR, reg);
-
-	reg = bus_read_4(sc->res[0], XLNX_PCIE_RPSCR);
-	printf("new RPSCR %x\n", reg);
 
 	reg = bus_read_4(sc->res[0], XLNX_PCIE_BIR);
 	printf("BIR %x\n", reg);
@@ -347,13 +357,15 @@ xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
     u_int func, u_int reg, int bytes)
 {
 	struct generic_pcie_fdt_softc *fdt_sc;
+	struct xlnx_pcie_softc *xlnx_sc;
 	struct generic_pcie_core_softc *sc;
 	bus_space_handle_t h;
 	bus_space_tag_t	t;
 	uint64_t offset;
 	uint32_t data;
 
-	fdt_sc = device_get_softc(dev);
+	xlnx_sc = device_get_softc(dev);
+	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 
 	device_printf(dev, "%s: %d/%d/%d reg %x bytes %d\n",
@@ -417,12 +429,14 @@ xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
     u_int func, u_int reg, uint32_t val, int bytes)
 {
 	struct generic_pcie_fdt_softc *fdt_sc;
+	struct xlnx_pcie_softc *xlnx_sc;
 	struct generic_pcie_core_softc *sc;
 	bus_space_handle_t h;
 	bus_space_tag_t t;
 	uint64_t offset;
 
-	fdt_sc = device_get_softc(dev);
+	xlnx_sc = device_get_softc(dev);
+	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 
 	if ((bus < sc->bus_start) || (bus > sc->bus_end))
@@ -513,7 +527,7 @@ static int
 xlnx_pcie_msi_alloc_msi(device_t dev, device_t child, int count, int maxcount,
     device_t *pic, struct intr_irqsrc **srcs)
 {
-	struct generic_pcie_fdt_softc *sc;
+	struct xlnx_pcie_softc *sc;
 	int irq, end_irq, i;
 	bool found;
 
@@ -567,7 +581,7 @@ static int
 xlnx_pcie_msi_release_msi(device_t dev, device_t child, int count,
     struct intr_irqsrc **isrc)
 {
-	struct generic_pcie_fdt_softc *sc;
+	struct xlnx_pcie_softc *sc;
 	struct xlnx_pcie_irqsrc *xi;
 	int i;
 
@@ -590,7 +604,7 @@ static int
 xlnx_pcie_msi_map_msi(device_t dev, device_t child, struct intr_irqsrc *isrc,
     uint64_t *addr, uint32_t *data)
 {
-	struct generic_pcie_fdt_softc *sc;
+	struct xlnx_pcie_softc *sc;
 	struct xlnx_pcie_irqsrc *xi;
 
 	printf("%s\n", __func__);
@@ -691,7 +705,7 @@ static device_method_t xlnx_pcie_fdt_methods[] = {
 };
 
 DEFINE_CLASS_1(pcib, xlnx_pcie_fdt_driver, xlnx_pcie_fdt_methods,
-    sizeof(struct generic_pcie_fdt_softc), generic_pcie_fdt_driver);
+    sizeof(struct xlnx_pcie_softc), generic_pcie_fdt_driver);
 
 static devclass_t xlnx_pcie_fdt_devclass;
 
