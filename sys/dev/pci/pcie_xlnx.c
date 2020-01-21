@@ -89,6 +89,8 @@ __FBSDID("$FreeBSD$");
 	(((func) & PCIE_FUNC_MASK) << PCIE_FUNC_SHIFT)	|	\
 	((reg) & PCIE_REG_MASK))
 
+#define	XLNX_PCIB_MAX_MSI	64
+
 static int xlnx_pcie_fdt_attach(device_t);
 static int xlnx_pcie_fdt_probe(device_t);
 static int xlnx_pcie_fdt_get_id(device_t, device_t, enum pci_id_type,
@@ -104,10 +106,8 @@ struct xlnx_pcie_softc {
 	void				*intr_cookie[16];
 };
 
-#define	XLNX_PCIB_MAX_MSI	64
-
 static struct resource_spec xlnx_pcie_spec[] = {
-	{ SYS_RES_MEMORY,	0,	RF_ACTIVE | RF_SHAREABLE},
+	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
 	{ SYS_RES_IRQ,		0,	RF_ACTIVE },
 	{ SYS_RES_IRQ,		1,	RF_ACTIVE },
 	{ SYS_RES_IRQ,		2,	RF_ACTIVE },
@@ -195,16 +195,12 @@ static void
 xlnx_pcie_msi0_intr(void *arg)
 { 
 
-	printf("%s\n", __func__);
-
 	xlnx_pcie_handle_intr(arg, XLNX_PCIE_RPMSIID1);
 }
 
 static void
 xlnx_pcie_msi1_intr(void *arg)
 { 
-
-	printf("%s\n", __func__);
 
 	xlnx_pcie_handle_intr(arg, XLNX_PCIE_RPMSIID2);
 }
@@ -365,20 +361,26 @@ xlnx_pcie_fdt_get_id(device_t pci, device_t child, enum pci_id_type type,
 
 static int
 xlnx_pcie_req_valid(struct generic_pcie_core_softc *sc,
-    u_int bus, u_int slot)
+    u_int bus, u_int slot, u_int func, u_int reg)
 {
 	bus_space_handle_t h;
 	bus_space_tag_t t;
-	uint32_t reg;
+	uint32_t val;
 
 	t = sc->bst;
 	h = sc->bsh;
 
+	if ((bus < sc->bus_start) || (bus > sc->bus_end))
+		return (0);
+	if ((slot > PCI_SLOTMAX) || (func > PCI_FUNCMAX) ||
+	    (reg > PCIE_REGMAX))
+		return (0);
+
 	if (bus == 0 && slot > 0)
 		return (0);
 
-	reg = bus_space_read_4(t, h, XLNX_PCIE_PHYSCR);
-	if ((reg & PHYSCR_LINK_UP) == 0) {
+	val = bus_space_read_4(t, h, XLNX_PCIE_PHYSCR);
+	if ((val & PHYSCR_LINK_UP) == 0) {
 		/* Link is down */
 		return (0);
 	}
@@ -404,14 +406,7 @@ xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
 	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 
-	if ((bus < sc->bus_start) || (bus > sc->bus_end))
-		return (~0U);
-
-	if ((slot > PCI_SLOTMAX) || (func > PCI_FUNCMAX) ||
-	    (reg > PCIE_REGMAX))
-		return (~0U);
-
-	if (!xlnx_pcie_req_valid(sc, bus, slot))
+	if (!xlnx_pcie_req_valid(sc, bus, slot, func, reg))
 		return (~0U);
 
 	offset = PCIE_ADDR_OFFSET(bus - sc->bus_start, slot, func, reg);
@@ -450,13 +445,7 @@ xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
 	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 
-	if ((bus < sc->bus_start) || (bus > sc->bus_end))
-		return;
-	if ((slot > PCI_SLOTMAX) || (func > PCI_FUNCMAX) ||
-	    (reg > PCIE_REGMAX))
-		return;
-
-	if (!xlnx_pcie_req_valid(sc, bus, slot))
+	if (!xlnx_pcie_req_valid(sc, bus, slot, func, reg))
 		return;
 
 	offset = PCIE_ADDR_OFFSET(bus - sc->bus_start, slot, func, reg);
