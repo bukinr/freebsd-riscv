@@ -1647,6 +1647,24 @@ pcib_attach_common(device_t dev)
 #ifdef NEW_PCIB
 #ifdef PCI_RES_BUS
     pcib_setup_secbus(dev, &sc->bus, 1);
+
+    /*
+     * Quirk handling.
+     */
+    switch (pci_get_devid(dev)) {
+    case 0x913410ee:
+	{
+	    uint16_t reg;
+	    /*
+	     * Xilinx bridge requires pribus to be set together
+	     * with secbus in a single blast.
+	     */
+	    reg = (sc->pribus | sc->bus.sec << 8);
+	    pci_write_config(dev, PCIR_PRIBUS_1, reg, 2);
+	    break;
+	}
+    }
+
 #endif
     pcib_probe_windows(sc);
 #endif
