@@ -40,6 +40,18 @@
 #define	XLNX_PCIE_BSCR		0x134	/* Bridge Status and Control */
 #define	XLNX_PCIE_IDR		0x138	/* Interrupt Decode Register */
 #define	XLNX_PCIE_IMR		0x13C	/* Interrupt Mask Register */
+#define	 IMR_LINK_DOWN		(1 << 0)
+#define	 IMR_HOT_RESET		(1 << 3)
+#define	 IMR_CFG_COMPL_STATUS_S	5
+#define	 IMR_CFG_COMPL_STATUS_M	(0x7 << IMR_CFG_COMPL_STATUS_S)
+#define	 IMR_SLAVE_UNSUPP_REQ	(1 << 20)
+#define	 IMR_SLAVE_UNEXP_COMPL	(1 << 21)
+#define	 IMR_SLAVE_COMPL_TIMOUT	(1 << 22)
+#define	 IMR_SLAVE_ERROR_POISON	(1 << 23)
+#define	 IMR_SLAVE_COMPL_ABORT	(1 << 24)
+#define	 IMR_SLAVE_ILLEG_BURST	(1 << 25)
+#define	 IMR_MASTER_DECERR	(1 << 26)
+#define	 IMR_MASTER_SLVERR	(1 << 27)
 #define	XLNX_PCIE_BLR		0x140	/* Bus Location Register */
 #define	XLNX_PCIE_PHYSCR	0x144	/* PHY Status/Control Register */
 #define	 PHYSCR_LINK_UP		(1 << 11)	/* Current PHY Link-up state */

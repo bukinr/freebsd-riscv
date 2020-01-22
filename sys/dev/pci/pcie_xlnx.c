@@ -95,6 +95,8 @@ static int xlnx_pcie_fdt_attach(device_t);
 static int xlnx_pcie_fdt_probe(device_t);
 static int xlnx_pcie_fdt_get_id(device_t, device_t, enum pci_id_type,
     uintptr_t *);
+static void xlnx_pcie_msi_mask(device_t dev, struct intr_irqsrc *isrc,
+    bool mask);
 
 struct xlnx_pcie_softc {
 	struct generic_pcie_fdt_softc	fdt_sc;
@@ -167,8 +169,6 @@ xlnx_pcie_handle_intr(void *arg, int msireg)
 	do {
 		reg = bus_read_4(sc->res, msireg);
 
-		printf("%s: status %x\n", __func__, reg);
-
 		for (i = 0; i < sizeof(uint32_t) * 8; i++) {
 			if (reg & (1 << i)) {
 				bus_write_4(sc->res, msireg, (1 << i));
@@ -177,12 +177,11 @@ xlnx_pcie_handle_intr(void *arg, int msireg)
 				if (msireg == XLNX_PCIE_RPMSIID2)
 					irq += 32;
 
-				printf("%s: irq %d\n", __func__, irq);
-
 				xi = &xlnx_sc->isrcs[irq];
 				if (intr_isrc_dispatch(&xi->isrc, tf) != 0) {
 					/* Disable stray. */
-					//xlnx_pcie_isrc_mask(sc, xi, 0);
+					xlnx_pcie_msi_mask(sc->dev,
+					    &xi->isrc, 1);
 					device_printf(sc->dev,
 					    "Stray irq %u disabled\n", irq);
         	                }
@@ -230,6 +229,36 @@ xlnx_pcie_register_msi(struct xlnx_pcie_softc *sc)
 		return (ENXIO);
 
 	return (0);
+}
+
+static void
+xlnx_pcie_init(struct xlnx_pcie_softc *sc)
+{
+	int reg;
+
+	/* Disable interrupts. */
+	bus_write_4(sc->res[0], XLNX_PCIE_IMR, 0);
+
+	/* Clear pending interrupts.*/
+	reg = bus_read_4(sc->res[0], XLNX_PCIE_IDR);
+	bus_write_4(sc->res[0], XLNX_PCIE_IDR, reg);
+
+	/* Enable some interrupts. */
+	reg = IMR_LINK_DOWN;
+	bus_write_4(sc->res[0], XLNX_PCIE_IMR, reg);
+
+	/* Setup MSI page. */
+	bus_addr_t addr;
+	sc->msi_page = kmem_alloc_contig(PAGE_SIZE, M_WAITOK, 0,
+	    BUS_SPACE_MAXADDR, PAGE_SIZE, 0, VM_MEMATTR_DEFAULT);
+	addr = vtophys(sc->msi_page);
+	bus_write_4(sc->res[0], XLNX_PCIE_RPMSIBR1, (addr >> 32));
+	bus_write_4(sc->res[0], XLNX_PCIE_RPMSIBR2, (addr >>  0));
+
+	/* Enable the bridge. */
+	reg = bus_read_4(sc->res[0], XLNX_PCIE_RPSCR);
+	reg |= RPSCR_BE;
+	bus_write_4(sc->res[0], XLNX_PCIE_RPSCR, reg);
 }
 
 static int
@@ -288,47 +317,10 @@ xlnx_pcie_fdt_attach(device_t dev)
 		return (ENXIO);
 	}
 
-#if 1
-	int reg;
+	xlnx_pcie_init(sc);
 
-	/* Disable interrupts */
-	bus_write_4(sc->res[0], XLNX_PCIE_IMR, 0);
-
-	/* Clear pending */
-	reg = bus_read_4(sc->res[0], XLNX_PCIE_IDR);
-	printf("idr %x\n", reg);
-	reg &= 0x1FF30FED;
-	bus_write_4(sc->res[0], XLNX_PCIE_IDR, reg);
-	reg = bus_read_4(sc->res[0], XLNX_PCIE_IDR);
-	printf("idr %x\n", reg);
-
-	bus_write_4(sc->res[0], XLNX_PCIE_IMR, 0x1FF30FED);
-	bus_write_4(sc->res[0], XLNX_PCIE_RPID2_MASK, (0xf << 16));
-
-	/* MSI */
-	bus_write_4(sc->res[0], 0x178, 0xffffffff);
-	bus_write_4(sc->res[0], 0x17C, 0xffffffff);
-
-	/* Enable bridge. */
-	reg = bus_read_4(sc->res[0], XLNX_PCIE_RPSCR);
-	reg |= RPSCR_BE;
-	bus_write_4(sc->res[0], XLNX_PCIE_RPSCR, reg);
-
-	reg = bus_read_4(sc->res[0], XLNX_PCIE_BIR);
-	printf("BIR %x\n", reg);
-	reg = bus_read_4(sc->res[0], XLNX_PCIE_VSEC);
-	printf("VSEC %x\n", reg);
-
-	bus_addr_t addr;
-
-	sc->msi_page = kmem_alloc_contig(PAGE_SIZE, M_WAITOK, 0,
-	    BUS_SPACE_MAXADDR, PAGE_SIZE, 0, VM_MEMATTR_DEFAULT);
-	addr = vtophys(sc->msi_page);
-	bus_write_4(sc->res[0], XLNX_PCIE_RPMSIBR1, (addr >> 32));
-	bus_write_4(sc->res[0], XLNX_PCIE_RPMSIBR2, (addr >>  0));
-
+	/* We will be accessing device memory using core_softc. */
 	bus_release_resources(dev, xlnx_pcie_spec, sc->res);
-#endif
 
 	error = xlnx_pcie_register_msi(sc);
 	if (error)
@@ -625,46 +617,75 @@ xlnx_pcie_msi_map_msi(device_t dev, device_t child, struct intr_irqsrc *isrc,
 }
 
 static void
+xlnx_pcie_msi_mask(device_t dev, struct intr_irqsrc *isrc, bool mask)
+{
+	struct generic_pcie_fdt_softc *fdt_sc;
+	struct generic_pcie_core_softc *sc;
+	struct xlnx_pcie_softc *xlnx_sc;
+	struct xlnx_pcie_irqsrc *xi;
+	uint32_t msireg, irq;
+	uint32_t reg;
+
+	xlnx_sc = device_get_softc(dev);
+	fdt_sc = &xlnx_sc->fdt_sc;
+	sc = &fdt_sc->base;
+
+	xi = (struct xlnx_pcie_irqsrc *)isrc;
+
+	printf("%s: enabling irq %d\n", __func__, xi->irq);
+
+	irq = xi->irq;
+	if (irq < 32)
+		msireg = XLNX_PCIE_RPMSIID1_MASK;
+	else
+		msireg = XLNX_PCIE_RPMSIID2_MASK;
+
+	reg = bus_read_4(sc->res, msireg);
+	if (mask)
+		reg &= ~(1 << irq);
+	else
+		reg |= (1 << irq);
+	bus_write_4(sc->res, msireg, reg);
+}
+
+static void
 xlnx_pcie_msi_disable_intr(device_t dev, struct intr_irqsrc *isrc)
 {
 
-	printf("%s\n", __func__);
+	xlnx_pcie_msi_mask(dev, isrc, true);
 }
         
 static void
 xlnx_pcie_msi_enable_intr(device_t dev, struct intr_irqsrc *isrc)
 {
 
-	printf("%s\n", __func__);
+	xlnx_pcie_msi_mask(dev, isrc, false);
 }
         
 static void
 xlnx_pcie_msi_post_filter(device_t dev, struct intr_irqsrc *isrc)
 {
 
-	printf("%s\n", __func__);
 } 
 
 static void
 xlnx_pcie_msi_post_ithread(device_t dev, struct intr_irqsrc *isrc)
 {
 
-	printf("%s\n", __func__);
+	xlnx_pcie_msi_mask(dev, isrc, false);
 }
 
 static void
 xlnx_pcie_msi_pre_ithread(device_t dev, struct intr_irqsrc *isrc)
 {
 
-	printf("%s\n", __func__);
+	xlnx_pcie_msi_mask(dev, isrc, true);
 }
 
 static int
 xlnx_pcie_msi_setup_intr(device_t dev, struct intr_irqsrc *isrc,
     struct resource *res, struct intr_map_data *data)
 {
-
-	printf("%s\n", __func__);
 
 	return (0);
 }
@@ -673,8 +694,6 @@ static int
 xlnx_pcie_msi_teardown_intr(device_t dev, struct intr_irqsrc *isrc,
     struct resource *res, struct intr_map_data *data)
 {
-
-	printf("%s\n", __func__);
 
 	return (0);
 }
