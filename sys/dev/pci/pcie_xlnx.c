@@ -319,7 +319,10 @@ xlnx_pcie_fdt_attach(device_t dev)
 
 	xlnx_pcie_init(sc);
 
-	/* We will be accessing device memory using core_softc. */
+	/*
+	 * Allow the core driver to map registers.
+	 * We will be accessing the device memory using core_softc.
+	 */
 	bus_release_resources(dev, xlnx_pcie_spec, sc->res);
 
 	error = xlnx_pcie_register_msi(sc);
