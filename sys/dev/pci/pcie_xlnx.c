@@ -336,8 +336,6 @@ xlnx_pcie_fdt_get_id(device_t pci, device_t child, enum pci_id_type type,
 	phandle_t node;
 	int bsf;
 
-	printf("%s\n", __func__);
-
 	if (type != PCI_ID_MSI)
 		return (pcib_get_id(pci, child, type, id));
 
@@ -485,8 +483,6 @@ xlnx_pcie_alloc_msi(device_t pci, device_t child, int count, int maxcount,
 {
 	phandle_t msi_parent;
 
-	printf("%s: count %d\n", __func__, count);
-
 	ofw_bus_msimap(ofw_bus_get_node(pci), pci_get_rid(child), &msi_parent,
 	    NULL);
 	msi_parent = OF_xref_from_node(ofw_bus_get_node(pci));
@@ -499,8 +495,6 @@ xlnx_pcie_release_msi(device_t pci, device_t child, int count, int *irqs)
 {
 	phandle_t msi_parent;
 
-	printf("%s: count %d\n", __func__, count);
-
 	ofw_bus_msimap(ofw_bus_get_node(pci), pci_get_rid(child), &msi_parent,
 	    NULL);
 	msi_parent = OF_xref_from_node(ofw_bus_get_node(pci));
@@ -512,8 +506,6 @@ xlnx_pcie_map_msi(device_t pci, device_t child, int irq, uint64_t *addr,
     uint32_t *data)
 {
 	phandle_t msi_parent;
-
-	printf("%s: irq %d\n", __func__, irq);
 
 	ofw_bus_msimap(ofw_bus_get_node(pci), pci_get_rid(child), &msi_parent,
 	    NULL);
@@ -528,8 +520,6 @@ xlnx_pcie_msi_alloc_msi(device_t dev, device_t child, int count, int maxcount,
 	struct xlnx_pcie_softc *sc;
 	int irq, end_irq, i;
 	bool found;
-
-	printf("%s: count %d\n", __func__, count);
 
 	sc = device_get_softc(dev);
 
@@ -605,8 +595,6 @@ xlnx_pcie_msi_map_msi(device_t dev, device_t child, struct intr_irqsrc *isrc,
 	struct xlnx_pcie_softc *sc;
 	struct xlnx_pcie_irqsrc *xi;
 
-	printf("%s\n", __func__);
-
 	sc = device_get_softc(dev);
 	xi = (struct xlnx_pcie_irqsrc *)isrc;
 
@@ -631,8 +619,6 @@ xlnx_pcie_msi_mask(device_t dev, struct intr_irqsrc *isrc, bool mask)
 	sc = &fdt_sc->base;
 
 	xi = (struct xlnx_pcie_irqsrc *)isrc;
-
-	printf("%s: enabling irq %d\n", __func__, xi->irq);
 
 	irq = xi->irq;
 	if (irq < 32)
