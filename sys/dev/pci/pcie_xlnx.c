@@ -413,15 +413,20 @@ xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
 	t = sc->bst;
 	h = sc->bsh;
 
+	data = bus_space_read_4(t, h, offset & ~3);
+
 	switch (bytes) {
 	case 1:
-		data = bus_space_read_1(t, h, offset);
+		data >>= (offset & 3) * 8;
+		data &= 0xff;
 		break;
 	case 2:
-		data = le16toh(bus_space_read_2(t, h, offset));
+		data >>= (offset & 3) * 8;
+		data = le16toh(data);
+		data &= 0xffff;
 		break;
 	case 4:
-		data = le32toh(bus_space_read_4(t, h, offset));
+		data = le32toh(data);
 		break;
 	default:
 		return (~0U);
@@ -440,6 +445,7 @@ xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
 	bus_space_handle_t h;
 	bus_space_tag_t t;
 	uint64_t offset;
+	uint32_t data;
 
 	xlnx_sc = device_get_softc(dev);
 	fdt_sc = &xlnx_sc->fdt_sc;
@@ -453,12 +459,25 @@ xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
 	t = sc->bst;
 	h = sc->bsh;
 
+	/*
+	 * 32-bit access used due to bug in Xilinx bridge that
+	 * requires to set primary and secondary buses in one blast.
+	 *
+	 * TODO: This is probably wrong on big-endian, however as riscv is
+	 * little endian it should be fine.
+	 */
 	switch (bytes) {
 	case 1:
-		bus_space_write_1(t, h, offset, val);
+		data = bus_space_read_4(t, h, offset & ~3);
+		data &= ~(0xff << ((offset & 3) * 8));
+		data |= (val & 0xff) << ((offset & 3) * 8);
+		bus_space_write_4(t, h, offset & ~3, htole32(data));
 		break;
 	case 2:
-		bus_space_write_2(t, h, offset, htole16(val));
+		data = bus_space_read_4(t, h, offset & ~3);
+		data &= ~(0xffff << ((offset & 3) * 8));
+		data |= (val & 0xffff) << ((offset & 3) * 8);
+		bus_space_write_4(t, h, offset & ~3, htole32(data));
 		break;
 	case 4:
 		bus_space_write_4(t, h, offset, htole32(val));
