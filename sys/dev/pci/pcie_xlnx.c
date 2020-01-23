@@ -196,7 +196,7 @@ xlnx_pcie_intr(void *arg)
 }
 
 static void
-xlnx_pcie_handle_intr(void *arg, int msireg)
+xlnx_pcie_handle_msi_intr(void *arg, int msireg)
 { 
 	struct generic_pcie_fdt_softc *fdt_sc;
 	struct generic_pcie_core_softc *sc;
@@ -240,14 +240,14 @@ static void
 xlnx_pcie_msi0_intr(void *arg)
 {
 
-	xlnx_pcie_handle_intr(arg, XLNX_PCIE_RPMSIID1);
+	xlnx_pcie_handle_msi_intr(arg, XLNX_PCIE_RPMSIID1);
 }
 
 static void
 xlnx_pcie_msi1_intr(void *arg)
 {
 
-	xlnx_pcie_handle_intr(arg, XLNX_PCIE_RPMSIID2);
+	xlnx_pcie_handle_msi_intr(arg, XLNX_PCIE_RPMSIID2);
 }
 
 static int
@@ -346,7 +346,6 @@ xlnx_pcie_fdt_attach(device_t dev)
 	int error;
 
 	sc = device_get_softc(dev);
-	sc->fdt_sc.base.coherent = 1;
 	sc->dev = dev;
 
 	mtx_init(&sc->mtx, "msi_mtx", NULL, MTX_DEF);
