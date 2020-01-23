@@ -416,7 +416,6 @@ xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
 	case 2:
 		data >>= (offset & 3) * 8;
 		data = le16toh(data);
-		data &= 0xffff;
 		break;
 	case 4:
 		data = le32toh(data);
@@ -453,11 +452,10 @@ xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
 	h = sc->bsh;
 
 	/*
-	 * 32-bit access used due to bug in Xilinx bridge that
-	 * requires to set primary and secondary buses in one blast.
+	 * 32-bit access used due to a bug in the Xilinx bridge that
+	 * requires to write primary and secondary buses in one blast.
 	 *
-	 * TODO: This is probably wrong on big-endian, however as riscv is
-	 * little endian it should be fine.
+	 * TODO: This is probably wrong on big-endian.
 	 */
 	switch (bytes) {
 	case 1:
