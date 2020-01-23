@@ -118,7 +118,7 @@ xlnx_pcie_clear_err_interrupts(struct generic_pcie_core_softc *sc)
 	if (reg & RPERRFRR_VALID) {
 		device_printf(sc->dev, "Requested ID: %x\n",
 		    reg & RPERRFRR_REQ_ID_M);
-		bus_write_4(sc->res, XLNX_PCIE_RPERRFRR, ~0);
+		bus_write_4(sc->res, XLNX_PCIE_RPERRFRR, ~0U);
 	}
 }
 
