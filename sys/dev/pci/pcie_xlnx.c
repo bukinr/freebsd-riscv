@@ -74,21 +74,6 @@ __FBSDID("$FreeBSD$");
 #include "pcib_if.h"
 #include "pic_if.h"
 
-/* Assembling ECAM Configuration Address */
-#define	PCIE_BUS_SHIFT		20
-#define	PCIE_SLOT_SHIFT		15
-#define	PCIE_FUNC_SHIFT		12
-#define	PCIE_BUS_MASK		0xFF
-#define	PCIE_SLOT_MASK		0x1F
-#define	PCIE_FUNC_MASK		0x07
-#define	PCIE_REG_MASK		0xFFF
-
-#define	PCIE_ADDR_OFFSET(bus, slot, func, reg)			\
-	((((bus) & PCIE_BUS_MASK) << PCIE_BUS_SHIFT)	|	\
-	(((slot) & PCIE_SLOT_MASK) << PCIE_SLOT_SHIFT)	|	\
-	(((func) & PCIE_FUNC_MASK) << PCIE_FUNC_SHIFT)	|	\
-	((reg) & PCIE_REG_MASK))
-
 #define	XLNX_PCIB_MAX_MSI	64
 
 static int xlnx_pcie_fdt_attach(device_t);
@@ -100,12 +85,12 @@ static void xlnx_pcie_msi_mask(device_t dev, struct intr_irqsrc *isrc,
 
 struct xlnx_pcie_softc {
 	struct generic_pcie_fdt_softc	fdt_sc;
-	struct resource			*res[16];
+	struct resource			*res[4];
 	struct mtx			mtx;
 	vm_offset_t			msi_page;
 	struct xlnx_pcie_irqsrc		*isrcs;
 	device_t			dev;
-	void				*intr_cookie[16];
+	void				*intr_cookie[3];
 };
 
 static struct resource_spec xlnx_pcie_spec[] = {
@@ -139,7 +124,7 @@ xlnx_pcie_clear_err_interrupts(struct generic_pcie_core_softc *sc)
 
 static void
 xlnx_pcie_intr(void *arg)
-{ 
+{
 	struct generic_pcie_fdt_softc *fdt_sc;
 	struct generic_pcie_core_softc *sc;
 	struct xlnx_pcie_softc *xlnx_sc;
@@ -245,7 +230,7 @@ xlnx_pcie_handle_intr(void *arg, int msireg)
 					    &xi->isrc, 1);
 					device_printf(sc->dev,
 					    "Stray irq %u disabled\n", irq);
-        	                }
+				}
 			}
 		}
 	} while (reg != 0);
@@ -253,14 +238,14 @@ xlnx_pcie_handle_intr(void *arg, int msireg)
 
 static void
 xlnx_pcie_msi0_intr(void *arg)
-{ 
+{
 
 	xlnx_pcie_handle_intr(arg, XLNX_PCIE_RPMSIID1);
 }
 
 static void
 xlnx_pcie_msi1_intr(void *arg)
-{ 
+{
 
 	xlnx_pcie_handle_intr(arg, XLNX_PCIE_RPMSIID2);
 }
@@ -305,23 +290,23 @@ xlnx_pcie_init(struct xlnx_pcie_softc *sc)
 	bus_write_4(sc->res[0], XLNX_PCIE_IDR, reg);
 
 	/* Enable interrupts. */
-	reg = IMR_LINK_DOWN;
-	reg |= IMR_HOT_RESET;
-	reg |= IMR_CFG_COMPL_STATUS_M;
-	reg |= IMR_CFG_TIMEOUT;
-	reg |= IMR_CORRECTABLE;
-	reg |= IMR_NON_FATAL;
-	reg |= IMR_FATAL;
-	reg |= IMR_INTX;
-	reg |= IMR_MSI;
-	reg |= IMR_SLAVE_UNSUPP_REQ;
-	reg |= IMR_SLAVE_UNEXP_COMPL;
-	reg |= IMR_SLAVE_COMPL_TIMOUT;
-	reg |= IMR_SLAVE_ERROR_POISON;
-	reg |= IMR_SLAVE_COMPL_ABORT;
-	reg |= IMR_SLAVE_ILLEG_BURST;
-	reg |= IMR_MASTER_DECERR;
-	reg |= IMR_MASTER_SLVERR;
+	reg = IMR_LINK_DOWN
+		| IMR_HOT_RESET
+		| IMR_CFG_COMPL_STATUS_M
+		| IMR_CFG_TIMEOUT
+		| IMR_CORRECTABLE
+		| IMR_NON_FATAL
+		| IMR_FATAL
+		| IMR_INTX
+		| IMR_MSI
+		| IMR_SLAVE_UNSUPP_REQ
+		| IMR_SLAVE_UNEXP_COMPL
+		| IMR_SLAVE_COMPL_TIMOUT
+		| IMR_SLAVE_ERROR_POISON
+		| IMR_SLAVE_COMPL_ABORT
+		| IMR_SLAVE_ILLEG_BURST
+		| IMR_MASTER_DECERR
+		| IMR_MASTER_SLVERR;
 
 	bus_write_4(sc->res[0], XLNX_PCIE_IMR, reg);
 
@@ -469,7 +454,7 @@ xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
 	struct xlnx_pcie_softc *xlnx_sc;
 	struct generic_pcie_core_softc *sc;
 	bus_space_handle_t h;
-	bus_space_tag_t	t;
+	bus_space_tag_t t;
 	uint64_t offset;
 	uint32_t data;
 
@@ -636,7 +621,7 @@ xlnx_pcie_msi_alloc_msi(device_t dev, device_t child, int count, int maxcount,
 
 	mtx_unlock(&sc->mtx);
 
-	for (i = 0; i < count; i++) 
+	for (i = 0; i < count; i++)
 		srcs[i] = (struct intr_irqsrc *)&sc->isrcs[irq + i];
 
 	*pic = device_get_parent(dev);
@@ -719,19 +704,19 @@ xlnx_pcie_msi_disable_intr(device_t dev, struct intr_irqsrc *isrc)
 
 	xlnx_pcie_msi_mask(dev, isrc, true);
 }
-        
+
 static void
 xlnx_pcie_msi_enable_intr(device_t dev, struct intr_irqsrc *isrc)
 {
 
 	xlnx_pcie_msi_mask(dev, isrc, false);
 }
-        
+
 static void
 xlnx_pcie_msi_post_filter(device_t dev, struct intr_irqsrc *isrc)
 {
 
-} 
+}
 
 static void
 xlnx_pcie_msi_post_ithread(device_t dev, struct intr_irqsrc *isrc)
