@@ -124,6 +124,20 @@ struct xlnx_pcie_irqsrc {
 };
 
 static void
+xlnx_pcie_clear_err_interrupts(struct generic_pcie_core_softc *sc)
+{
+	uint32_t reg;
+
+	reg = bus_read_4(sc->res, XLNX_PCIE_RPERRFRR);
+
+	if (reg & RPERRFRR_VALID) {
+		device_printf(sc->dev, "Requested ID: %x\n",
+		    reg & RPERRFRR_REQ_ID_M);
+		bus_write_4(sc->res, XLNX_PCIE_RPERRFRR, ~0);
+	}
+}
+
+static void
 xlnx_pcie_intr(void *arg)
 { 
 	struct generic_pcie_fdt_softc *fdt_sc;
@@ -138,13 +152,60 @@ xlnx_pcie_intr(void *arg)
 	val = bus_read_4(sc->res, XLNX_PCIE_IDR);
 	mask = bus_read_4(sc->res, XLNX_PCIE_IMR);
 
-	printf("%s: val %x mask %x\n", __func__, val, mask);
-
 	status = val & mask;
 	if (!status)
-		printf("%s: stray interrupt\n", __func__);
+		return;
 
-	printf("%s: status %x\n", __func__, status);
+	if (status & IMR_LINK_DOWN)
+		device_printf(sc->dev, "Link down");
+
+	if (status & IMR_HOT_RESET)
+		device_printf(sc->dev, "Hot reset");
+
+	if (status & IMR_CORRECTABLE)
+		xlnx_pcie_clear_err_interrupts(sc);
+
+	if (status & IMR_FATAL)
+		xlnx_pcie_clear_err_interrupts(sc);
+
+	if (status & IMR_NON_FATAL)
+		xlnx_pcie_clear_err_interrupts(sc);
+
+	if (status & IMR_MSI) {
+		device_printf(sc->dev, "MSI interrupt");
+
+		/* FIFO mode MSI not implemented. */
+	}
+
+	if (status & IMR_INTX) {
+		device_printf(sc->dev, "INTx received");
+
+		/* Not implemented. */
+	}
+
+	if (status & IMR_SLAVE_UNSUPP_REQ)
+		device_printf(sc->dev, "Slave unsupported request");
+
+	if (status & IMR_SLAVE_UNEXP_COMPL)
+		device_printf(sc->dev, "Slave unexpected completion");
+
+	if (status & IMR_SLAVE_COMPL_TIMOUT)
+		device_printf(sc->dev, "Slave completion timeout");
+
+	if (status & IMR_SLAVE_ERROR_POISON)
+		device_printf(sc->dev, "Slave error poison");
+
+	if (status & IMR_SLAVE_COMPL_ABORT)
+		device_printf(sc->dev, "Slave completion abort");
+
+	if (status & IMR_SLAVE_ILLEG_BURST)
+		device_printf(sc->dev, "Slave illegal burst");
+
+	if (status & IMR_MASTER_DECERR)
+		device_printf(sc->dev, "Master decode error");
+
+	if (status & IMR_MASTER_SLVERR)
+		device_printf(sc->dev, "Master slave error");
 
 	bus_write_4(sc->res, XLNX_PCIE_IDR, val);
 }
@@ -243,8 +304,25 @@ xlnx_pcie_init(struct xlnx_pcie_softc *sc)
 	reg = bus_read_4(sc->res[0], XLNX_PCIE_IDR);
 	bus_write_4(sc->res[0], XLNX_PCIE_IDR, reg);
 
-	/* Enable some interrupts. */
+	/* Enable interrupts. */
 	reg = IMR_LINK_DOWN;
+	reg |= IMR_HOT_RESET;
+	reg |= IMR_CFG_COMPL_STATUS_M;
+	reg |= IMR_CFG_TIMEOUT;
+	reg |= IMR_CORRECTABLE;
+	reg |= IMR_NON_FATAL;
+	reg |= IMR_FATAL;
+	reg |= IMR_INTX;
+	reg |= IMR_MSI;
+	reg |= IMR_SLAVE_UNSUPP_REQ;
+	reg |= IMR_SLAVE_UNEXP_COMPL;
+	reg |= IMR_SLAVE_COMPL_TIMOUT;
+	reg |= IMR_SLAVE_ERROR_POISON;
+	reg |= IMR_SLAVE_COMPL_ABORT;
+	reg |= IMR_SLAVE_ILLEG_BURST;
+	reg |= IMR_MASTER_DECERR;
+	reg |= IMR_MASTER_SLVERR;
+
 	bus_write_4(sc->res[0], XLNX_PCIE_IMR, reg);
 
 	/* Setup MSI page. */

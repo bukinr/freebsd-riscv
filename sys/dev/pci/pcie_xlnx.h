@@ -44,6 +44,12 @@
 #define	 IMR_HOT_RESET		(1 << 3)
 #define	 IMR_CFG_COMPL_STATUS_S	5
 #define	 IMR_CFG_COMPL_STATUS_M	(0x7 << IMR_CFG_COMPL_STATUS_S)
+#define	 IMR_CFG_TIMEOUT	(1 << 8)
+#define	 IMR_CORRECTABLE	(1 << 9)
+#define	 IMR_NON_FATAL		(1 << 10)
+#define	 IMR_FATAL		(1 << 11)
+#define	 IMR_INTX		(1 << 16)	/* INTx Interrupt Received */
+#define	 IMR_MSI		(1 << 17)	/* MSI Interrupt Received */
 #define	 IMR_SLAVE_UNSUPP_REQ	(1 << 20)
 #define	 IMR_SLAVE_UNEXP_COMPL	(1 << 21)
 #define	 IMR_SLAVE_COMPL_TIMOUT	(1 << 22)
@@ -60,6 +66,9 @@
 #define	XLNX_PCIE_RPMSIBR1	0x14C	/* Root Port MSI Base Register 1 */
 #define	XLNX_PCIE_RPMSIBR2	0x150	/* Root Port MSI Base Register 2 */
 #define	XLNX_PCIE_RPERRFRR	0x154	/* Root Port Error FIFO Read */
+#define	 RPERRFRR_VALID		(1 << 18) /* Indicates whether read succeeded.*/
+#define	 RPERRFRR_REQ_ID_S	0	/* Requester of the error message. */
+#define	 RPERRFRR_REQ_ID_M	(0xffff << RPERRFRR_REQ_ID_S)
 #define	XLNX_PCIE_RPIFRR1	0x158	/* Root Port Interrupt FIFO Read 1 */
 #define	XLNX_PCIE_RPIFRR2	0x15C	/* Root Port Interrupt FIFO Read 2 */
 #define	XLNX_PCIE_RPID2		0x160	/* Root Port Interrupt Decode 2 */
