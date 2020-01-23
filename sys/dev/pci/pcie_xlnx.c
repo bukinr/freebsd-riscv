@@ -286,6 +286,7 @@ xlnx_pcie_register_msi(struct xlnx_pcie_softc *sc)
 static void
 xlnx_pcie_init(struct xlnx_pcie_softc *sc)
 {
+	bus_addr_t addr;
 	int reg;
 
 	/* Disable interrupts. */
@@ -294,6 +295,18 @@ xlnx_pcie_init(struct xlnx_pcie_softc *sc)
 	/* Clear pending interrupts.*/
 	reg = bus_read_4(sc->res[0], XLNX_PCIE_IDR);
 	bus_write_4(sc->res[0], XLNX_PCIE_IDR, reg);
+
+	/* Setup an MSI page. */
+	sc->msi_page = kmem_alloc_contig(PAGE_SIZE, M_WAITOK, 0,
+	    BUS_SPACE_MAXADDR, PAGE_SIZE, 0, VM_MEMATTR_DEFAULT);
+	addr = vtophys(sc->msi_page);
+	bus_write_4(sc->res[0], XLNX_PCIE_RPMSIBR1, (addr >> 32));
+	bus_write_4(sc->res[0], XLNX_PCIE_RPMSIBR2, (addr >>  0));
+
+	/* Enable the bridge. */
+	reg = bus_read_4(sc->res[0], XLNX_PCIE_RPSCR);
+	reg |= RPSCR_BE;
+	bus_write_4(sc->res[0], XLNX_PCIE_RPSCR, reg);
 
 	/* Enable interrupts. */
 	reg = IMR_LINK_DOWN
@@ -313,21 +326,7 @@ xlnx_pcie_init(struct xlnx_pcie_softc *sc)
 		| IMR_SLAVE_ILLEG_BURST
 		| IMR_MASTER_DECERR
 		| IMR_MASTER_SLVERR;
-
 	bus_write_4(sc->res[0], XLNX_PCIE_IMR, reg);
-
-	/* Setup MSI page. */
-	bus_addr_t addr;
-	sc->msi_page = kmem_alloc_contig(PAGE_SIZE, M_WAITOK, 0,
-	    BUS_SPACE_MAXADDR, PAGE_SIZE, 0, VM_MEMATTR_DEFAULT);
-	addr = vtophys(sc->msi_page);
-	bus_write_4(sc->res[0], XLNX_PCIE_RPMSIBR1, (addr >> 32));
-	bus_write_4(sc->res[0], XLNX_PCIE_RPMSIBR2, (addr >>  0));
-
-	/* Enable the bridge. */
-	reg = bus_read_4(sc->res[0], XLNX_PCIE_RPSCR);
-	reg |= RPSCR_BE;
-	bus_write_4(sc->res[0], XLNX_PCIE_RPSCR, reg);
 }
 
 static int
@@ -338,7 +337,7 @@ xlnx_pcie_fdt_probe(device_t dev)
 		return (ENXIO);
 
 	if (ofw_bus_is_compatible(dev, "xlnx,xdma-host-3.00")) {
-		device_set_desc(dev, "Xilinx PCI/PCI-E Controller");
+		device_set_desc(dev, "Xilinx XDMA PCIe Controller");
 		return (BUS_PROBE_DEFAULT);
 	}
 
