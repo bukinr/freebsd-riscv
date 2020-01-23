@@ -122,7 +122,7 @@ xlnx_pcie_clear_err_interrupts(struct generic_pcie_core_softc *sc)
 	}
 }
 
-static void
+static int
 xlnx_pcie_intr(void *arg)
 {
 	struct generic_pcie_fdt_softc *fdt_sc;
@@ -139,7 +139,7 @@ xlnx_pcie_intr(void *arg)
 
 	status = val & mask;
 	if (!status)
-		return;
+		return (FILTER_HANDLED);
 
 	if (status & IMR_LINK_DOWN)
 		device_printf(sc->dev, "Link down");
@@ -193,6 +193,8 @@ xlnx_pcie_intr(void *arg)
 		device_printf(sc->dev, "Master slave error");
 
 	bus_write_4(sc->res, XLNX_PCIE_IDR, val);
+
+	return (FILTER_HANDLED);
 }
 
 static void
@@ -236,18 +238,22 @@ xlnx_pcie_handle_msi_intr(void *arg, int msireg)
 	} while (reg != 0);
 }
 
-static void
+static int
 xlnx_pcie_msi0_intr(void *arg)
 {
 
 	xlnx_pcie_handle_msi_intr(arg, XLNX_PCIE_RPMSIID1);
+
+	return (FILTER_HANDLED);
 }
 
-static void
+static int
 xlnx_pcie_msi1_intr(void *arg)
 {
 
 	xlnx_pcie_handle_msi_intr(arg, XLNX_PCIE_RPMSIID2);
+
+	return (FILTER_HANDLED);
 }
 
 static int
@@ -357,7 +363,7 @@ xlnx_pcie_fdt_attach(device_t dev)
 
 	/* Setup MISC interrupt handler. */
 	error = bus_setup_intr(dev, sc->res[1], INTR_TYPE_MISC | INTR_MPSAFE,
-	    NULL, xlnx_pcie_intr, sc, &sc->intr_cookie[0]);
+	    xlnx_pcie_intr, NULL, sc, &sc->intr_cookie[0]);
 	if (error != 0) {
 		device_printf(dev, "could not setup interrupt handler.\n");
 		return (ENXIO);
@@ -365,7 +371,7 @@ xlnx_pcie_fdt_attach(device_t dev)
 
 	/* Setup MSI0 interrupt handler. */
 	error = bus_setup_intr(dev, sc->res[2], INTR_TYPE_MISC | INTR_MPSAFE,
-	    NULL, xlnx_pcie_msi0_intr, sc, &sc->intr_cookie[1]);
+	    xlnx_pcie_msi0_intr, NULL, sc, &sc->intr_cookie[1]);
 	if (error != 0) {
 		device_printf(dev, "could not setup interrupt handler.\n");
 		return (ENXIO);
@@ -373,7 +379,7 @@ xlnx_pcie_fdt_attach(device_t dev)
 
 	/* Setup MSI1 interrupt handler. */
 	error = bus_setup_intr(dev, sc->res[3], INTR_TYPE_MISC | INTR_MPSAFE,
-	    NULL, xlnx_pcie_msi1_intr, sc, &sc->intr_cookie[2]);
+	    xlnx_pcie_msi1_intr, NULL, sc, &sc->intr_cookie[2]);
 	if (error != 0) {
 		device_printf(dev, "could not setup interrupt handler.\n");
 		return (ENXIO);
