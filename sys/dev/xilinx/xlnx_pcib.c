@@ -67,7 +67,7 @@ __FBSDID("$FreeBSD$");
 #include <dev/pci/pci_host_generic_fdt.h>
 #include <dev/pci/pcib_private.h>
 
-#include "pcie_xlnx.h"
+#include "xlnx_pcib.h"
 
 #include "ofw_bus_if.h"
 #include "msi_if.h"
@@ -76,24 +76,24 @@ __FBSDID("$FreeBSD$");
 
 #define	XLNX_PCIB_MAX_MSI	64
 
-static int xlnx_pcie_fdt_attach(device_t);
-static int xlnx_pcie_fdt_probe(device_t);
-static int xlnx_pcie_fdt_get_id(device_t, device_t, enum pci_id_type,
+static int xlnx_pcib_fdt_attach(device_t);
+static int xlnx_pcib_fdt_probe(device_t);
+static int xlnx_pcib_fdt_get_id(device_t, device_t, enum pci_id_type,
     uintptr_t *);
-static void xlnx_pcie_msi_mask(device_t dev, struct intr_irqsrc *isrc,
+static void xlnx_pcib_msi_mask(device_t dev, struct intr_irqsrc *isrc,
     bool mask);
 
-struct xlnx_pcie_softc {
+struct xlnx_pcib_softc {
 	struct generic_pcie_fdt_softc	fdt_sc;
 	struct resource			*res[4];
 	struct mtx			mtx;
 	vm_offset_t			msi_page;
-	struct xlnx_pcie_irqsrc		*isrcs;
+	struct xlnx_pcib_irqsrc		*isrcs;
 	device_t			dev;
 	void				*intr_cookie[3];
 };
 
-static struct resource_spec xlnx_pcie_spec[] = {
+static struct resource_spec xlnx_pcib_spec[] = {
 	{ SYS_RES_MEMORY,	0,	RF_ACTIVE },
 	{ SYS_RES_IRQ,		0,	RF_ACTIVE },
 	{ SYS_RES_IRQ,		1,	RF_ACTIVE },
@@ -101,7 +101,7 @@ static struct resource_spec xlnx_pcie_spec[] = {
 	{ -1, 0 }
 };
 
-struct xlnx_pcie_irqsrc {
+struct xlnx_pcib_irqsrc {
 	struct intr_irqsrc	isrc;
 	u_int			irq;
 #define	XLNX_IRQ_FLAG_USED	(1 << 0)
@@ -109,7 +109,7 @@ struct xlnx_pcie_irqsrc {
 };
 
 static void
-xlnx_pcie_clear_err_interrupts(struct generic_pcie_core_softc *sc)
+xlnx_pcib_clear_err_interrupts(struct generic_pcie_core_softc *sc)
 {
 	uint32_t reg;
 
@@ -123,11 +123,11 @@ xlnx_pcie_clear_err_interrupts(struct generic_pcie_core_softc *sc)
 }
 
 static int
-xlnx_pcie_intr(void *arg)
+xlnx_pcib_intr(void *arg)
 {
 	struct generic_pcie_fdt_softc *fdt_sc;
 	struct generic_pcie_core_softc *sc;
-	struct xlnx_pcie_softc *xlnx_sc;
+	struct xlnx_pcib_softc *xlnx_sc;
 	uint32_t val, mask, status;
 
 	xlnx_sc = arg;
@@ -148,13 +148,13 @@ xlnx_pcie_intr(void *arg)
 		device_printf(sc->dev, "Hot reset");
 
 	if (status & IMR_CORRECTABLE)
-		xlnx_pcie_clear_err_interrupts(sc);
+		xlnx_pcib_clear_err_interrupts(sc);
 
 	if (status & IMR_FATAL)
-		xlnx_pcie_clear_err_interrupts(sc);
+		xlnx_pcib_clear_err_interrupts(sc);
 
 	if (status & IMR_NON_FATAL)
-		xlnx_pcie_clear_err_interrupts(sc);
+		xlnx_pcib_clear_err_interrupts(sc);
 
 	if (status & IMR_MSI) {
 		device_printf(sc->dev, "MSI interrupt");
@@ -198,12 +198,12 @@ xlnx_pcie_intr(void *arg)
 }
 
 static void
-xlnx_pcie_handle_msi_intr(void *arg, int msireg)
+xlnx_pcib_handle_msi_intr(void *arg, int msireg)
 { 
 	struct generic_pcie_fdt_softc *fdt_sc;
 	struct generic_pcie_core_softc *sc;
-	struct xlnx_pcie_softc *xlnx_sc;
-	struct xlnx_pcie_irqsrc *xi;
+	struct xlnx_pcib_softc *xlnx_sc;
+	struct xlnx_pcib_irqsrc *xi;
 	struct trapframe *tf;
 	int irq;
 	int reg;
@@ -228,7 +228,7 @@ xlnx_pcie_handle_msi_intr(void *arg, int msireg)
 				xi = &xlnx_sc->isrcs[irq];
 				if (intr_isrc_dispatch(&xi->isrc, tf) != 0) {
 					/* Disable stray. */
-					xlnx_pcie_msi_mask(sc->dev,
+					xlnx_pcib_msi_mask(sc->dev,
 					    &xi->isrc, 1);
 					device_printf(sc->dev,
 					    "Stray irq %u disabled\n", irq);
@@ -239,25 +239,25 @@ xlnx_pcie_handle_msi_intr(void *arg, int msireg)
 }
 
 static int
-xlnx_pcie_msi0_intr(void *arg)
+xlnx_pcib_msi0_intr(void *arg)
 {
 
-	xlnx_pcie_handle_msi_intr(arg, XLNX_PCIE_RPMSIID1);
+	xlnx_pcib_handle_msi_intr(arg, XLNX_PCIE_RPMSIID1);
 
 	return (FILTER_HANDLED);
 }
 
 static int
-xlnx_pcie_msi1_intr(void *arg)
+xlnx_pcib_msi1_intr(void *arg)
 {
 
-	xlnx_pcie_handle_msi_intr(arg, XLNX_PCIE_RPMSIID2);
+	xlnx_pcib_handle_msi_intr(arg, XLNX_PCIE_RPMSIID2);
 
 	return (FILTER_HANDLED);
 }
 
 static int
-xlnx_pcie_register_msi(struct xlnx_pcie_softc *sc)
+xlnx_pcib_register_msi(struct xlnx_pcib_softc *sc)
 {
 	const char *name;
 	int error;
@@ -284,7 +284,7 @@ xlnx_pcie_register_msi(struct xlnx_pcie_softc *sc)
 }
 
 static void
-xlnx_pcie_init(struct xlnx_pcie_softc *sc)
+xlnx_pcib_init(struct xlnx_pcib_softc *sc)
 {
 	bus_addr_t addr;
 	int reg;
@@ -330,7 +330,7 @@ xlnx_pcie_init(struct xlnx_pcie_softc *sc)
 }
 
 static int
-xlnx_pcie_fdt_probe(device_t dev)
+xlnx_pcib_fdt_probe(device_t dev)
 {
 
 	if (!ofw_bus_status_okay(dev))
@@ -345,9 +345,9 @@ xlnx_pcie_fdt_probe(device_t dev)
 }
 
 static int
-xlnx_pcie_fdt_attach(device_t dev)
+xlnx_pcib_fdt_attach(device_t dev)
 {
-	struct xlnx_pcie_softc *sc;
+	struct xlnx_pcib_softc *sc;
 	int error;
 
 	sc = device_get_softc(dev);
@@ -355,14 +355,14 @@ xlnx_pcie_fdt_attach(device_t dev)
 
 	mtx_init(&sc->mtx, "msi_mtx", NULL, MTX_DEF);
 
-	if (bus_alloc_resources(dev, xlnx_pcie_spec, sc->res)) {
+	if (bus_alloc_resources(dev, xlnx_pcib_spec, sc->res)) {
 		device_printf(dev, "could not allocate resources\n");
 		return (ENXIO);
 	}
 
 	/* Setup MISC interrupt handler. */
 	error = bus_setup_intr(dev, sc->res[1], INTR_TYPE_MISC | INTR_MPSAFE,
-	    xlnx_pcie_intr, NULL, sc, &sc->intr_cookie[0]);
+	    xlnx_pcib_intr, NULL, sc, &sc->intr_cookie[0]);
 	if (error != 0) {
 		device_printf(dev, "could not setup interrupt handler.\n");
 		return (ENXIO);
@@ -370,7 +370,7 @@ xlnx_pcie_fdt_attach(device_t dev)
 
 	/* Setup MSI0 interrupt handler. */
 	error = bus_setup_intr(dev, sc->res[2], INTR_TYPE_MISC | INTR_MPSAFE,
-	    xlnx_pcie_msi0_intr, NULL, sc, &sc->intr_cookie[1]);
+	    xlnx_pcib_msi0_intr, NULL, sc, &sc->intr_cookie[1]);
 	if (error != 0) {
 		device_printf(dev, "could not setup interrupt handler.\n");
 		return (ENXIO);
@@ -378,21 +378,21 @@ xlnx_pcie_fdt_attach(device_t dev)
 
 	/* Setup MSI1 interrupt handler. */
 	error = bus_setup_intr(dev, sc->res[3], INTR_TYPE_MISC | INTR_MPSAFE,
-	    xlnx_pcie_msi1_intr, NULL, sc, &sc->intr_cookie[2]);
+	    xlnx_pcib_msi1_intr, NULL, sc, &sc->intr_cookie[2]);
 	if (error != 0) {
 		device_printf(dev, "could not setup interrupt handler.\n");
 		return (ENXIO);
 	}
 
-	xlnx_pcie_init(sc);
+	xlnx_pcib_init(sc);
 
 	/*
 	 * Allow the core driver to map registers.
 	 * We will be accessing the device memory using core_softc.
 	 */
-	bus_release_resources(dev, xlnx_pcie_spec, sc->res);
+	bus_release_resources(dev, xlnx_pcib_spec, sc->res);
 
-	error = xlnx_pcie_register_msi(sc);
+	error = xlnx_pcib_register_msi(sc);
 	if (error)
 		return (error);
 
@@ -400,7 +400,7 @@ xlnx_pcie_fdt_attach(device_t dev)
 }
 
 static int
-xlnx_pcie_fdt_get_id(device_t pci, device_t child, enum pci_id_type type,
+xlnx_pcib_fdt_get_id(device_t pci, device_t child, enum pci_id_type type,
     uintptr_t *id)
 {
 	phandle_t node;
@@ -420,7 +420,7 @@ xlnx_pcie_fdt_get_id(device_t pci, device_t child, enum pci_id_type type,
 }
 
 static int
-xlnx_pcie_req_valid(struct generic_pcie_core_softc *sc,
+xlnx_pcib_req_valid(struct generic_pcie_core_softc *sc,
     u_int bus, u_int slot, u_int func, u_int reg)
 {
 	bus_space_handle_t h;
@@ -451,11 +451,11 @@ xlnx_pcie_req_valid(struct generic_pcie_core_softc *sc,
 }
 
 static uint32_t
-xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
+xlnx_pcib_read_config(device_t dev, u_int bus, u_int slot,
     u_int func, u_int reg, int bytes)
 {
 	struct generic_pcie_fdt_softc *fdt_sc;
-	struct xlnx_pcie_softc *xlnx_sc;
+	struct xlnx_pcib_softc *xlnx_sc;
 	struct generic_pcie_core_softc *sc;
 	bus_space_handle_t h;
 	bus_space_tag_t t;
@@ -466,7 +466,7 @@ xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
 	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 
-	if (!xlnx_pcie_req_valid(sc, bus, slot, func, reg))
+	if (!xlnx_pcib_req_valid(sc, bus, slot, func, reg))
 		return (~0U);
 
 	offset = PCIE_ADDR_OFFSET(bus - sc->bus_start, slot, func, reg);
@@ -495,11 +495,11 @@ xlnx_pcie_read_config(device_t dev, u_int bus, u_int slot,
 }
 
 static void
-xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
+xlnx_pcib_write_config(device_t dev, u_int bus, u_int slot,
     u_int func, u_int reg, uint32_t val, int bytes)
 {
 	struct generic_pcie_fdt_softc *fdt_sc;
-	struct xlnx_pcie_softc *xlnx_sc;
+	struct xlnx_pcib_softc *xlnx_sc;
 	struct generic_pcie_core_softc *sc;
 	bus_space_handle_t h;
 	bus_space_tag_t t;
@@ -510,7 +510,7 @@ xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
 	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 
-	if (!xlnx_pcie_req_valid(sc, bus, slot, func, reg))
+	if (!xlnx_pcib_req_valid(sc, bus, slot, func, reg))
 		return;
 
 	offset = PCIE_ADDR_OFFSET(bus - sc->bus_start, slot, func, reg);
@@ -546,7 +546,7 @@ xlnx_pcie_write_config(device_t dev, u_int bus, u_int slot,
 }
 
 static int
-xlnx_pcie_alloc_msi(device_t pci, device_t child, int count, int maxcount,
+xlnx_pcib_alloc_msi(device_t pci, device_t child, int count, int maxcount,
     int *irqs)
 {
 	phandle_t msi_parent;
@@ -559,7 +559,7 @@ xlnx_pcie_alloc_msi(device_t pci, device_t child, int count, int maxcount,
 }
 
 static int
-xlnx_pcie_release_msi(device_t pci, device_t child, int count, int *irqs)
+xlnx_pcib_release_msi(device_t pci, device_t child, int count, int *irqs)
 {
 	phandle_t msi_parent;
 
@@ -570,7 +570,7 @@ xlnx_pcie_release_msi(device_t pci, device_t child, int count, int *irqs)
 }
 
 static int
-xlnx_pcie_map_msi(device_t pci, device_t child, int irq, uint64_t *addr,
+xlnx_pcib_map_msi(device_t pci, device_t child, int irq, uint64_t *addr,
     uint32_t *data)
 {
 	phandle_t msi_parent;
@@ -582,10 +582,10 @@ xlnx_pcie_map_msi(device_t pci, device_t child, int irq, uint64_t *addr,
 }
 
 static int
-xlnx_pcie_msi_alloc_msi(device_t dev, device_t child, int count, int maxcount,
+xlnx_pcib_msi_alloc_msi(device_t dev, device_t child, int count, int maxcount,
     device_t *pic, struct intr_irqsrc **srcs)
 {
-	struct xlnx_pcie_softc *sc;
+	struct xlnx_pcib_softc *sc;
 	int irq, end_irq, i;
 	bool found;
 
@@ -634,17 +634,17 @@ xlnx_pcie_msi_alloc_msi(device_t dev, device_t child, int count, int maxcount,
 }
 
 static int
-xlnx_pcie_msi_release_msi(device_t dev, device_t child, int count,
+xlnx_pcib_msi_release_msi(device_t dev, device_t child, int count,
     struct intr_irqsrc **isrc)
 {
-	struct xlnx_pcie_softc *sc;
-	struct xlnx_pcie_irqsrc *xi;
+	struct xlnx_pcib_softc *sc;
+	struct xlnx_pcib_irqsrc *xi;
 	int i;
 
 	sc = device_get_softc(dev);
 	mtx_lock(&sc->mtx);
 	for (i = 0; i < count; i++) {
-		xi = (struct xlnx_pcie_irqsrc *)isrc[i];
+		xi = (struct xlnx_pcib_irqsrc *)isrc[i];
 
 		KASSERT(xi->flags & XLNX_IRQ_FLAG_USED,
 		    ("%s: Releasing an unused MSI interrupt", __func__));
@@ -657,14 +657,14 @@ xlnx_pcie_msi_release_msi(device_t dev, device_t child, int count,
 }
 
 static int
-xlnx_pcie_msi_map_msi(device_t dev, device_t child, struct intr_irqsrc *isrc,
+xlnx_pcib_msi_map_msi(device_t dev, device_t child, struct intr_irqsrc *isrc,
     uint64_t *addr, uint32_t *data)
 {
-	struct xlnx_pcie_softc *sc;
-	struct xlnx_pcie_irqsrc *xi;
+	struct xlnx_pcib_softc *sc;
+	struct xlnx_pcib_irqsrc *xi;
 
 	sc = device_get_softc(dev);
-	xi = (struct xlnx_pcie_irqsrc *)isrc;
+	xi = (struct xlnx_pcib_irqsrc *)isrc;
 
 	*addr = vtophys(sc->msi_page);
 	*data = xi->irq;
@@ -673,12 +673,12 @@ xlnx_pcie_msi_map_msi(device_t dev, device_t child, struct intr_irqsrc *isrc,
 }
 
 static void
-xlnx_pcie_msi_mask(device_t dev, struct intr_irqsrc *isrc, bool mask)
+xlnx_pcib_msi_mask(device_t dev, struct intr_irqsrc *isrc, bool mask)
 {
 	struct generic_pcie_fdt_softc *fdt_sc;
 	struct generic_pcie_core_softc *sc;
-	struct xlnx_pcie_softc *xlnx_sc;
-	struct xlnx_pcie_irqsrc *xi;
+	struct xlnx_pcib_softc *xlnx_sc;
+	struct xlnx_pcib_irqsrc *xi;
 	uint32_t msireg, irq;
 	uint32_t reg;
 
@@ -686,7 +686,7 @@ xlnx_pcie_msi_mask(device_t dev, struct intr_irqsrc *isrc, bool mask)
 	fdt_sc = &xlnx_sc->fdt_sc;
 	sc = &fdt_sc->base;
 
-	xi = (struct xlnx_pcie_irqsrc *)isrc;
+	xi = (struct xlnx_pcib_irqsrc *)isrc;
 
 	irq = xi->irq;
 	if (irq < 32)
@@ -703,41 +703,41 @@ xlnx_pcie_msi_mask(device_t dev, struct intr_irqsrc *isrc, bool mask)
 }
 
 static void
-xlnx_pcie_msi_disable_intr(device_t dev, struct intr_irqsrc *isrc)
+xlnx_pcib_msi_disable_intr(device_t dev, struct intr_irqsrc *isrc)
 {
 
-	xlnx_pcie_msi_mask(dev, isrc, true);
+	xlnx_pcib_msi_mask(dev, isrc, true);
 }
 
 static void
-xlnx_pcie_msi_enable_intr(device_t dev, struct intr_irqsrc *isrc)
+xlnx_pcib_msi_enable_intr(device_t dev, struct intr_irqsrc *isrc)
 {
 
-	xlnx_pcie_msi_mask(dev, isrc, false);
+	xlnx_pcib_msi_mask(dev, isrc, false);
 }
 
 static void
-xlnx_pcie_msi_post_filter(device_t dev, struct intr_irqsrc *isrc)
+xlnx_pcib_msi_post_filter(device_t dev, struct intr_irqsrc *isrc)
 {
 
 }
 
 static void
-xlnx_pcie_msi_post_ithread(device_t dev, struct intr_irqsrc *isrc)
+xlnx_pcib_msi_post_ithread(device_t dev, struct intr_irqsrc *isrc)
 {
 
-	xlnx_pcie_msi_mask(dev, isrc, false);
+	xlnx_pcib_msi_mask(dev, isrc, false);
 }
 
 static void
-xlnx_pcie_msi_pre_ithread(device_t dev, struct intr_irqsrc *isrc)
+xlnx_pcib_msi_pre_ithread(device_t dev, struct intr_irqsrc *isrc)
 {
 
-	xlnx_pcie_msi_mask(dev, isrc, true);
+	xlnx_pcib_msi_mask(dev, isrc, true);
 }
 
 static int
-xlnx_pcie_msi_setup_intr(device_t dev, struct intr_irqsrc *isrc,
+xlnx_pcib_msi_setup_intr(device_t dev, struct intr_irqsrc *isrc,
     struct resource *res, struct intr_map_data *data)
 {
 
@@ -745,50 +745,50 @@ xlnx_pcie_msi_setup_intr(device_t dev, struct intr_irqsrc *isrc,
 }
 
 static int
-xlnx_pcie_msi_teardown_intr(device_t dev, struct intr_irqsrc *isrc,
+xlnx_pcib_msi_teardown_intr(device_t dev, struct intr_irqsrc *isrc,
     struct resource *res, struct intr_map_data *data)
 {
 
 	return (0);
 }
 
-static device_method_t xlnx_pcie_fdt_methods[] = {
+static device_method_t xlnx_pcib_fdt_methods[] = {
 	/* Device interface */
-	DEVMETHOD(device_probe,		xlnx_pcie_fdt_probe),
-	DEVMETHOD(device_attach,	xlnx_pcie_fdt_attach),
+	DEVMETHOD(device_probe,		xlnx_pcib_fdt_probe),
+	DEVMETHOD(device_attach,	xlnx_pcib_fdt_attach),
 
 	/* pcib interface */
-	DEVMETHOD(pcib_get_id,		xlnx_pcie_fdt_get_id),
-	DEVMETHOD(pcib_read_config,	xlnx_pcie_read_config),
-	DEVMETHOD(pcib_write_config,	xlnx_pcie_write_config),
-	DEVMETHOD(pcib_alloc_msi,	xlnx_pcie_alloc_msi),
-	DEVMETHOD(pcib_release_msi,	xlnx_pcie_release_msi),
-	DEVMETHOD(pcib_map_msi,		xlnx_pcie_map_msi),
+	DEVMETHOD(pcib_get_id,		xlnx_pcib_fdt_get_id),
+	DEVMETHOD(pcib_read_config,	xlnx_pcib_read_config),
+	DEVMETHOD(pcib_write_config,	xlnx_pcib_write_config),
+	DEVMETHOD(pcib_alloc_msi,	xlnx_pcib_alloc_msi),
+	DEVMETHOD(pcib_release_msi,	xlnx_pcib_release_msi),
+	DEVMETHOD(pcib_map_msi,		xlnx_pcib_map_msi),
 
 	/* MSI interface */
-	DEVMETHOD(msi_alloc_msi,		xlnx_pcie_msi_alloc_msi),
-	DEVMETHOD(msi_release_msi,		xlnx_pcie_msi_release_msi),
-	DEVMETHOD(msi_map_msi,			xlnx_pcie_msi_map_msi),
+	DEVMETHOD(msi_alloc_msi,		xlnx_pcib_msi_alloc_msi),
+	DEVMETHOD(msi_release_msi,		xlnx_pcib_msi_release_msi),
+	DEVMETHOD(msi_map_msi,			xlnx_pcib_msi_map_msi),
 
 	/* Interrupt controller interface */
-	DEVMETHOD(pic_disable_intr,		xlnx_pcie_msi_disable_intr),
-	DEVMETHOD(pic_enable_intr,		xlnx_pcie_msi_enable_intr),
-	DEVMETHOD(pic_setup_intr,		xlnx_pcie_msi_setup_intr),
-	DEVMETHOD(pic_teardown_intr,		xlnx_pcie_msi_teardown_intr),
-	DEVMETHOD(pic_post_filter,		xlnx_pcie_msi_post_filter),
-	DEVMETHOD(pic_post_ithread,		xlnx_pcie_msi_post_ithread),
-	DEVMETHOD(pic_pre_ithread,		xlnx_pcie_msi_pre_ithread),
+	DEVMETHOD(pic_disable_intr,		xlnx_pcib_msi_disable_intr),
+	DEVMETHOD(pic_enable_intr,		xlnx_pcib_msi_enable_intr),
+	DEVMETHOD(pic_setup_intr,		xlnx_pcib_msi_setup_intr),
+	DEVMETHOD(pic_teardown_intr,		xlnx_pcib_msi_teardown_intr),
+	DEVMETHOD(pic_post_filter,		xlnx_pcib_msi_post_filter),
+	DEVMETHOD(pic_post_ithread,		xlnx_pcib_msi_post_ithread),
+	DEVMETHOD(pic_pre_ithread,		xlnx_pcib_msi_pre_ithread),
 
 	/* End */
 	DEVMETHOD_END
 };
 
-DEFINE_CLASS_1(pcib, xlnx_pcie_fdt_driver, xlnx_pcie_fdt_methods,
-    sizeof(struct xlnx_pcie_softc), generic_pcie_fdt_driver);
+DEFINE_CLASS_1(pcib, xlnx_pcib_fdt_driver, xlnx_pcib_fdt_methods,
+    sizeof(struct xlnx_pcib_softc), generic_pcie_fdt_driver);
 
-static devclass_t xlnx_pcie_fdt_devclass;
+static devclass_t xlnx_pcib_fdt_devclass;
 
-DRIVER_MODULE(xlnx_pcib, simplebus, xlnx_pcie_fdt_driver,
-    xlnx_pcie_fdt_devclass, 0, 0);
-DRIVER_MODULE(xlnx_pcib, ofwbus, xlnx_pcie_fdt_driver,
-    xlnx_pcie_fdt_devclass, 0, 0);
+DRIVER_MODULE(xlnx_pcib, simplebus, xlnx_pcib_fdt_driver,
+    xlnx_pcib_fdt_devclass, 0, 0);
+DRIVER_MODULE(xlnx_pcib, ofwbus, xlnx_pcib_fdt_driver,
+    xlnx_pcib_fdt_devclass, 0, 0);

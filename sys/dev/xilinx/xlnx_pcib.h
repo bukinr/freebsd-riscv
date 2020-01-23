@@ -32,8 +32,8 @@
  * $FreeBSD$
  */
 
-#ifndef	_DEV_PCI_PCIE_XLNX_H_
-#define	_DEV_PCI_PCIE_XLNX_H_
+#ifndef	_DEV_XILINX_XLNX_PCIB_H_
+#define	_DEV_XILINX_XLNX_PCIB_H_
 
 #define	XLNX_PCIE_VSEC		0x12c
 #define	XLNX_PCIE_BIR		0x130	/* Bridge Info Register */
@@ -81,4 +81,4 @@
 #define	XLNX_PCIE_VSEC_CR	0x200	/* VSEC Capability Register 2 */
 #define	XLNX_PCIE_VSEC_HR	0x204	/* VSEC Header Register 2 */
 
-#endif /* !_DEV_PCI_PCIE_XLNX_H_ */
+#endif /* !_DEV_XILINX_XLNX_PCIB_H_ */
