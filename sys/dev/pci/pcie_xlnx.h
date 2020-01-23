@@ -48,8 +48,8 @@
 #define	 IMR_CORRECTABLE	(1 << 9)
 #define	 IMR_NON_FATAL		(1 << 10)
 #define	 IMR_FATAL		(1 << 11)
-#define	 IMR_INTX		(1 << 16)	/* INTx Interrupt Received */
-#define	 IMR_MSI		(1 << 17)	/* MSI Interrupt Received */
+#define	 IMR_INTX		(1 << 16) /* INTx Interrupt Received */
+#define	 IMR_MSI		(1 << 17) /* MSI Interrupt Received */
 #define	 IMR_SLAVE_UNSUPP_REQ	(1 << 20)
 #define	 IMR_SLAVE_UNEXP_COMPL	(1 << 21)
 #define	 IMR_SLAVE_COMPL_TIMOUT	(1 << 22)
