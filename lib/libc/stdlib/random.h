@@ -1,7 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
- *
- * Copyright (c) 2019 Rob Wing
+ * Copyright 2020 Conrad Meyer <cem@FreeBSD.org>.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -12,10 +10,10 @@
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
  * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
  * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
  * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
@@ -23,30 +21,26 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
+ *
+ * $FreeBSD$
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
+#pragma once
 
-#include <be.h>
+/* A full instance of the random(3) generator. */
+struct __random_state {
+	uint32_t	*rst_fptr;
+	uint32_t	*rst_rptr;
+	uint32_t	*rst_state;
+	int		rst_type;
+	int		rst_deg;
+	int		rst_sep;
+	uint32_t	*rst_end_ptr;
+	/* Flexible array member must be last. */
+	uint32_t	rst_randtbl[];
+};
 
-/*
- * argv[1] = root boot environment (e.g. zroot/ROOT),
- * argv[2] = name of boot environment to create
- * argv[3] = snapshot to create boot environment from
- * argv[4] = depth
- */
-int main(int argc, char *argv[]) {
-
-        libbe_handle_t *lbh;
-
-	if (argc != 5)
-		return -1;
-
-        if ((lbh = libbe_init(argv[1])) == NULL)
-                return -1;
-
-	libbe_print_on_error(lbh, true);
-
-	return (be_create_depth(lbh, argv[2], argv[3], atoi(argv[4])));
-}
+int initstate_r(struct __random_state *, unsigned, uint32_t *, size_t);
+long random_r(struct __random_state *);
+void srandom_r(struct __random_state *, unsigned);
+void srandomdev_r(struct __random_state *);
