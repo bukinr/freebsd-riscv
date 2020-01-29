@@ -81,6 +81,7 @@ device		rcons
 
 # Bus drivers
 device		pci
+device		xlnx_pcib		# Xilinx XDMA PCIe Bridge
 
 # VirtIO support
 device		virtio			# Generic VirtIO bus (required)
