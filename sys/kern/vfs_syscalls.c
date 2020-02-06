@@ -189,9 +189,10 @@ sys_quotactl(struct thread *td, struct quotactl_args *uap)
 	vfs_ref(mp);
 	vput(nd.ni_vp);
 	error = vfs_busy(mp, 0);
-	vfs_rel(mp);
-	if (error != 0)
+	if (error != 0) {
+		vfs_rel(mp);
 		return (error);
+	}
 	error = VFS_QUOTACTL(mp, uap->cmd, uap->uid, uap->arg);
 
 	/*
@@ -208,6 +209,7 @@ sys_quotactl(struct thread *td, struct quotactl_args *uap)
 	if ((uap->cmd >> SUBCMDSHIFT) != Q_QUOTAON &&
 	    (uap->cmd >> SUBCMDSHIFT) != Q_QUOTAOFF)
 		vfs_unbusy(mp);
+	vfs_rel(mp);
 	return (error);
 }
 
@@ -2347,8 +2349,6 @@ kern_statat(struct thread *td, int flag, int fd, const char *path,
 	}
 	NDFREE(&nd, NDF_ONLY_PNBUF);
 	vput(nd.ni_vp);
-	if (error != 0)
-		return (error);
 #ifdef __STAT_TIME_T_EXT
 	sbp->st_atim_ext = 0;
 	sbp->st_mtim_ext = 0;
@@ -2357,9 +2357,9 @@ kern_statat(struct thread *td, int flag, int fd, const char *path,
 #endif
 #ifdef KTRACE
 	if (KTRPOINT(td, KTR_STRUCT))
-		ktrstat(sbp);
+		ktrstat_error(sbp, error);
 #endif
-	return (0);
+	return (error);
 }
 
 #if defined(COMPAT_FREEBSD11)
@@ -4173,7 +4173,7 @@ getvnode(struct thread *td, int fd, cap_rights_t *rightsp, struct file **fpp)
 	struct file *fp;
 	int error;
 
-	error = fget_unlocked(td->td_proc->p_fd, fd, rightsp, &fp, NULL);
+	error = fget_unlocked(td->td_proc->p_fd, fd, rightsp, &fp);
 	if (error != 0)
 		return (error);
 
@@ -4196,7 +4196,6 @@ getvnode(struct thread *td, int fd, cap_rights_t *rightsp, struct file **fpp)
 	*fpp = fp;
 	return (0);
 }
-
 
 /*
  * Get an (NFS) file handle.
