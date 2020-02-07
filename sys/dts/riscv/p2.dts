@@ -86,8 +86,6 @@
 			xlnx,vcu118;
 			local-mac-address = [00 0a 35 04 db 5a];
 			clock-frequency = <100000000>;
-			dmas = <&axi_dma 0>, <&axi_dma 1>;
-			dma-names = "tx", "rx";
 			axi_ethernet_mdio: mdio {
 				#address-cells = <1>;
 				#size-cells = <0>;
